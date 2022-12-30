@@ -120,12 +120,14 @@ def run_cifar10(
         if step % 10000 == 0:
             if checkpoint_dir is None:
                 checkpoint_dir = './checkpoints'
-            state.params_ema = ema_obj.get_ema_params()
-            checkpoints.save_checkpoint(checkpoint_dir, state, step)
-            ema_path = os.path.join(checkpoint_dir, f"ema_{step}.pkl")
-            with open(ema_path , 'wb') as f:
-                pickle.dump(ema_obj, f)
-            print(f"Saving {step} complete.")
+            # saved_state = 
+            # state.params_ema = ema_obj.get_ema_params()
+            # checkpoints.save_checkpoint(checkpoint_dir, state, step)
+            # ema_path = os.path.join(checkpoint_dir, f"ema_{step}.pkl")
+            # with open(ema_path , 'wb') as f:
+            #     pickle.dump(ema_obj, f)
+            # print(f"Saving {step} complete.")
+            jax_utils.save_train_state(state, ema_obj.get_ema_params(), checkpoint_dir, step)
         step += 1
 
 
