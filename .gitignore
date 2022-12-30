@@ -1,0 +1,7 @@
+__pycache__
+checkpoints
+cifar10
+data
+sampling
+
+nohup.out
