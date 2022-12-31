@@ -14,7 +14,7 @@ class DDPM():
         self.n_steps = n_steps
 
         self.rand_key = jax.random.PRNGKey(42)
-        self.beta = jnp.linspace(0.0001, 0.002, n_steps)
+        self.beta = jnp.linspace(0.0001, 0.02, n_steps)
         self.alpha = 1. - self.beta
         self.alpha_bar = jnp.cumprod(self.alpha, axis=0)
         self.sqrt_alpha = jnp.sqrt(self.alpha)
