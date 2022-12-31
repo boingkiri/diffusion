@@ -12,6 +12,7 @@ class EMA():
         update_every=10,
         update_after_step=100,
         power=2/3):
+
         self.ema_params = copy.deepcopy(ema_params)
         self.beta = beta
         self.update_every = update_every
@@ -24,19 +25,11 @@ class EMA():
         if step % self.update_every != 0:
             return
         current_decay = self.get_current_decay(step)
-        # current_decay = self.beta
-        # breakpoint()
-        # diff = jax.tree_map(lambda x, y: (1 - current_decay) * (x - y), self.ema_params, params)
-        # self.ema_params = jax.tree_map(lambda x, y: x - y, self.ema_params, diff)
-        # self.ema_params = jax.tree_map(
-        #     lambda x, y: self.beta * x + (1 - self.beta) * y,
-        #     self.ema_params, params)
         self.ema_params = jax.tree_map(
             lambda x, y: current_decay * x + (1 - current_decay) * y,
             self.ema_params, params)
         
         return current_decay
-        # return self.ema_params
 
     
     def _clamp(self, value, min_value=None, max_value=None):

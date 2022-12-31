@@ -1,28 +1,18 @@
 from typing import Dict, Optional, Type
 from tqdm import tqdm
 
-# from torch.utils.data import Dataset, DataLoader
-
-# from torchvision.datasets import CIFAR10
-# from torchvision import transforms
-# from torchvision.utils import save_image, make_grid
-
 import torch
 import jax
 import jax.numpy as jnp
+from flax.training import checkpoints
 import numpy as np
 
 from unet import UNet
 from ddpm import DDPM
-# from jax_utils import create_train_state, load_dataset_from_tfds
 import jax_utils
 from ema import EMA
 
-from flax.training import checkpoints
-
-import logging
 import os
-import pickle
 
 def init_cifar10(
         n_timestep:int = 1000,
@@ -58,8 +48,6 @@ def run_cifar10(
         checkpoint_epoch:Optional[int]=None,
         sampling_dir: str="sampling"
     ):
-    # tf.profiler.experimental.server.start(6000)
-
     # image_size = (3, 32, 32)
     image_size = (32, 32, 3)
     state, ddpm, next_step, ema_obj = init_cifar10(n_timestep, checkpoint_dir, checkpoint_epoch)
@@ -70,7 +58,6 @@ def run_cifar10(
 
     sampling_key = jax.random.PRNGKey(42)
 
-    # logging.info("Start to train CIFAR10")
     print("Start to train CIFAR10")
 
     if not os.path.exists(sampling_dir):
@@ -88,10 +75,6 @@ def run_cifar10(
         x = jax.device_put(x.numpy())
         loss, state = ddpm.learning_from(state, x)
         
-        # if loss_ema is None:
-        #     loss_ema = loss.item()
-        # else:
-        #     loss_ema = 0.9 * loss_ema + 0.1 * loss.item()
         loss_ema = loss.item()
         current_ema_decay = ema_obj.ema_update(state.params, step)
         if current_ema_decay is not None:
@@ -106,27 +89,16 @@ def run_cifar10(
 
             sampling_bar = tqdm(reversed(range(n_timestep)))
             for t in sampling_bar:
-                # x_t = ddpm.p_sample(state, x_t, t)
                 x_t = ddpm.p_sample(ema_obj.get_ema_params(), x_t, t)
                 sampling_bar.set_description(f"Sampling: {t}")
             xset = jnp.concatenate([x_t[:8], x[:8]], axis=0)
             xset = torch.from_numpy(np.array(xset))
-            # filename = os.path.join(sampling_dir, f"ddpm_sample_cifar{i}.png")
-            # grid = make_grid(xset, normalize=True, value_range=(-1, 1), nrow=4)
-            # save_image(grid, filename)
             jax_utils.save_images(xset, i, sampling_dir)
 
         
         if step % 10000 == 0:
             if checkpoint_dir is None:
                 checkpoint_dir = './checkpoints'
-            # saved_state = 
-            # state.params_ema = ema_obj.get_ema_params()
-            # checkpoints.save_checkpoint(checkpoint_dir, state, step)
-            # ema_path = os.path.join(checkpoint_dir, f"ema_{step}.pkl")
-            # with open(ema_path , 'wb') as f:
-            #     pickle.dump(ema_obj, f)
-            # print(f"Saving {step} complete.")
             jax_utils.save_train_state(state, ema_obj.get_ema_params(), checkpoint_dir, step)
         step += 1
 

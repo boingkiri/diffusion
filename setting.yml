@@ -1,7 +1,0 @@
-model:
-  ch_mults: (1, 2, 1, 1)
-
-config:
-  input_format: (32, 32, 3)
-  sampling_step: 10000
-  saving_step: 100000

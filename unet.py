@@ -151,15 +151,14 @@ class Downsample(nn.Module):
 class UNet(nn.Module):
     image_channels: int = 3
     n_channels: int = 128
-    # n_channels: int = 16
     ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 1, 1)# (1, 2, 4, 4) # (1, 2, 2, 4)
     is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False) # (False, True, True, True) # (False, False, True, True)
     n_blocks: int = 2
     dropout_rate: float = 0.1
+    n_heads: int = 1
 
     @nn.compact
     def __call__(self, x, t, train):
-        # x = x.transpose(0, 2, 3, 1)
         t = TimeEmbedding(self.n_channels * 4)(t)
         t = nn.Dense(self.n_channels * 4)(t)
         t = nn.swish(t)
@@ -190,7 +189,6 @@ class UNet(nn.Module):
                 x = jnp.concatenate((x, s), axis=-1)
                 x = UnetUp(out_channels, self.is_atten[i], dropout_rate=self.dropout_rate)(x, t, train)
             out_channels = in_channels // self.ch_mults[i]
-            # x = UnetUp(out_channels, self.is_atten[i], dropout_rate=self.dropout_rate)(x, t, train)
             in_channels = out_channels
             if i > 0:
                 x = Upsample(in_channels)(x)

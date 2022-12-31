@@ -8,24 +8,38 @@ from flax import linen as nn
 from flax.training import train_state
 
 class DDPM():
-    def __init__(self, eps_model: nn.Module, n_steps: int):
+    def __init__(
+        self, 
+        eps_model: nn.Module,
+        rand_key,
+        n_timestep: int = 1000,
+        beta= [0.0001, 0.02],
+        loss="l2"
+        ):
+
         self.eps_model = eps_model
 
-        self.n_steps = n_steps
+        self.n_timestep = n_timestep
+        self.rand_key = rand_key
 
-        self.rand_key = jax.random.PRNGKey(42)
-        self.beta = jnp.linspace(0.0001, 0.02, n_steps)
+        # DDPM perturbing configuration
+        self.beta = jnp.linspace(beta[0], beta[1], n_timestep)
         self.alpha = 1. - self.beta
         self.alpha_bar = jnp.cumprod(self.alpha, axis=0)
         self.sqrt_alpha = jnp.sqrt(self.alpha)
         self.sqrt_alpha_bar = jnp.sqrt(self.alpha_bar)
         self.sqrt_one_minus_alpha_bar = jnp.sqrt(1 - self.alpha_bar)
-
+        
+        # DDPM loss configuration
+        self.loss = loss
 
         def loss_fn(params, perturbed_data, time, real, dropout_key):
             pred_noise = self.eps_model.apply(
                 {'params': params}, x=perturbed_data, t=time, train=True, rngs={'dropout': dropout_key})
-            loss = jnp.mean((pred_noise - real) ** 2)
+            if self.loss == "l2":
+                loss = jnp.mean((pred_noise - real) ** 2)
+            elif self.loss == "l1":
+                loss = jnp.mean(jnp.absolute(pred_noise - real))
             return loss
         
         def update_grad(state:train_state.TrainState, grad):
@@ -43,12 +57,9 @@ class DDPM():
             # alpha = jnp.take(self.alpha, time)
             sqrt_alpha = jnp.take(self.sqrt_alpha, time)
             sqrt_alpha = sqrt_alpha[:, None, None, None]
-            
 
             mean = (perturbed_data - eps_coef * pred_noise) / sqrt_alpha
 
-            # var = jnp.take(self.sigma2, time, -1)
-            # var = jnp.take(self.sigma2, time)
             var = beta[:, None, None, None]
             eps = jax.random.normal(normal_key, perturbed_data.shape)
 
@@ -93,7 +104,7 @@ class DDPM():
         self.rand_key = key
 
         noise = jax.random.normal(normal_key, x0.shape)
-        t = jax.random.randint(int_key, (batch_size, ), 0, self.n_steps)
+        t = jax.random.randint(int_key, (batch_size, ), 0, self.n_timestep)
         xt, noise = self.q_sample(x0, t, eps=noise)
         
         loss, grad = self.grad_fn(state.params, xt, t, noise, dropout_key)
