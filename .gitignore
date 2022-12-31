@@ -3,5 +3,7 @@ checkpoints
 cifar10
 data
 sampling
+experiments
+tensorflow_datasets
 
 nohup.out
