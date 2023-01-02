@@ -10,16 +10,18 @@ from jax import random
 def start(args):
     config = get_config_from_yaml(args.config)
     rng = random.PRNGKey(config["rand_seed"])
-    state, ddpm, start_step, ema_obj, rng = init_setting(config, rng)
-
+    
     if args.sampling_dir is not None:
         config['exp']['sampling_dir'] = args.sampling_dir
 
     if args.do_train:
         print("Training selected")
+        state, ddpm, start_step, ema_obj, rng = init_setting(config, rng)
         train(config, state, ddpm, start_step, ema_obj, rng)
-    elif args.do_sampling:
+
+    if args.do_sampling:
         print("Sampling selected")
+        state, ddpm, start_step, ema_obj, rng = init_setting(config, rng)
         sampling_and_save(config, args.num_sampling, ddpm, state, rng)
 
 
