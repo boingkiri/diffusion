@@ -20,7 +20,7 @@ def start(args):
         train(config, state, ddpm, start_step, ema_obj, rng)
     elif args.do_sampling:
         print("Sampling selected")
-        sampling_and_save(config, args.num_sampling, ddpm, ema_obj, rng)
+        sampling_and_save(config, args.num_sampling, ddpm, state, rng)
 
 
 

@@ -35,16 +35,16 @@ def create_train_state(config, model, rng):
       tx=tx
   )
 
-def save_train_state(state, params_ema, checkpoint_dir, step):
-  if checkpoint_dir is None:
-      checkpoint_dir = './checkpoints'
-  saved_state = TrainState.create(
-      apply_fn=state.apply_fn,
-      params=state.params,
-      params_ema=params_ema,
-      tx=state.tx
-  )
-  checkpoints.save_checkpoint(checkpoint_dir, saved_state, step)
+def save_train_state(state, checkpoint_dir, step):
+  # if checkpoint_dir is None:
+      # checkpoint_dir = './checkpoints'
+  # saved_state = TrainState.create(
+  #     apply_fn=state.apply_fn,
+  #     params=state.params,
+  #     params_ema=params_ema,
+  #     tx=state.tx
+  # )
+  checkpoints.save_checkpoint(checkpoint_dir, state, step)
   print(f"Saving {step} complete.")
 
 

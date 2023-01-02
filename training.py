@@ -33,13 +33,14 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
         data_bar.set_description(f"Step: {step} loss: {loss_ema:.4f} EMA decay: {ema_decay:.4f}")
 
         if step % 1000 == 0:
-            x_t, rng = sampling(ddpm, ema_obj, 8, image_size, rng)
+            x_t, rng = sampling(ddpm, ema_obj.get_ema_params(), 8, image_size, rng)
             xset = jnp.concatenate([x_t[:8], x[:8]], axis=0)
             xset = torch.from_numpy(np.array(xset))
             common_utils.save_images(xset, i, in_process_dir)
 
         if step % 10000 == 0:
-            jax_utils.save_train_state(state, ema_obj.get_ema_params(), checkpoint_dir, step)
+            state = state.replace(params_ema = ema_obj.get_ema_params())
+            jax_utils.save_train_state(state, checkpoint_dir, step)
         step += 1
 
 

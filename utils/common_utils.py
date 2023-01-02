@@ -34,6 +34,7 @@ def load_state_from_checkpoint_dir(config, state):
     start_num = get_start_step_from_checkpoint(config)
     if start_num != 0:
         state = checkpoints.restore_checkpoint(checkpoint_dir, state, start_num)
+        print(f"Checkpoint {start_num} loaded")
     return state
 
 
@@ -46,7 +47,9 @@ def init_setting(config, rng):
     state = jax_utils.create_train_state(config, model, state_rng)
     state = load_state_from_checkpoint_dir(config, state)
     
-    ema_obj = EMA(**config['ema'], ema_params=state.params_ema)
+    # ema_obj = EMA(**config['ema'], ema_params=state.params_ema)
+    ema_obj = EMA(**config['ema'], ema_params=state.params)
+
 
     ddpm = DDPM(model, ddpm_rng, **config['ddpm'])
     return state, ddpm, start_step, ema_obj, rng

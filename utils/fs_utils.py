@@ -68,6 +68,6 @@ def get_start_step_from_checkpoint(config):
         if checkpoint_format in content:
             _, num = content.split(checkpoint_format)
             num = int(num)
-            if num < max_num:
+            if num > max_num:
                 max_num = num
     return max_num
