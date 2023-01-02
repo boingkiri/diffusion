@@ -12,7 +12,7 @@ from typing import Any
 class TrainState(train_state.TrainState):
   params_ema: Any = None
 
-def create_train_state(model, rng):
+def create_train_state(config, model, rng):
   """
   Creates initial 'TrainState'
   """
@@ -22,7 +22,8 @@ def create_train_state(model, rng):
     x=input_format, t=jnp.ones([64,]), train=False)['params']
   
   # Initialize the Adam optimizer
-  tx = optax.adam(2e-4)
+  learning_rate = config['train']['learning_rate']
+  tx = optax.adam(learning_rate)
 
   logging.info("Creating train state complete.")
 
