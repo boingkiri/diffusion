@@ -43,7 +43,7 @@ def init_setting(config, rng):
     model = UNet(**config['model'])
 
     start_step = get_start_step_from_checkpoint(config)
-    state = jax_utils.create_train_state(model, state_rng)
+    state = jax_utils.create_train_state(config, model, state_rng)
     state = load_state_from_checkpoint_dir(config, state)
     
     ema_obj = EMA(**config['ema'], ema_params=state.params_ema)
