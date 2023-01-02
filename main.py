@@ -11,11 +11,14 @@ def start(args):
     config = get_config_from_yaml(args.config)
     rng = random.PRNGKey(config["rand_seed"])
     state, ddpm, start_step, ema_obj, rng = init_setting(config, rng)
-    
+
+    if args.sampling_dir is not None:
+        config['exp']['sampling_dir'] = args.sampling_dir
+
     if args.do_train:
         print("Training selected")
         train(config, state, ddpm, start_step, ema_obj, rng)
-    else:
+    elif args.do_sampling:
         print("Sampling selected")
         sampling_and_save(config, args.num_sampling, ddpm, ema_obj, rng)
 
@@ -24,8 +27,10 @@ def start(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-c","--config")
-    parser.add_argument("--do_train", type=bool, required=True)
-    parser.add_argument("--num_sampling", type=int)
+    parser.add_argument("--do_train", action="store_true")
+    parser.add_argument("--do_sampling", action="store_true")
+    parser.add_argument("--sampling_dir", type=str)
+    parser.add_argument('-n', "--num_sampling", type=int)
 
     args = parser.parse_args()
     start(args)
