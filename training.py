@@ -14,8 +14,8 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
     dataset = config['dataset']
 
     dataloader = common_utils.load_dataset_from_tfds(dataset, train_config['batch_size'])
-    total_step = train_config['total_step'] - start_step
-    data_bar = tqdm(dataloader, total=total_step)
+    total_step = train_config['total_step']
+    data_bar = tqdm(dataloader, total=total_step - start_step)
     
     in_process_dir = fs_utils.get_in_process_dir(config)
     checkpoint_dir = fs_utils.get_checkpoint_dir(config)
@@ -37,7 +37,7 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
             x_t, rng = sampling(ddpm, ema_obj.get_ema_params(), 8, image_size, rng)
             xset = jnp.concatenate([x_t[:8], x[:8]], axis=0)
             xset = torch.from_numpy(np.array(xset))
-            common_utils.save_images(xset, i, in_process_dir)
+            common_utils.save_images(xset, step, in_process_dir)
 
         if step % 10000 == 0:
             state = state.replace(params_ema = ema_obj.get_ema_params())
