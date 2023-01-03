@@ -14,13 +14,14 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
     dataset = config['dataset']
 
     dataloader = common_utils.load_dataset_from_tfds(dataset, train_config['batch_size'])
-    data_bar = tqdm(dataloader, total=train_config['total_step'] - start_step)
+    total_step = train_config['total_step'] - start_step
+    data_bar = tqdm(dataloader, total=total_step)
     
     in_process_dir = fs_utils.get_in_process_dir(config)
     checkpoint_dir = fs_utils.get_checkpoint_dir(config)
     image_size = common_utils.get_image_size_from_dataset(dataset)
 
-    step = start_step + 1 if start_step != 0 else 0
+    step = start_step + 1
     ema_decay = 0
     for i, (x, _) in enumerate(data_bar):
         x = jax.device_put(x.numpy())
@@ -41,6 +42,9 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
         if step % 10000 == 0:
             state = state.replace(params_ema = ema_obj.get_ema_params())
             jax_utils.save_train_state(state, checkpoint_dir, step)
+        
+        if step >= total_step:
+            break
         step += 1
 
 
