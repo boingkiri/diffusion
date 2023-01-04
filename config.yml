@@ -1,6 +1,6 @@
 # Define experiment name and its path
 exp:
-  exp_name: "cifar10_default"
+  exp_name: "cifar10_1222_"
   exp_dir: "experiments"
   sampling_dir: "sampling"
   in_process_dir : "in_process"
@@ -12,11 +12,11 @@ dataset: "cifar10"
 model:
   image_channels: 3
   n_channels: 128
-  ch_mults: [1, 2, 1, 1]
+  ch_mults: [1, 2, 2, 2]
   is_atten: [False, True, False, False]
   n_blocks: 2
   dropout_rate: 0.1
-  n_heads: 1
+  n_heads: 4
 
 # Define EMA configuration
 ema:
@@ -32,11 +32,15 @@ ddpm:
 # Define train configuration
 train:
   learning_rate: 1.0e-4
+  gradient_clip: 1.0
+  warmup: 5000
   input_format: [32, 32, 3]
   batch_size: 128
   total_step: 800000
+  # total_step: 500000
   sampling_step: 10000
   saving_step: 100000
+  
 
 
 sampling:
