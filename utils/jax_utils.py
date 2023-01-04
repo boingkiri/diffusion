@@ -12,6 +12,21 @@ from typing import Any
 class TrainState(train_state.TrainState):
   params_ema: Any = None
 
+def get_learning_rate_schedule(config):
+  learning_rate = config['train']['learning_rate']
+  if "warmup" in config['train']:
+    # start_step = fs_utils.get_start_step_from_checkpoint(config)
+    learning_rate = optax.warmup_exponential_decay_schedule(
+      init_value=0.0,
+      peak_value=learning_rate,
+      warmup_steps=config['train']['warmup'],
+      decay_rate=1,
+      transition_steps=1
+    )
+  else:
+    learning_rate = optax.constant_schedule(learning_rate)
+  return learning_rate
+
 def create_train_state(config, model, rng):
   """
   Creates initial 'TrainState'
@@ -22,8 +37,17 @@ def create_train_state(config, model, rng):
     x=input_format, t=jnp.ones([64,]), train=False)['params']
   
   # Initialize the Adam optimizer
-  learning_rate = config['train']['learning_rate']
-  tx = optax.adam(learning_rate)
+  # learning_rate = config['train']['learning_rate']
+  learning_rate = get_learning_rate_schedule(config)
+  
+  optax_chain = []
+  if "gradient_clip" in config['train']:
+    optax_chain.append(optax.clip(config['train']['gradient_clip']))
+  optax_chain.append(optax.adam(learning_rate))
+  tx = optax.chain(
+    *optax_chain
+  )
+  # tx = optax.adam(learning_rate)
 
   logging.info("Creating train state complete.")
 

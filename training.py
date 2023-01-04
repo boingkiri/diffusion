@@ -23,6 +23,7 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
 
     step = start_step + 1
     ema_decay = 0
+    current_learning_rate_schedule=jax_utils.get_learning_rate_schedule(config)
     for i, (x, _) in enumerate(data_bar):
         x = jax.device_put(x.numpy())
         loss, state = ddpm.learning_from(state, x)
@@ -31,7 +32,13 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
         current_ema_decay = ema_obj.ema_update(state.params, step)
         if current_ema_decay is not None:
             ema_decay = current_ema_decay
-        data_bar.set_description(f"Step: {step} loss: {loss_ema:.4f} EMA decay: {ema_decay:.4f}")
+        
+        data_bar.set_description("Step: {step} loss: {loss:.4f} EMA decay: {ema_decay:.4f} lr*1e4: {lr:.4f}".format(
+            step=step,
+            loss=loss_ema,
+            ema_decay=ema_decay,
+            lr=current_learning_rate_schedule(step) * (1e4)
+        ))
 
         if step % 1000 == 0:
             x_t, rng = sampling(ddpm, ema_obj.get_ema_params(), 8, image_size, rng)
