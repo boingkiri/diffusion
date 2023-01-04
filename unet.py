@@ -39,7 +39,8 @@ class ResidualBlock(nn.Module):
         h = nn.Conv(self.out_channels, (3, 3))(h)
 
         # Add time embedding value
-        t = nn.silu(t)
+        # t = nn.silu(t)
+        t = nn.swish(t)
         t_emb = nn.Dense(self.out_channels)(t)
         h += t_emb[:, None, None, :]
 
@@ -193,9 +194,8 @@ class UNet(nn.Module):
             if i > 0:
                 x = Upsample(in_channels)(x)
 
-        # x = nn.GroupNorm(8)(x)
-        # x = nn.swish(x)
+        x = nn.GroupNorm(8)(x)
+        x = nn.swish(x)
         x = nn.Conv(self.image_channels, (3, 3))(x)
 
-        # x = x.transpose(0, 3, 1, 2)
         return x
