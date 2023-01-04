@@ -102,6 +102,8 @@ def save_images(images, steps, savepath):
   
   save_filename = os.path.join(savepath, f"{steps}.png")
   f.savefig(save_filename)
+  plt.close()
+
 
 def get_image_size_from_dataset(dataset):
   if dataset == "cifar10":
