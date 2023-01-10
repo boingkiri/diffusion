@@ -7,7 +7,7 @@ import scipy
 from tqdm import tqdm
 
 
-def compute_statistics(path, params, apply_fn, batch_size=1, img_size=None):
+def compute_statistics(path, params, apply_fn, batch_size=1, img_size=None, model=None):
     if path.endswith(".npz"):
         stats = np.load(path)
         mu, sigma = stats["mu"], stats["sigma"]
