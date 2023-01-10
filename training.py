@@ -21,8 +21,8 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
     checkpoint_dir = fs_utils.get_checkpoint_dir(config)
     image_size = common_utils.get_image_size_from_dataset(dataset)
 
-    # step = start_step + 1
-    step = start_step
+    step = start_step + 1
+    # step = start_step
     ema_decay = 0
     current_learning_rate_schedule=jax_utils.get_learning_rate_schedule(config)
     FID_utils = fid_utils.FIDFramework(config)

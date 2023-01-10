@@ -161,7 +161,7 @@ class Downsample(nn.Module):
 class UNet(nn.Module):
     image_channels: int = 3
     n_channels: int = 128
-    ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 1, 1)# (1, 2, 4, 4) # (1, 2, 2, 4)
+    ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 4, 8)# (1, 2, 4, 4) # (1, 2, 2, 4)
     is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False) # (False, True, True, True) # (False, False, True, True)
     n_blocks: int = 2
     dropout_rate: float = 0.1
