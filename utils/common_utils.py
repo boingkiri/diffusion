@@ -1,23 +1,39 @@
-import yaml
 import os
+import yaml
+import requests
+import numpy as np
+import matplotlib.pyplot as plt
 
-from flax.training import checkpoints
 import jax
 import jax.numpy as jnp
+from flax.training import checkpoints
 
 from unet import UNet
 from ddpm import DDPM
 from ema import EMA
-from . import jax_utils
-from .fs_utils import * 
+from . import jax_utils, fs_utils
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
+def download(url: str, dest_folder: str):
+    if not os.path.exists(dest_folder):
+        os.makedirs(dest_folder)  # create folder if it does not exist
 
-import numpy as np
-import os
-import matplotlib.pyplot as plt
+    filename = url.split('/')[-1].replace(" ", "_")  # be careful with file names
+    file_path = os.path.join(dest_folder, filename)
+
+    r = requests.get(url, stream=True)
+    if r.ok:
+        print("saving to", os.path.abspath(file_path))
+        with open(file_path, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=1024 * 8):
+                if chunk:
+                    f.write(chunk)
+                    f.flush()
+                    os.fsync(f.fileno())
+    else:  # HTTP status code 4XX/5XX
+        print("Download failed: status code {}\n{}".format(r.status_code, r.text))
 
 
 def get_config_from_yaml(config_dir):
@@ -30,8 +46,8 @@ def get_config_from_yaml(config_dir):
 
 
 def load_state_from_checkpoint_dir(config, state):
-    checkpoint_dir = get_checkpoint_dir(config)
-    start_num = get_start_step_from_checkpoint(config)
+    checkpoint_dir = fs_utils.get_checkpoint_dir(config)
+    start_num = fs_utils.get_start_step_from_checkpoint(config)
     if start_num != 0:
         state = checkpoints.restore_checkpoint(checkpoint_dir, state, start_num)
         print(f"Checkpoint {start_num} loaded")
@@ -39,11 +55,11 @@ def load_state_from_checkpoint_dir(config, state):
 
 
 def init_setting(config, rng):
-    verifying_or_create_workspace(config)
+    fs_utils.verifying_or_create_workspace(config)
     state_rng, ddpm_rng, rng = jax.random.split(rng, 3)
     model = UNet(**config['model'])
 
-    start_step = get_start_step_from_checkpoint(config)
+    start_step = fs_utils.get_start_step_from_checkpoint(config)
     state = jax_utils.create_train_state(config, model, state_rng)
     state = load_state_from_checkpoint_dir(config, state)
     
