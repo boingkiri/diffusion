@@ -2,6 +2,8 @@
 import os
 import yaml
 
+from . import common_utils
+
 def get_exp_config(config):
     return config['exp']
 
@@ -27,6 +29,9 @@ def get_in_process_dir(config):
     current_exp_dir = get_current_exp_dir(config)
     in_process_dir = os.path.join(current_exp_dir, exp_config['in_process_dir'])
     return in_process_dir
+
+def get_dataset_name(config):
+    return config['dataset']
 
 def verifying_or_create_workspace(config):
     exp_config = get_exp_config(config)
@@ -58,7 +63,26 @@ def verifying_or_create_workspace(config):
     in_process_dir = os.path.join(current_exp_dir, exp_config['in_process_dir'])
     if not os.path.exists(in_process_dir):
         os.makedirs(in_process_dir)
-        print("Creating sampling dir")
+        print("Creating in process dir")
+    
+    # Creating dataset dir
+    dataset_name = get_dataset_name(config)
+    if not os.path.exists(dataset_name):
+        print("Creating dataset dir")
+        os.makedirs(dataset_name)
+        if dataset_name == "cifar10":
+            import tarfile
+            common_utils.download("http://pjreddie.com/media/files/cifar.tgz", dataset_name)
+            filepath = os.path.join(dataset_name, "cifar.tgz")
+            file = tarfile.open(filepath)
+            file.extractall(dataset_name)
+            file.close()
+            os.remove(filepath)
+            train_dir_path = os.path.join(dataset_name, "cifar", "train")
+            dest_dir_path = os.path.join(dataset_name, "train")
+            os.rename(train_dir_path, dest_dir_path)
+
+
 
 def get_start_step_from_checkpoint(config):
     checkpoint_format = "checkpoint_"
