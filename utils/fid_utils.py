@@ -62,7 +62,7 @@ class FIDFramework():
         in_process_dir = fs_utils.get_in_process_dir(self.config)
         sampling.sampling_and_save(self.config, num_samples, ddpm, state, jax.random.PRNGKey(42), tmp_dir)
         fid_score = self.calculate_fid(tmp_dir)
-        writing_format = f"FID score of Step {step} : {fid_score:.4f}"
+        writing_format = f"FID score of Step {step} : {fid_score:.4f}\n"
         print(writing_format)
 
         fid_log_file = os.path.join(in_process_dir, "fid_log.txt")
