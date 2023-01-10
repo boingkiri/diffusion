@@ -6,7 +6,7 @@ import jax.numpy as jnp
 
 import numpy as np
 
-from utils import jax_utils, fs_utils, common_utils
+from utils import jax_utils, fs_utils, common_utils, fid_utils
 from sampling import sampling
 
 def train(config, state, ddpm, start_step, ema_obj, rng):
@@ -21,10 +21,13 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
     checkpoint_dir = fs_utils.get_checkpoint_dir(config)
     image_size = common_utils.get_image_size_from_dataset(dataset)
 
-    step = start_step + 1
+    # step = start_step + 1
+    step = start_step
     ema_decay = 0
     current_learning_rate_schedule=jax_utils.get_learning_rate_schedule(config)
-    for i, (x, _) in enumerate(data_bar):
+    FID_utils = fid_utils.FIDFramework(config)
+
+    for x, _ in data_bar:
         x = jax.device_put(x.numpy())
         loss, state = ddpm.learning_from(state, x)
         
@@ -49,6 +52,8 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
         if step % 10000 == 0:
             state = state.replace(params_ema = ema_obj.get_ema_params())
             jax_utils.save_train_state(state, checkpoint_dir, step)
+            # Calculate FID score with 1000 samples
+            FID_utils.calculate_fid_in_step(step, ddpm, state, 1000)
         
         if step >= total_step:
             break

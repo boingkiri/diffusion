@@ -3,10 +3,12 @@ import jax.numpy as jnp
 import numpy as np
 
 from .fid import inception, fid
-from . import fs_utils, common_utils
+from . import fs_utils
+import sampling
 
 import functools
 import os
+import shutil
 
 class FIDFramework():
     def __init__(self, config) -> None:
@@ -24,6 +26,8 @@ class FIDFramework():
     def get_tmp_dir(self):
         in_process_dir = fs_utils.get_in_process_dir(self.config)
         tmp_dir = os.path.join(in_process_dir, "tmp")
+        if not os.path.exists(tmp_dir):
+            os.mkdir(tmp_dir) 
         return tmp_dir
     
     def precompute_dataset(self, dataset_name):
@@ -52,3 +56,17 @@ class FIDFramework():
         src_mu, src_sigma = self.calculate_statistics(src_img_path)
         fid_score = fid.compute_frechet_distance(src_mu, dest_mu, src_sigma, dest_sigma)
         return fid_score
+    
+    def calculate_fid_in_step(self, step, ddpm, state, num_samples):
+        tmp_dir = self.get_tmp_dir()
+        in_process_dir = fs_utils.get_in_process_dir(self.config)
+        sampling.sampling_and_save(self.config, num_samples, ddpm, state, jax.random.PRNGKey(42), tmp_dir)
+        fid_score = self.calculate_fid(tmp_dir)
+        writing_format = f"FID score of Step {step} : {fid_score:.4f}"
+        print(writing_format)
+
+        fid_log_file = os.path.join(in_process_dir, "fid_log.txt")
+        with open(fid_log_file, 'a') as f:
+            f.write(writing_format)
+        shutil.rmtree(tmp_dir)
+
