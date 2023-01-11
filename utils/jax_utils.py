@@ -2,10 +2,8 @@ from flax.training import train_state
 
 import jax
 import jax.numpy as jnp
-from flax.training import checkpoints
 import optax
-
-import logging
+from flax.training import checkpoints
 
 from typing import Any
 
@@ -47,9 +45,6 @@ def create_train_state(config, model, rng):
   tx = optax.chain(
     *optax_chain
   )
-  # tx = optax.adam(learning_rate)
-
-  logging.info("Creating train state complete.")
 
   # Return the training state
   return TrainState.create(
@@ -60,15 +55,11 @@ def create_train_state(config, model, rng):
   )
 
 def save_train_state(state, checkpoint_dir, step):
-  # if checkpoint_dir is None:
-      # checkpoint_dir = './checkpoints'
-  # saved_state = TrainState.create(
-  #     apply_fn=state.apply_fn,
-  #     params=state.params,
-  #     params_ema=params_ema,
-  #     tx=state.tx
-  # )
   checkpoints.save_checkpoint(checkpoint_dir, state, step)
   print(f"Saving {step} complete.")
 
+  
+def save_best_state(state, best_checkpoint_dir, step):
+  checkpoints.save_checkpoint(best_checkpoint_dir, state, step, overwrite=True)
+  print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")
 

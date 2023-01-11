@@ -18,6 +18,11 @@ def get_checkpoint_dir(config):
     current_checkpoint_dir = os.path.join(current_exp_dir, exp_config['checkpoint_dir'])
     return current_checkpoint_dir
 
+def get_best_checkpoint_dir(config):
+    checkpoint_dir = get_checkpoint_dir(config)
+    best_checkpoint_dir = os.path.join(checkpoint_dir, 'best')
+    return best_checkpoint_dir
+
 def get_sampling_dir(config):
     exp_config= get_exp_config(config)
     current_exp_dir = get_current_exp_dir(config)
@@ -52,6 +57,12 @@ def verifying_or_create_workspace(config):
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
         print("Creating checkpoint dir")
+    
+    # Creating best checkpoint dir
+    best_checkpoint_dir = os.path.join(checkpoint_dir, 'best')
+    if not os.path.exists(best_checkpoint_dir):
+        os.makedirs(best_checkpoint_dir)
+        print("Creating best checkpoint dir")
     
     # Creating sampling dir
     sampling_dir = os.path.join(current_exp_dir, exp_config['sampling_dir'])

@@ -130,3 +130,21 @@ def get_image_size_from_dataset(dataset):
 if __name__=="__main__":
   sample = jnp.zeros((16, 32, 32, 3))
   save_images(sample, 0, "sampling")
+
+def get_best_fid(config):
+  best_fid = None
+  in_process_dir = fs_utils.get_in_process_dir(config)
+  fid_log_file = os.path.join(in_process_dir, "fid_log.txt")
+  with open(fid_log_file, 'r') as f:
+    txt = f.read()
+  logs = txt.split('\n')
+  for log in logs:
+    if len(log) == 0:
+      continue
+    frag = log.split(' ')
+    value = float(frag[-1])
+    if best_fid is None:
+      best_fid = value
+    elif best_fid >= value:
+      best_fid = value
+  return best_fid

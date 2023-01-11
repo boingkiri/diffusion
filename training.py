@@ -22,7 +22,6 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
     image_size = common_utils.get_image_size_from_dataset(dataset)
 
     step = start_step + 1
-    # step = start_step
     ema_decay = 0
     current_learning_rate_schedule=jax_utils.get_learning_rate_schedule(config)
     FID_utils = fid_utils.FIDFramework(config)
@@ -49,11 +48,16 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
             xset = torch.from_numpy(np.array(xset))
             common_utils.save_images(xset, step, in_process_dir)
 
-        if step % 10000 == 0:
+        # if step % 10000 == 0:
+        if step % 50000 == 0:
             state = state.replace(params_ema = ema_obj.get_ema_params())
             jax_utils.save_train_state(state, checkpoint_dir, step)
+
             # Calculate FID score with 1000 samples
-            FID_utils.calculate_fid_in_step(step, ddpm, state, 1000)
+            fid_score = FID_utils.calculate_fid_in_step(step, ddpm, state, 5000)
+            if common_utils.get_best_fid(config) >= fid_score:
+                best_checkpoint_dir = fs_utils.get_best_checkpoint_dir(config)
+                jax_utils.save_best_state(state, best_checkpoint_dir, step)
         
         if step >= total_step:
             break
