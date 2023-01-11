@@ -70,3 +70,5 @@ class FIDFramework():
             f.write(writing_format)
         shutil.rmtree(tmp_dir)
 
+        return fid_score
+    
