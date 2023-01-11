@@ -161,7 +161,7 @@ class Downsample(nn.Module):
 class UNet(nn.Module):
     image_channels: int = 3
     n_channels: int = 128
-    ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 4, 8)# (1, 2, 4, 4) # (1, 2, 2, 4)
+    ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 2, 2)# (1, 2, 4, 4) # (1, 2, 2, 4)
     is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False) # (False, True, True, True) # (False, False, True, True)
     n_blocks: int = 2
     dropout_rate: float = 0.1
@@ -179,29 +179,26 @@ class UNet(nn.Module):
         h = [x]
 
         n_resolution = len(self.ch_mults)
-        in_channels = self.n_channels
         for i in range(n_resolution):
-            out_channels = in_channels * self.ch_mults[i]
+            out_channels = self.n_channels * self.ch_mults[i]
             for _ in range(self.n_blocks):
                 x = UnetDown(out_channels, self.is_atten[i], dropout_rate=self.dropout_rate)(x, t, train)
                 h.append(x)
-                in_channels = out_channels
             if i < n_resolution - 1:
-                x = Downsample(in_channels)(x)
+                out_channels = self.n_channels * self.ch_mults[i+1]
+                x = Downsample(out_channels)(x)
         
         x = UnetMiddle(out_channels, dropout_rate=self.dropout_rate)(x, t, train)
 
-        in_channels = out_channels
         for i in reversed(range(n_resolution)):
-            out_channels = in_channels
+            out_channels = self.n_channels * self.ch_mults[i]
             for _ in range(self.n_blocks):
                 s = h.pop()
                 x = jnp.concatenate((x, s), axis=-1)
                 x = UnetUp(out_channels, self.is_atten[i], dropout_rate=self.dropout_rate)(x, t, train)
-            out_channels = in_channels // self.ch_mults[i]
-            in_channels = out_channels
             if i > 0:
-                x = Upsample(in_channels)(x)
+                out_channels = self.n_channels * self.ch_mults[i - 1]
+                x = Upsample(out_channels)(x)
 
         x = nn.GroupNorm(8)(x)
         x = nn.swish(x)
