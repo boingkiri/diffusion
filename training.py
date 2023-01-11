@@ -6,7 +6,7 @@ import jax.numpy as jnp
 
 import numpy as np
 
-from utils import jax_utils, fs_utils, common_utils
+from utils import jax_utils, fs_utils, common_utils, fid_utils
 from sampling import sampling
 
 def train(config, state, ddpm, start_step, ema_obj, rng):
@@ -24,7 +24,9 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
     step = start_step + 1
     ema_decay = 0
     current_learning_rate_schedule=jax_utils.get_learning_rate_schedule(config)
-    for i, (x, _) in enumerate(data_bar):
+    FID_utils = fid_utils.FIDFramework(config)
+
+    for x, _ in data_bar:
         x = jax.device_put(x.numpy())
         loss, state = ddpm.learning_from(state, x)
         
@@ -46,9 +48,16 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
             xset = torch.from_numpy(np.array(xset))
             common_utils.save_images(xset, step, in_process_dir)
 
-        if step % 10000 == 0:
+        # if step % 10000 == 0:
+        if step % 50000 == 0:
             state = state.replace(params_ema = ema_obj.get_ema_params())
             jax_utils.save_train_state(state, checkpoint_dir, step)
+
+            # Calculate FID score with 1000 samples
+            fid_score = FID_utils.calculate_fid_in_step(step, ddpm, state, 5000)
+            if common_utils.get_best_fid(config) >= fid_score:
+                best_checkpoint_dir = fs_utils.get_best_checkpoint_dir(config)
+                jax_utils.save_best_state(state, best_checkpoint_dir, step)
         
         if step >= total_step:
             break

@@ -6,8 +6,6 @@ import math
 
 from typing import Optional, Tuple, Union, List
 
-import logging
-
 
 class TimeEmbedding(nn.Module):
     emb_dim: int
@@ -50,7 +48,8 @@ class ResidualBlock(nn.Module):
         h = nn.Conv(self.out_channels, (3, 3))(h)
 
         if x.shape != h.shape:
-            short = nn.Conv(self.out_channels, (1, 1))(x)
+            # short = nn.Conv(self.out_channels, (1, 1))(x)
+            short = nn.Conv(self.out_channels, (3, 3))(x)
         else:
             short = x
         return h + short
@@ -65,7 +64,7 @@ class AttentionBlock(nn.Module):
         scale = self.n_channels ** -0.5
 
         batch_size, height, width, n_channels = x.shape
-        x = x.reshape(batch_size, -1, n_channels)
+        # x = x.reshape(batch_size, -1, n_channels)
 
         # Projection
         # qkv = nn.Dense(self.n_heads * self.n_channels * 3)(x)
@@ -84,7 +83,8 @@ class AttentionBlock(nn.Module):
         # Multiply by value
         res = jnp.einsum('bijh,bjhd->bihd', atten, v)
 
-        res = res.reshape(batch_size, -1, self.n_heads * self.n_channels)
+        # res = res.reshape(batch_size, -1, self.n_heads * self.n_channels)
+        res = res.reshape(batch_size, height, width, self.n_heads * self.n_channels)
         # res = nn.Dense(n_channels)(res)
         res = nn.Conv(self.n_channels, (1, 1))(res)
 
@@ -92,7 +92,7 @@ class AttentionBlock(nn.Module):
         res += x
 
         # res = res.transpose(0, 2, 1).reshape(batch_size, n_channels, height, width)
-        res = res.reshape(batch_size, height, width, n_channels)
+        # res = res.reshape(batch_size, height, width, n_channels)
 
         return res
 
@@ -138,21 +138,30 @@ class Upsample(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        return nn.ConvTranspose(self.n_channels, (4, 4), (2, 2))(x)
-
+        B, H, W, C = x.shape
+        scale = 2
+        x = jax.image.resize(
+            x, 
+            shape=(B, H * scale, W * scale, C),
+            method="nearest")
+        x = nn.Conv(self.n_channels, (3, 3))(x)
+        return x
 
 class Downsample(nn.Module):
     n_channels: int
 
     @nn.compact
     def __call__(self, x):
-        return nn.Conv(self.n_channels, (3, 3), (2, 2), (1, 1))(x)
+        B, H, W, C = x.shape
+        x = jnp.reshape(x, (B, H // 2, W // 2, C * 4))
+        x = nn.Conv(self.n_channels, (3, 3), (1, 1))(x)
+        return x
 
 
 class UNet(nn.Module):
     image_channels: int = 3
     n_channels: int = 128
-    ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 1, 1)# (1, 2, 4, 4) # (1, 2, 2, 4)
+    ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 2, 2)# (1, 2, 4, 4) # (1, 2, 2, 4)
     is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False) # (False, True, True, True) # (False, False, True, True)
     n_blocks: int = 2
     dropout_rate: float = 0.1
@@ -170,29 +179,26 @@ class UNet(nn.Module):
         h = [x]
 
         n_resolution = len(self.ch_mults)
-        in_channels = self.n_channels
         for i in range(n_resolution):
-            out_channels = in_channels * self.ch_mults[i]
+            out_channels = self.n_channels * self.ch_mults[i]
             for _ in range(self.n_blocks):
                 x = UnetDown(out_channels, self.is_atten[i], dropout_rate=self.dropout_rate)(x, t, train)
                 h.append(x)
-                in_channels = out_channels
             if i < n_resolution - 1:
-                x = Downsample(in_channels)(x)
+                out_channels = self.n_channels * self.ch_mults[i+1]
+                x = Downsample(out_channels)(x)
         
         x = UnetMiddle(out_channels, dropout_rate=self.dropout_rate)(x, t, train)
 
-        in_channels = out_channels
         for i in reversed(range(n_resolution)):
-            out_channels = in_channels
+            out_channels = self.n_channels * self.ch_mults[i]
             for _ in range(self.n_blocks):
                 s = h.pop()
                 x = jnp.concatenate((x, s), axis=-1)
                 x = UnetUp(out_channels, self.is_atten[i], dropout_rate=self.dropout_rate)(x, t, train)
-            out_channels = in_channels // self.ch_mults[i]
-            in_channels = out_channels
             if i > 0:
-                x = Upsample(in_channels)(x)
+                out_channels = self.n_channels * self.ch_mults[i - 1]
+                x = Upsample(out_channels)(x)
 
         x = nn.GroupNorm(8)(x)
         x = nn.swish(x)
