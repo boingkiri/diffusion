@@ -24,7 +24,7 @@ def train(config, state, ddpm, start_step, ema_obj, rng):
     step = start_step + 1
     ema_decay = 0
     current_learning_rate_schedule=jax_utils.get_learning_rate_schedule(config)
-    FID_utils = fid_utils.FIDFramework(config)
+    FID_utils = fid_utils.FIDUtils(config)
 
     for x, _ in data_bar:
         x = jax.device_put(x.numpy())

@@ -1,5 +1,6 @@
 import os
 import yaml
+import os
 import requests
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,9 +10,10 @@ import jax.numpy as jnp
 from flax.training import checkpoints
 
 from model.unet import UNet
-from DDPM.ddpm import DDPM
+from framework.DDPM.ddpm import DDPM
 from utils.ema import EMA
 from . import jax_utils, fs_utils
+
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -44,7 +46,6 @@ def get_config_from_yaml(config_dir):
         config = yaml.load(f, Loader=yaml.FullLoader)
     return config
 
-
 def load_state_from_checkpoint_dir(config, state):
     checkpoint_dir = fs_utils.get_checkpoint_dir(config)
     start_num = fs_utils.get_start_step_from_checkpoint(config)
@@ -57,17 +58,15 @@ def load_state_from_checkpoint_dir(config, state):
 def init_setting(config, rng):
     fs_utils.verifying_or_create_workspace(config)
     state_rng, ddpm_rng, rng = jax.random.split(rng, 3)
-    model = UNet(**config['model'])
+    
+    ddpm = DDPM(ddpm_rng, config)
 
     start_step = fs_utils.get_start_step_from_checkpoint(config)
     state = jax_utils.create_train_state(config, model, state_rng)
     state = load_state_from_checkpoint_dir(config, state)
     
-    # ema_obj = EMA(**config['ema'], ema_params=state.params_ema)
     ema_obj = EMA(**config['ema'], ema_params=state.params)
 
-
-    ddpm = DDPM(model, ddpm_rng, **config['ddpm'])
     return state, ddpm, start_step, ema_obj, rng
 
 def normalize_to_minus_one_to_one(image):

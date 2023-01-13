@@ -10,7 +10,7 @@ import functools
 import os
 import shutil
 
-class FIDFramework():
+class FIDUtils():
     def __init__(self, config) -> None:
         self.rng = jax.random.PRNGKey(42)
         self.config = config

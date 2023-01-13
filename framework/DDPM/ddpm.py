@@ -1,26 +1,24 @@
-from typing import Dict, Tuple, Optional
-
 import jax
 import jax.numpy as jnp
 
-from flax import linen as nn
-
 from flax.training import train_state
+
+from model.unet import UNet
 
 class DDPM():
     def __init__(
         self, 
-        eps_model: nn.Module,
         rand_key,
-        n_timestep: int = 1000,
-        beta= [0.0001, 0.02],
-        loss="l2"
+        config
         ):
-
-        self.eps_model = eps_model
+        self.eps_model = UNet(**config['model'])
 
         self.n_timestep = n_timestep
         self.rand_key = rand_key
+
+        n_timestep = config['ddpm']['n_timestep']
+        beta = config['ddpm']['beta']
+        loss = config['ddpm']['loss']
 
         # DDPM perturbing configuration
         self.beta = jnp.linspace(beta[0], beta[1], n_timestep)
@@ -98,7 +96,7 @@ class DDPM():
         self.rand_key = key
         return self.p_sample_jit(param, xt, t, normal_key, dropout_key)
 
-    def learning_from(self, state, x0):
+    def fit(self, state, x0):
         batch_size = x0.shape[0]
         key, int_key, normal_key, dropout_key = jax.random.split(self.rand_key, 4)
         self.rand_key = key
