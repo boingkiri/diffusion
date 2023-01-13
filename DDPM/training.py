@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from utils import jax_utils, fs_utils, common_utils, fid_utils
-from sampling import sampling
+from DDPM.sampling import sampling
 
 def train(config, state, ddpm, start_step, ema_obj, rng):
     train_config = config['train']

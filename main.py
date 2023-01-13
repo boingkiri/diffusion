@@ -1,8 +1,8 @@
 import argparse
 
 from utils.common_utils import get_config_from_yaml, init_setting
-from training import train
-from sampling import sampling_and_save
+from DDPM.training import train
+from DDPM.sampling import sampling_and_save
 
 
 from jax import random

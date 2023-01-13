@@ -9,8 +9,8 @@ import jax.numpy as jnp
 from flax.training import checkpoints
 
 from model.unet import UNet
-from ddpm import DDPM
-from ema import EMA
+from DDPM.ddpm import DDPM
+from utils.ema import EMA
 from . import jax_utils, fs_utils
 
 import tensorflow as tf

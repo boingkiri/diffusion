@@ -4,7 +4,7 @@ import numpy as np
 
 from .fid import inception, fid
 from . import fs_utils
-import sampling
+from DDPM import sampling
 
 import functools
 import os
