@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 from flax.training import checkpoints
 
-from unet import UNet
+from model.unet import UNet
 from ddpm import DDPM
 from ema import EMA
 from . import jax_utils, fs_utils
