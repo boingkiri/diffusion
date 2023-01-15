@@ -4,24 +4,33 @@ import jax.numpy as jnp
 from flax.training import train_state
 
 from model.unet import UNet
+from utils import jax_utils
+from framework.default_diffusion import DefaultDiffusion
 
-class DDPM():
+from typing import TypedDict
+
+class DDPM(DefaultDiffusion):
     def __init__(
         self, 
-        rand_key,
-        config
+        config,
+        rand_key
         ):
-        self.eps_model = UNet(**config['model'])
 
-        self.n_timestep = n_timestep
+        super().__init__()
+
+        self.n_timestep = config['ddpm']['n_timestep']
         self.rand_key = rand_key
 
-        n_timestep = config['ddpm']['n_timestep']
+        # Create UNet and its state
+        self.model = UNet(**config['model'])
+        state_rng, self.rand_key = jax.random.split(rand_key, 2)
+        self.model_state = jax_utils.create_train_state(config, self.model, state_rng)
+
         beta = config['ddpm']['beta']
         loss = config['ddpm']['loss']
 
         # DDPM perturbing configuration
-        self.beta = jnp.linspace(beta[0], beta[1], n_timestep)
+        self.beta = jnp.linspace(beta[0], beta[1], self.n_timestep)
         self.alpha = 1. - self.beta
         self.alpha_bar = jnp.cumprod(self.alpha, axis=0)
         self.sqrt_alpha = jnp.sqrt(self.alpha)
@@ -32,7 +41,7 @@ class DDPM():
         self.loss = loss
 
         def loss_fn(params, perturbed_data, time, real, dropout_key):
-            pred_noise = self.eps_model.apply(
+            pred_noise = self.model.apply(
                 {'params': params}, x=perturbed_data, t=time, train=True, rngs={'dropout': dropout_key})
             if self.loss == "l2":
                 loss = jnp.mean((pred_noise - real) ** 2)
@@ -44,7 +53,7 @@ class DDPM():
             return state.apply_gradients(grads=grad)
         
         def p_sample_jit(params, perturbed_data, time, dropout_key, normal_key):
-            pred_noise = self.eps_model.apply(
+            pred_noise = self.model.apply(
                 {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': dropout_key})
 
             beta = jnp.take(self.beta, time)
@@ -95,8 +104,11 @@ class DDPM():
         key, normal_key, dropout_key = jax.random.split(self.rand_key, 3)
         self.rand_key = key
         return self.p_sample_jit(param, xt, t, normal_key, dropout_key)
+    
+    def get_model_state(self) -> TypedDict:
+        return {"DDPM": self.model_state}
 
-    def fit(self, state, x0):
+    def fit(self, x0, cond=None):
         batch_size = x0.shape[0]
         key, int_key, normal_key, dropout_key = jax.random.split(self.rand_key, 4)
         self.rand_key = key
@@ -105,9 +117,11 @@ class DDPM():
         t = jax.random.randint(int_key, (batch_size, ), 0, self.n_timestep)
         xt, noise = self.q_sample(x0, t, eps=noise)
         
-        loss, grad = self.grad_fn(state.params, xt, t, noise, dropout_key)
-        new_state = self.update_grad(state, grad)
-        return loss, new_state
+        loss, grad = self.grad_fn(self.model_state.params, xt, t, noise, dropout_key)
+        new_state = self.update_grad(self.model_state, grad)
+
+        self.model_state = new_state
+        return loss
 
         
     
