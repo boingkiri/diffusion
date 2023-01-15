@@ -30,12 +30,11 @@ def create_train_state(config, model, rng):
   Creates initial 'TrainState'
   """
   rng, param_rng, dropout_rng = jax.random.split(rng, 3)
-  input_format = jnp.ones([64, 32, 32, 3]) 
+  input_format = jnp.ones([1, 32, 32, 3]) 
   params = model.init({"params": param_rng, 'dropout': dropout_rng}, 
     x=input_format, t=jnp.ones([64,]), train=False)['params']
   
   # Initialize the Adam optimizer
-  # learning_rate = config['train']['learning_rate']
   learning_rate = get_learning_rate_schedule(config)
   
   optax_chain = []
@@ -54,8 +53,10 @@ def create_train_state(config, model, rng):
       tx=tx
   )
 
-def save_train_state(state, checkpoint_dir, step):
-  checkpoints.save_checkpoint(checkpoint_dir, state, step)
+def save_train_state(state, checkpoint_dir, step, prefix=None):
+  if prefix is None:
+    prefix = "checkpoint_"
+  checkpoints.save_checkpoint(checkpoint_dir, state, step, prefix=prefix)
   print(f"Saving {step} complete.")
 
   

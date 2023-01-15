@@ -12,7 +12,7 @@ from flax.training import checkpoints
 from model.unet import UNet
 from framework.DDPM.ddpm import DDPM
 from utils.ema import EMA
-from . import jax_utils, fs_utils
+from . import jax_utils
 
 
 import tensorflow as tf
@@ -56,6 +56,12 @@ def load_state_from_checkpoint_dir(config, state):
 
 
 def init_setting(config, rng):
+    """
+      Return:
+        framework:
+        start_step:
+
+    """
     fs_utils.verifying_or_create_workspace(config)
     state_rng, ddpm_rng, rng = jax.random.split(rng, 3)
     
@@ -65,7 +71,7 @@ def init_setting(config, rng):
     state = jax_utils.create_train_state(config, model, state_rng)
     state = load_state_from_checkpoint_dir(config, state)
     
-    ema_obj = EMA(**config['ema'], ema_params=state.params)
+    ema_obj = EMA(**config['ema'], ema_params=state.params_ema)
 
     return state, ddpm, start_step, ema_obj, rng
 
