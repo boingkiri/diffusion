@@ -10,7 +10,7 @@ class Encoder(nn.Module):
     ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 4)
     is_atten: Union[Tuple[bool, ...], List[bool]] = (False, False, False)
     n_blocks: int = 2
-    dropout_rate: float = 0.1
+    dropout_rate: float = 0.0
     n_heads: int = 1
     
     @nn.compact
@@ -40,7 +40,7 @@ class Decoder(nn.Module):
     ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 4)
     is_atten: Union[Tuple[bool, ...], List[bool]] = (False, False, False)
     n_blocks: int = 2
-    dropout_rate: float = 0.1
+    dropout_rate: float = 0.0
     n_heads: int = 1
     
     @nn.compact
@@ -64,3 +64,37 @@ class Decoder(nn.Module):
         x = nn.Conv(self.image_channels, (3, 3))(x)
 
         return x
+
+class AutoEncoder(nn.Module):
+    def __init__(
+        self, 
+        image_channels: int = 3,
+        n_channels: int = 128,
+        ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 4),
+        is_atten: Union[Tuple[bool, ...], List[bool]] = (False, False, False),
+        n_blocks: int = 2,
+        dropout_rate: float = 0.1,
+        n_heads: int = 1
+    ):
+        params = [
+            image_channels,
+            n_channels,
+            ch_mults,
+            is_atten,
+            n_blocks,
+            dropout_rate,
+            n_heads
+        ]
+        self.encoder_model = Encoder(*params)
+        self.decoder_model = Decoder(*params)
+
+    def __call__(self, x, train):
+        z = self.encoder(x, train)
+        x_rec = self.decoder(z, train)
+        return x_rec
+
+    def encoder(self, x, train):
+        return self.encoder_model(x, train)
+
+    def decoder(self, z, train):
+        return self.decoder_model(z, train)

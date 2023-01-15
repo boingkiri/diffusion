@@ -5,11 +5,11 @@ from flax.training import train_state
 
 from model.unet import UNet
 from utils import jax_utils
-from framework.default_diffusion import DefaultDiffusion
+from framework.default_diffusion import DefaultModel
 
 from typing import TypedDict
 
-class DDPM(DefaultDiffusion):
+class DDPM(DefaultModel):
     def __init__(
         self, 
         config,

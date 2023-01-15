@@ -1,6 +1,6 @@
 from typing import TypedDict
 
-class DefaultDiffusion():
+class DefaultModel():
     def __init__(self, config, random_rng) -> None:
         pass
 

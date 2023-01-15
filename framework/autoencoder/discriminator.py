@@ -44,9 +44,6 @@ class LPIPSwithDiscriminator_KL(nn.Module):
         self.pixelloss_weight = pixelloss_weight
         self.perceptual_weight = perceptual_weight
 
-        # output log variance
-        self.logvar = jnp.zeros()
-
         self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16')
         self.discriminator = NLayerDiscriminator(
             input_nc=disc_in_channels,
