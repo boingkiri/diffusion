@@ -70,7 +70,9 @@ class DDPM(DefaultModel):
             var = beta[:, None, None, None]
             eps = jax.random.normal(normal_key, perturbed_data.shape)
 
-            return mean + (var ** 0.5) * eps
+            return_value = jnp.where(time[0] == 0, mean, mean + (var ** 0.5) * eps)
+
+            return return_value
         
         self.loss_fn = jax.jit(loss_fn)
         self.grad_fn = jax.jit(jax.value_and_grad(self.loss_fn))
