@@ -2,9 +2,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .fid import inception, fid
-from . import fs_utils
-from DDPM import sampling
+from utils.fid import inception, fid
+from utils.fs_utils import FSUtils
+# from DDPM import sampling
+from framework.diffusion_framework import DiffusionFramework 
 
 import functools
 import os
@@ -16,6 +17,7 @@ class FIDUtils():
         self.config = config
         self.model, self.params, self.apply_fn = self.load_fid_model()
         self.img_size = (299, 299)
+        self.fs_utils = FSUtils(config)
     
     def load_fid_model(self):
         model = inception.InceptionV3(pretrained=True)
@@ -24,7 +26,7 @@ class FIDUtils():
         return model, params, apply_fn
     
     def get_tmp_dir(self):
-        in_process_dir = fs_utils.get_in_process_dir(self.config)
+        in_process_dir = self.fs_utils.get_in_process_dir(self.config)
         tmp_dir = os.path.join(in_process_dir, "tmp")
         if not os.path.exists(tmp_dir):
             os.mkdir(tmp_dir) 
@@ -49,7 +51,7 @@ class FIDUtils():
     
     def calculate_fid(self, src_img_path, des_img_path=None):
         if des_img_path is None:
-            dataset_name = fs_utils.get_dataset_name(self.config)
+            dataset_name = self.fs_utils.get_dataset_name(self.config)
             dest_mu, dest_sigma = self.precompute_dataset(dataset_name)
         else:
             dest_mu, dest_sigma = self.calculate_statistics(des_img_path)
@@ -57,10 +59,16 @@ class FIDUtils():
         fid_score = fid.compute_frechet_distance(src_mu, dest_mu, src_sigma, dest_sigma)
         return fid_score
     
-    def calculate_fid_in_step(self, step, ddpm, state, num_samples):
+    def calculate_fid_in_step(self, step, model_obj: DiffusionFramework, total_num_samples, batch_size=128):
         tmp_dir = self.get_tmp_dir()
-        in_process_dir = fs_utils.get_in_process_dir(self.config)
-        sampling.sampling_and_save(self.config, num_samples, ddpm, state, jax.random.PRNGKey(42), tmp_dir)
+        in_process_dir = self.fs_utils.get_in_process_dir(self.config)
+        tmp_dir = os.path.join(in_process_dir, "tmp")
+
+        current_num_samples = 0
+        while current_num_samples < total_num_samples:
+            sample = model_obj.sampling(batch_size)
+            current_num_samples += self.fs_utils.save_images_to_dir(sample, tmp_dir)
+
         fid_score = self.calculate_fid(tmp_dir)
         writing_format = f"FID score of Step {step} : {fid_score:.4f}\n"
         print(writing_format)

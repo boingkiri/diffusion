@@ -4,6 +4,11 @@ import yaml
 
 from . import common_utils
 
+from PIL import Image
+
+import numpy as np
+import matplotlib.pyplot as plt
+
 class FSUtils():
     def __init__(self, config) -> None:
         self.__config = config
@@ -38,6 +43,10 @@ class FSUtils():
         current_exp_dir = self.get_current_exp_dir()
         in_process_dir = os.path.join(current_exp_dir, exp_config['in_process_dir'])
         return in_process_dir
+    
+    def get_checkpoint_prefix(self):
+        exp_config= self.get_exp_config()
+        return exp_config['checkpoint_prefix']
 
     def get_dataset_name(self):
         return self.__config['dataset']
@@ -97,8 +106,9 @@ class FSUtils():
                 dest_dir_path = os.path.join(dataset_name, "train")
                 os.rename(train_dir_path, dest_dir_path)
 
-    def get_start_step_from_checkpoint(self):
-        checkpoint_format = "checkpoint_"
+    def get_start_step_from_checkpoint(self, idx=0):
+        # checkpoint_format = "checkpoint_"
+        checkpoint_format = self.get_checkpoint_prefix()[idx]
         checkpoint_dir = self.get_checkpoint_dir()
         max_num = 0
         for content in os.listdir(checkpoint_dir):
@@ -107,4 +117,37 @@ class FSUtils():
                 num = int(num)
                 if num > max_num:
                     max_num = num
-        return max_num
+        return max_num + 1
+    
+    def save_comparison(images, steps, savepath):
+        images = common_utils.unnormalize_minus_one_to_one(images)
+
+        n_images = len(images)
+        f, axes = plt.subplots(n_images // 4, 4)
+        images = np.clip(images, 0, 1)
+        axes = np.concatenate(axes)
+
+        for img, axis in zip(images, axes):
+            axis.imshow(img)
+            axis.axis('off')
+        
+        save_filename = os.path.join(savepath, f"{steps}.png")
+        f.savefig(save_filename)
+        plt.close()
+    
+    def save_images_to_dir(self, images, save_path_dir=None, starting_pos=0):
+        current_sampling = 0
+
+        if save_path_dir is None:
+            save_path_dir = self.get_sampling_dir()
+
+        images = common_utils.unnormalize_minus_one_to_one(images)
+        images = np.clip(images, 0, 1)
+        images = images * 255
+        images = np.array(images).astype(np.uint8)
+        for image in images:
+            im = Image.fromarray(image)
+            sample_path = os.path.join(save_path_dir, f"{starting_pos + current_sampling}.png")
+            im.save(sample_path)
+            current_sampling += 1
+        return current_sampling

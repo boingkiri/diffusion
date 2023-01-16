@@ -21,12 +21,13 @@ def discriminator_loss(d_params, discriminator: nn.Module, x, x_rec, train=True)
 def update_grad(state:train_state.TrainState, grad):
     return state.apply_gradients(state, grad)
 
-def encoder_fn(autoencoder: AEModel, x, train):
+def encoder_fn(g_params, autoencoder: AEModel, x, train):
+    z = autoencoder.apply({"params": g_params}, x, train, method=autoencoder.encoder)
     z = autoencoder.encoder(x, train)
     return z
 
-def decoder_fn(autoencoder: AEModel, z, train):
-    x_rec = autoencoder.encoder(z, train)
+def decoder_fn(g_params, autoencoder: AEModel, z, train):
+    x_rec = autoencoder.apply({"params": g_params}, z, train, method=autoencoder.decoder)
     return x_rec
 
 # Firstly, I implement autoencoder without any regularization such as VQ and KL.
@@ -60,8 +61,8 @@ class AutoEncoder(DefaultModel):
                 jax.value_and_grad(discriminator_loss, has_aux=True),
                 discriminator=self.discriminator))
         self.update_model = jax.jit(update_grad) # TODO: Can this function be adapted to both generator and discriminator? 
-        self.encoder = jax.jit(nn.apply(encoder_fn, self.model))
-        self.decoder = jax.jit(nn.apply(decoder_fn, self.model))
+        self.encoder = jax.jit(nn.apply(encoder_fn, autoencoder=self.model))
+        self.decoder = jax.jit(nn.apply(decoder_fn, autoencoder=self.model))
     
     def fit(self, x, cond=None):
         (g_loss, x_rec, g_log), grad = self.g_loss_fn(
@@ -76,10 +77,16 @@ class AutoEncoder(DefaultModel):
         self.d_model_state = self.update_model(self.d_model_state, grad)
         return g_log, d_log
     
-    def encoder_fit(self, x):
-        e_x = self.encoder(x)
+    def sampling(self, num_image, img_size=(32, 32, 3)):
+        # if img_size == None:
+            # img_size = (32, 32, 3) # CIFAR10
+        NotImplementedError("AutoEncoder cannot generate samples by itself. Use LDM framework.")        
+        
+
+    def encoder_forward(self, x):
+        e_x = self.encoder(g_params=self.g_model_state, x=x, train=True)
         return e_x
         
-    def decoder_fit(self, x):
-        d_e_x = self.decoder(x)
+    def decoder_forward(self, z):
+        d_e_x = self.decoder(g_params=self.g_model_state, z=z, train=True)
         return d_e_x

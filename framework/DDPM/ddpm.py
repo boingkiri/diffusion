@@ -70,9 +70,9 @@ class DDPM(DefaultModel):
             var = beta[:, None, None, None]
             eps = jax.random.normal(normal_key, perturbed_data.shape)
 
-            return_value = jnp.where(time[0] == 0, mean, mean + (var ** 0.5) * eps)
+            return_val = jnp.where(time[0] == 0, mean, mean + (var ** 0.5) * eps)
 
-            return return_value
+            return return_val
         
         self.loss_fn = jax.jit(loss_fn)
         self.grad_fn = jax.jit(jax.value_and_grad(self.loss_fn))
@@ -123,7 +123,26 @@ class DDPM(DefaultModel):
         new_state = self.update_grad(self.model_state, grad)
 
         self.model_state = new_state
-        return loss
+
+        return_dict = {
+            "loss": loss
+        }
+        return return_dict
+    
+    def sampling(self, num_image, img_size=(32, 32, 3)):
+        latent_sampling_tuple = (num_image, *img_size)
+        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
+
+        for t in reversed(range(self.n_timestep)):
+            normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
+            latent_sample = self.p_sample_jit(self.model_state.params, latent_sample, t, normal_key, dropout_key)
+        
+        return latent_sample
+        
+
+        
+
 
         
     
