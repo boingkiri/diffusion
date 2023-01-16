@@ -5,7 +5,6 @@ exp:
   sampling_dir: "sampling"
   in_process_dir : "in_process"
   checkpoint_dir: "checkpoints"
-  checkpoint_prefix: ["ddpm_"]
 dataset: "cifar10"
 
 # Define configuration of model

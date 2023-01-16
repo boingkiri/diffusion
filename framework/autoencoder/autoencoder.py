@@ -32,7 +32,7 @@ def decoder_fn(g_params, autoencoder: AEModel, z, train):
 
 # Firstly, I implement autoencoder without any regularization such as VQ and KL.
 # However, it should be implemented too someday..  
-class AutoEncoder(DefaultModel):
+class AutoEncoder():
     def __init__(self, config, rand_rng):
         self.framework_config = config['framework']
         self.random_rng = rand_rng

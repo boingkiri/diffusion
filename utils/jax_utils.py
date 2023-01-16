@@ -59,7 +59,13 @@ def save_train_state(state, checkpoint_dir, step, prefix=None):
   checkpoints.save_checkpoint(checkpoint_dir, state, step, prefix=prefix)
   print(f"Saving {step} complete.")
 
-  
+
+def load_state_from_checkpoint_dir(checkpoint_dir, state, checkpoint_prefix="checkpoint_"):
+    # if start_num != 0:
+    state = checkpoints.restore_checkpoint(checkpoint_dir, state, prefix=checkpoint_prefix)
+    print(f"Checkpoint {state.step} loaded")
+    return state
+
 def save_best_state(state, best_checkpoint_dir, step):
   checkpoints.save_checkpoint(best_checkpoint_dir, state, step, overwrite=True)
   print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")

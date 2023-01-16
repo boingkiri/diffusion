@@ -15,3 +15,4 @@ class DefaultModel():
         # pass
         NotImplementedError("get_model_state: Diffusion model should implement this method.")
     
+    

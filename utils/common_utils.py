@@ -46,34 +46,23 @@ def get_config_from_yaml(config_dir):
         config = yaml.load(f, Loader=yaml.FullLoader)
     return config
 
-def load_state_from_checkpoint_dir(config, state):
-    checkpoint_dir = fs_utils.get_checkpoint_dir(config)
-    start_num = fs_utils.get_start_step_from_checkpoint(config)
-    if start_num != 0:
-        state = checkpoints.restore_checkpoint(checkpoint_dir, state, start_num)
-        print(f"Checkpoint {start_num} loaded")
-    return state
 
+# def init_setting(config, rng):
+#     """
+#       Return:
+#         framework:
+#         start_step:
 
-def init_setting(config, rng):
-    """
-      Return:
-        framework:
-        start_step:
-
-    """
-    fs_utils.verifying_or_create_workspace(config)
-    state_rng, ddpm_rng, rng = jax.random.split(rng, 3)
+#     """
+#     state_rng, ddpm_rng, rng = jax.random.split(rng, 3)
     
-    ddpm = DDPM(ddpm_rng, config)
-
-    start_step = fs_utils.get_start_step_from_checkpoint(config)
-    state = jax_utils.create_train_state(config, model, state_rng)
-    state = load_state_from_checkpoint_dir(config, state)
+#     start_step = fs_utils.get_start_step_from_checkpoint(config)
+#     state = jax_utils.create_train_state(config, model, state_rng)
+#     state = load_state_from_checkpoint_dir(config, state)
     
-    ema_obj = EMA(**config['ema'], ema_params=state.params_ema)
+#     ema_obj = EMA(**config['ema'], ema_params=state.params_ema)
 
-    return state, ddpm, start_step, ema_obj, rng
+#     return state, start_step, ema_obj, rng
 
 def normalize_to_minus_one_to_one(image):
     return image * 2 - 1
@@ -136,20 +125,3 @@ if __name__=="__main__":
   sample = jnp.zeros((16, 32, 32, 3))
   save_images(sample, 0, "sampling")
 
-def get_best_fid(config):
-  best_fid = None
-  in_process_dir = fs_utils.get_in_process_dir(config)
-  fid_log_file = os.path.join(in_process_dir, "fid_log.txt")
-  with open(fid_log_file, 'r') as f:
-    txt = f.read()
-  logs = txt.split('\n')
-  for log in logs:
-    if len(log) == 0:
-      continue
-    frag = log.split(' ')
-    value = float(frag[-1])
-    if best_fid is None:
-      best_fid = value
-    elif best_fid >= value:
-      best_fid = value
-  return best_fid

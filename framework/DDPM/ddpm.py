@@ -4,27 +4,25 @@ import jax.numpy as jnp
 from flax.training import train_state
 
 from model.unet import UNet
+from utils.fs_utils import FSUtils
 from utils import jax_utils
 from framework.default_diffusion import DefaultModel
 
 from typing import TypedDict
 
 class DDPM(DefaultModel):
-    def __init__(
-        self, 
-        config,
-        rand_key
-        ):
-
+    def __init__(self, config, rand_key, fs_obj: FSUtils):
         super().__init__()
 
         self.n_timestep = config['ddpm']['n_timestep']
         self.rand_key = rand_key
+        self.fs_obj = fs_obj
 
         # Create UNet and its state
         self.model = UNet(**config['model'])
         state_rng, self.rand_key = jax.random.split(rand_key, 2)
         self.model_state = jax_utils.create_train_state(config, self.model, state_rng)
+        self.model_state = fs_obj.load_model_state("ddpm", self.model_state)
 
         beta = config['ddpm']['beta']
         loss = config['ddpm']['loss']
@@ -139,12 +137,4 @@ class DDPM(DefaultModel):
             latent_sample = self.p_sample_jit(self.model_state.params, latent_sample, t, normal_key, dropout_key)
         
         return latent_sample
-        
-
-        
-
-
-        
     
-
-

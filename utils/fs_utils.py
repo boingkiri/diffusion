@@ -2,7 +2,7 @@
 import os
 import yaml
 
-from . import common_utils
+from . import common_utils, jax_utils
 
 from PIL import Image
 
@@ -151,3 +151,37 @@ class FSUtils():
             im.save(sample_path)
             current_sampling += 1
         return current_sampling
+    
+    def get_state_prefix(self, model_type):
+        if model_type == "ddpm":
+            prefix = "ddpm_"
+        elif model_type in ["autoencoder", "ae"]:
+            prefix = "autoencoder_"
+        elif model_type == "diffusion":
+            prefix = "diffusion_"
+        return prefix
+
+    def load_model_state(self, model_type, state):
+        prefix = self.get_state_prefix(model_type)
+        checkpoint_dir = self.get_checkpoint_dir()
+        state = jax_utils.load_state_from_checkpoint_dir(checkpoint_dir, state, prefix)
+        return state
+    
+    def get_best_fid(self):
+        best_fid = None
+        in_process_dir = self.get_in_process_dir()
+        fid_log_file = os.path.join(in_process_dir, "fid_log.txt")
+        with open(fid_log_file, 'r') as f:
+            txt = f.read()
+        logs = txt.split('\n')
+        for log in logs:
+            if len(log) == 0:
+                continue
+            frag = log.split(' ')
+            value = float(frag[-1])
+            if best_fid is None:
+                best_fid = value
+            elif best_fid >= value:
+                best_fid = value
+        return best_fid
+

@@ -18,18 +18,23 @@ class DiffusionFramework():
     def __init__(self, model_type, config, random_rng) -> None:
         self.model_type = model_type.lower()
         self.random_rng = random_rng
+        self.set_utils(config)
         self.set_model(config)
-        self.fs_utils = FSUtils(config)
         self.set_step(config)
-        self.fid_utils = FIDUtils(config)
+        self.learning_rate_schedule = jax_utils.get_learning_rate_schedule(config)
     
+    def set_utils(self, config):
+        self.fid_utils = FIDUtils(config)
+        self.fs_utils = FSUtils(config)
+        self.fs_utils.verifying_or_create_workspace()
+
     def set_model(self, config):
         if self.model_type == 'ddpm':
             ddpm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = DDPM(config, ddpm_rng)
+            self.framework = DDPM(config, ddpm_rng, self.fS_utils)
         elif self.model_type == "ldm":
             ldm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = LDM(config, ldm_rng)
+            self.framework = LDM(config, ldm_rng, self.fS_utils)
         
     def set_step(self, config):
         # framework_config = config['framework']
@@ -58,7 +63,6 @@ class DiffusionFramework():
     def train(self):
         datasets = common_utils.load_dataset_from_tfds()
         datasets_bar = tqdm(datasets, total=self.total_step-self.step)
-        current_learning_rate_schedule=jax_utils.get_learning_rate_schedule(config)
         
         for x, _ in datasets_bar:
             x = jax.device_put(x.numpy())
@@ -78,7 +82,7 @@ class DiffusionFramework():
             datasets_bar.set_description("Step: {step} loss: {loss:.4f}  lr*1e4: {lr:.4f}".format(
                 step=self.step,
                 loss=loss_ema,
-                lr=current_learning_rate_schedule(self.step) * (1e4)
+                lr=self.learning_rate_schedule(self.step) * (1e4)
             ))
 
             if self.step % 1000 == 0:
@@ -91,22 +95,28 @@ class DiffusionFramework():
             # if step % 10000 == 0:
             if self.step % 50000 == 0:
                 # state = state.replace(params_ema = ema_obj.get_ema_params())
-                jax_utils.save_train_state(state, self.fs_utils.get_checkpoint_dir(), self.step)
+                model_state = self.framework.get_model_state()
+
+                jax_utils.save_train_state(
+                    model_state, 
+                    self.fs_utils.get_checkpoint_dir(), 
+                    self.step, 
+                    prefix=self.fs_utils.get_state_prefix(self.model_type))
 
                 # Calculate FID score with 1000 samples
-                fid_score = self.fid_utils.calculate_fid_in_step(self.step, ddpm, state, 5000)
-                if common_utils.get_best_fid(config) >= fid_score:
+                fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
+                if self.fs_utils.get_best_fid() >= fid_score:
                     best_checkpoint_dir = self.fs_utils.get_best_checkpoint_dir()
-                    jax_utils.save_best_state(state, best_checkpoint_dir, step)
+                    jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step)
             
             if self.step >= self.total_step:
                 break
             self.step += 1
 
-    def save_model(self):
-        checkpoint_dir = self.fs_utils.get_checkpoint_dir()
-        state_dict = self.framework.get_model_state() # Dictionary of state
+    # def save_model(self):
+    #     checkpoint_dir = self.fs_utils.get_checkpoint_dir()
+    #     state_dict = self.framework.get_model_state() # Dictionary of state
         
-        for key in state_dict:
-            state = state_dict[key]
-            jax_utils.save_train_state(state, checkpoint_dir,)
+    #     for key in state_dict:
+    #         state = state_dict[key]
+    #         jax_utils.save_train_state(state, checkpoint_dir,)
