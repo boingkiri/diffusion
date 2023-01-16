@@ -1,5 +1,5 @@
-from DDPM.ddpm import DDPM
-from LDM import LDM
+from framework.DDPM.ddpm import DDPM
+from framework.LDM import LDM
 
 import jax
 import jax.numpy as jnp
@@ -21,7 +21,7 @@ class DiffusionFramework():
         self.set_utils(config)
         self.set_model(config)
         self.set_step(config)
-        self.learning_rate_schedule = jax_utils.get_learning_rate_schedule(config)
+        self.learning_rate_schedule = jax_utils.get_learning_rate_schedule(config, model_type)
     
     def set_utils(self, config):
         self.fid_utils = FIDUtils(config)
@@ -31,16 +31,16 @@ class DiffusionFramework():
     def set_model(self, config):
         if self.model_type == 'ddpm':
             ddpm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = DDPM(config, ddpm_rng, self.fS_utils)
+            self.framework = DDPM(config, ddpm_rng, self.fs_utils)
         elif self.model_type == "ldm":
             ldm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = LDM(config, ldm_rng, self.fS_utils)
+            self.framework = LDM(config, ldm_rng, self.fs_utils)
         
     def set_step(self, config):
         # framework_config = config['framework']
         if self.model_type == "ddpm":
-            self.step = self.fs_utils.get_start_step_from_checkpoint()
-            self.total_step = config['framework']['diffusion']['total_step']
+            self.step = self.fs_utils.get_start_step_from_checkpoint() - 1
+            self.total_step = config['framework']['diffusion']['train']['total_step']
         elif self.model_type == "ldm":
             train_idx = config['framework']['train_idx']
             self.step = self.fs_utils.get_start_step_from_checkpoint(idx=train_idx)
@@ -66,9 +66,10 @@ class DiffusionFramework():
         
         for x, _ in datasets_bar:
             x = jax.device_put(x.numpy())
-            loss = self.framework.fit(x)
+            log = self.framework.fit(x)
             
-            loss_ema = loss.item()
+            # loss_ema = loss.item()
+            loss_ema = log['loss']
             # current_ema_decay = ema_obj.ema_update(state.params, step)
             # if current_ema_decay is not None:
             #     ema_decay = current_ema_decay

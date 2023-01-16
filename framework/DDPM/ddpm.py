@@ -12,20 +12,20 @@ from typing import TypedDict
 
 class DDPM(DefaultModel):
     def __init__(self, config, rand_key, fs_obj: FSUtils):
-        super().__init__()
+        super().__init__(config, rand_key)
 
-        self.n_timestep = config['ddpm']['n_timestep']
+        self.n_timestep = config['framework']['diffusion']['n_timestep']
         self.rand_key = rand_key
         self.fs_obj = fs_obj
 
         # Create UNet and its state
-        self.model = UNet(**config['model'])
+        self.model = UNet(**config['model']['diffusion'])
         state_rng, self.rand_key = jax.random.split(rand_key, 2)
-        self.model_state = jax_utils.create_train_state(config, self.model, state_rng)
+        self.model_state = jax_utils.create_train_state(config, 'ddpm', self.model, state_rng)
         self.model_state = fs_obj.load_model_state("ddpm", self.model_state)
 
-        beta = config['ddpm']['beta']
-        loss = config['ddpm']['loss']
+        beta = config['framework']['diffusion']['beta']
+        loss = config['framework']['diffusion']['loss']
 
         # DDPM perturbing configuration
         self.beta = jnp.linspace(beta[0], beta[1], self.n_timestep)

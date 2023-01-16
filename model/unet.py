@@ -3,7 +3,7 @@ from flax import linen as nn
 
 from typing import Tuple, Union, List
 
-from modules import *
+from model.modules import *
 
 
 class UNet(nn.Module):

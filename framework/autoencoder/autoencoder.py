@@ -1,6 +1,6 @@
 from model.autoencoder import AutoEncoder as AEModel
-from discriminator import LPIPSwithDiscriminator_KL
-from framework.default_diffusion import DefaultModel
+from framework.autoencoder.discriminator import LPIPSwithDiscriminator_KL
+# from framework.default_diffusion import DefaultModel
 from utils import jax_utils
 
 import functools

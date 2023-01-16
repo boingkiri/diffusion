@@ -1,6 +1,7 @@
 import argparse
 
-from utils.common_utils import get_config_from_yaml, init_setting
+# from utils.common_utils import get_config_from_yaml, init_setting
+from utils.common_utils import get_config_from_yaml
 from framework.diffusion_framework import DiffusionFramework
 
 
@@ -8,7 +9,7 @@ from jax import random
 
 def start(args):
     args.model = args.model.lower()
-    if config == None:
+    if args.config == None:
         if args.model == "ldm":
             args.config = "configs/ldm.yml"
         elif args.model == "ddpm":

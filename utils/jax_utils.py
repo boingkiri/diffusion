@@ -10,14 +10,22 @@ from typing import Any
 class TrainState(train_state.TrainState):
   params_ema: Any = None
 
-def get_learning_rate_schedule(config):
-  learning_rate = config['train']['learning_rate']
-  if "warmup" in config['train']:
+def get_framework_config(config, model_type):
+  if model_type in ['diffusion', 'ddpm']:
+    framework_config = config['framework']['diffusion']
+  elif model_type in ['autoencoder']:
+    framework_config = config['framework']['autoencoder']
+  return framework_config
+
+def get_learning_rate_schedule(config, model_type):
+  tmp_config = get_framework_config(config, model_type)
+  learning_rate = tmp_config['train']['learning_rate']
+  if "warmup" in tmp_config['train']:
     # start_step = fs_utils.get_start_step_from_checkpoint(config)
     learning_rate = optax.warmup_exponential_decay_schedule(
       init_value=0.0,
       peak_value=learning_rate,
-      warmup_steps=config['train']['warmup'],
+      warmup_steps=tmp_config['train']['warmup'],
       decay_rate=1,
       transition_steps=1
     )
@@ -25,7 +33,7 @@ def get_learning_rate_schedule(config):
     learning_rate = optax.constant_schedule(learning_rate)
   return learning_rate
 
-def create_train_state(config, model, rng):
+def create_train_state(config, model_type, model, rng):
   """
   Creates initial 'TrainState'
   """
@@ -35,11 +43,13 @@ def create_train_state(config, model, rng):
     x=input_format, t=jnp.ones([64,]), train=False)['params']
   
   # Initialize the Adam optimizer
-  learning_rate = get_learning_rate_schedule(config)
-  
+  learning_rate = get_learning_rate_schedule(config, model_type)
+
+  framework_config = get_framework_config(config, model_type)
+
   optax_chain = []
-  if "gradient_clip" in config['train']:
-    optax_chain.append(optax.clip(config['train']['gradient_clip']))
+  if "gradient_clip" in framework_config['train']:
+    optax_chain.append(optax.clip(framework_config['train']['gradient_clip']))
   optax_chain.append(optax.adam(learning_rate))
   tx = optax.chain(
     *optax_chain

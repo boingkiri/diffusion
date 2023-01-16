@@ -1,7 +1,7 @@
 import flax.linen as nn
 
 from typing import Union, Tuple, List 
-from modules import UnetUp, UnetMiddle, UnetDown, Downsample, Upsample
+from model.modules import UnetUp, UnetMiddle, UnetDown, Downsample, Upsample
 
 
 class Encoder(nn.Module):

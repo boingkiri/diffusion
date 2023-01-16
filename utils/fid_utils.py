@@ -5,7 +5,7 @@ import numpy as np
 from utils.fid import inception, fid
 from utils.fs_utils import FSUtils
 # from DDPM import sampling
-from framework.diffusion_framework import DiffusionFramework 
+# from framework.diffusion_framework import DiffusionFramework 
 
 import functools
 import os
@@ -59,7 +59,7 @@ class FIDUtils():
         fid_score = fid.compute_frechet_distance(src_mu, dest_mu, src_sigma, dest_sigma)
         return fid_score
     
-    def calculate_fid_in_step(self, step, model_obj: DiffusionFramework, total_num_samples, batch_size=128):
+    def calculate_fid_in_step(self, step, model_obj, total_num_samples, batch_size=128):
         tmp_dir = self.get_tmp_dir()
         in_process_dir = self.fs_utils.get_in_process_dir(self.config)
         tmp_dir = os.path.join(in_process_dir, "tmp")
