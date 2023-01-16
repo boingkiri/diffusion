@@ -119,7 +119,7 @@ class FSUtils():
                     max_num = num
         return max_num + 1
     
-    def save_comparison(images, steps, savepath):
+    def save_comparison(self, images, steps, savepath):
         images = common_utils.unnormalize_minus_one_to_one(images)
 
         n_images = len(images)
@@ -160,11 +160,18 @@ class FSUtils():
         elif model_type == "diffusion":
             prefix = "diffusion_"
         return prefix
+    
+    # def get_state_step(self, model_type, checkpoint_path=None):
+    #     if checkpoint_path is None:
+    #         checkpoint_path = self.get_checkpoint_dir()
+        
+
 
     def load_model_state(self, model_type, state):
         prefix = self.get_state_prefix(model_type)
         checkpoint_dir = self.get_checkpoint_dir()
-        state = jax_utils.load_state_from_checkpoint_dir(checkpoint_dir, state, prefix)
+        # step = self.get_state_step(model_type)
+        state = jax_utils.load_state_from_checkpoint_dir(checkpoint_dir, state, None, prefix)
         return state
     
     def get_best_fid(self):

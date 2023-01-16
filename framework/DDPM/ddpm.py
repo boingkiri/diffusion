@@ -51,6 +51,9 @@ class DDPM(DefaultModel):
             return state.apply_gradients(grads=grad)
         
         def p_sample_jit(params, perturbed_data, time, dropout_key, normal_key):
+            time = jnp.array(time)
+            time = jnp.repeat(time, perturbed_data.shape[0])
+
             pred_noise = self.model.apply(
                 {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': dropout_key})
 
@@ -98,8 +101,6 @@ class DDPM(DefaultModel):
     
     def p_sample(self, param, xt, t):
         # Sample from p_theta(x_{t-1}|x_t)
-        t = jnp.array(t)
-        t = jnp.repeat(t, xt.shape[0])
 
         key, normal_key, dropout_key = jax.random.split(self.rand_key, 3)
         self.rand_key = key

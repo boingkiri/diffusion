@@ -26,7 +26,7 @@ class FIDUtils():
         return model, params, apply_fn
     
     def get_tmp_dir(self):
-        in_process_dir = self.fs_utils.get_in_process_dir(self.config)
+        in_process_dir = self.fs_utils.get_in_process_dir()
         tmp_dir = os.path.join(in_process_dir, "tmp")
         if not os.path.exists(tmp_dir):
             os.mkdir(tmp_dir) 
@@ -51,7 +51,7 @@ class FIDUtils():
     
     def calculate_fid(self, src_img_path, des_img_path=None):
         if des_img_path is None:
-            dataset_name = self.fs_utils.get_dataset_name(self.config)
+            dataset_name = self.fs_utils.get_dataset_name()
             dest_mu, dest_sigma = self.precompute_dataset(dataset_name)
         else:
             dest_mu, dest_sigma = self.calculate_statistics(des_img_path)
@@ -61,13 +61,13 @@ class FIDUtils():
     
     def calculate_fid_in_step(self, step, model_obj, total_num_samples, batch_size=128):
         tmp_dir = self.get_tmp_dir()
-        in_process_dir = self.fs_utils.get_in_process_dir(self.config)
+        in_process_dir = self.fs_utils.get_in_process_dir()
         tmp_dir = os.path.join(in_process_dir, "tmp")
 
         current_num_samples = 0
         while current_num_samples < total_num_samples:
             sample = model_obj.sampling(batch_size)
-            current_num_samples += self.fs_utils.save_images_to_dir(sample, tmp_dir)
+            current_num_samples += self.fs_utils.save_images_to_dir(sample, tmp_dir, current_num_samples)
 
         fid_score = self.calculate_fid(tmp_dir)
         writing_format = f"FID score of Step {step} : {fid_score:.4f}\n"

@@ -53,10 +53,11 @@ class DiffusionFramework():
         log = self.framework.fit(x)
         return log
 
-    def sampling(self, num_img):
+    def sampling(self, num_img, img_size=None):
         dataset_name = self.fs_utils.get_dataset_name()
-        if dataset_name == "cifar10":
-            img_size = (32, 32, 3)
+        if img_size is None:
+            if dataset_name == "cifar10":
+                img_size = (32, 32, 3)
         sample = self.framework.sampling(num_img, img_size=img_size)
         return sample
     
