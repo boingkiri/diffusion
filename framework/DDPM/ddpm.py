@@ -9,6 +9,7 @@ from utils import jax_utils
 from framework.default_diffusion import DefaultModel
 
 from typing import TypedDict
+from tqdm import tqdm
 
 class DDPM(DefaultModel):
     def __init__(self, config, rand_key, fs_obj: FSUtils):
@@ -133,7 +134,8 @@ class DDPM(DefaultModel):
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
         latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
 
-        for t in reversed(range(self.n_timestep)):
+        pbar = tqdm(reversed(range(self.n_timestep)))
+        for t in pbar:
             normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
             latent_sample = self.p_sample_jit(self.model_state.params, latent_sample, t, normal_key, dropout_key)
         
