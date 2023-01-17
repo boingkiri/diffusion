@@ -109,7 +109,7 @@ class DDPM(DefaultModel):
     def get_model_state(self) -> TypedDict:
         return {"DDPM": self.model_state}
 
-    def fit(self, x0, cond=None):
+    def fit(self, x0, cond=None, step=0):
         batch_size = x0.shape[0]
         key, int_key, normal_key, dropout_key = jax.random.split(self.rand_key, 4)
         self.rand_key = key
