@@ -28,9 +28,7 @@ class EMA():
         self.ema_params = jax.tree_map(
             lambda x, y: current_decay * x + (1 - current_decay) * y,
             self.ema_params, params)
-        
         return current_decay
-
     
     def _clamp(self, value, min_value=None, max_value=None):
         # assert min_value is not None or max_value is not None

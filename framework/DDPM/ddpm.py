@@ -4,8 +4,9 @@ import jax.numpy as jnp
 from flax.training import train_state
 
 from model.unet import UNet
-from utils.fs_utils import FSUtils
 from utils import jax_utils
+from utils.fs_utils import FSUtils
+from utils.ema import EMA
 from framework.default_diffusion import DefaultModel
 
 from typing import TypedDict
@@ -24,6 +25,10 @@ class DDPM(DefaultModel):
         state_rng, self.rand_key = jax.random.split(rand_key, 2)
         self.model_state = jax_utils.create_train_state(config, 'ddpm', self.model, state_rng)
         self.model_state = fs_obj.load_model_state("ddpm", self.model_state)
+
+        # Create ema obj
+        ema_config = config['ema']
+        self.ema_obj = EMA(self.model_state.params, **ema_config)
 
         beta = config['framework']['diffusion']['beta']
         loss = config['framework']['diffusion']['loss']
@@ -108,7 +113,12 @@ class DDPM(DefaultModel):
         return self.p_sample_jit(param, xt, t, normal_key, dropout_key)
     
     def get_model_state(self) -> TypedDict:
-        return {"DDPM": self.model_state}
+        self.set_ema_params_to_state()
+        # return {"DDPM": self.model_state}
+        return self.model_state
+    
+    def set_ema_params_to_state(self):
+        self.model_state = self.model_state.replace(params_ema=self.ema_obj.get_ema_params())
 
     def fit(self, x0, cond=None, step=0):
         batch_size = x0.shape[0]
@@ -124,12 +134,16 @@ class DDPM(DefaultModel):
 
         self.model_state = new_state
 
+        # Update EMA parameters
+        self.ema_obj.ema_update(self.model_state.params, step)
+
         return_dict = {
             "loss": loss
         }
         return return_dict
     
     def sampling(self, num_image, img_size=(32, 32, 3)):
+        self.set_ema_params_to_state()
         latent_sampling_tuple = (num_image, *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
         latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
@@ -137,7 +151,7 @@ class DDPM(DefaultModel):
         pbar = tqdm(reversed(range(self.n_timestep)))
         for t in pbar:
             normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
-            latent_sample = self.p_sample_jit(self.model_state.params, latent_sample, t, normal_key, dropout_key)
+            latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, normal_key, dropout_key)
         
         return latent_sample
     

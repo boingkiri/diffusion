@@ -39,12 +39,16 @@ def create_train_state(config, model_type, model, rng):
   """
   rng, param_rng, dropout_rng = jax.random.split(rng, 3)
   input_format = jnp.ones([1, 32, 32, 3]) 
-  params = model.init({"params": param_rng, 'dropout': dropout_rng}, 
-    x=input_format, t=jnp.ones([64,]), train=False)['params']
+  if model_type == "ddpm":
+    rng_dict = {"params": param_rng, 'dropout': dropout_rng}
+    params = model.init(rng_dict, x=input_format, t=jnp.ones([64,]), train=False)['params']
+  else:
+    rng_dict = {"params": param_rng, 'dropout': dropout_rng}
+    params = model.init(rng_dict, x=input_format, train=False)['params']
+  
   
   # Initialize the Adam optimizer
   learning_rate = get_learning_rate_schedule(config, model_type)
-
   framework_config = get_framework_config(config, model_type)
 
   optax_chain = []

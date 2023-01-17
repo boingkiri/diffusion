@@ -49,8 +49,8 @@ class DiffusionFramework():
             elif train_idx == 1: # Diffusion
                 self.total_step = config['framework']['diffusion']['train']['total_step']
 
-    def fit(self, x):
-        log = self.framework.fit(x)
+    def fit(self, x, cond=None, step=0):
+        log = self.framework.fit(x, step=step)
         return log
 
     def sampling(self, num_img, img_size=None):
@@ -67,7 +67,7 @@ class DiffusionFramework():
         
         for x, _ in datasets_bar:
             x = jax.device_put(x.numpy())
-            log = self.framework.fit(x)
+            log = self.framework.fit(x, step=self.step)
             
             # loss_ema = loss.item()
             loss_ema = log['loss']

@@ -2,6 +2,7 @@ from typing import TypedDict
 
 class DefaultModel():
     def __init__(self, config, random_rng) -> None:
+        self.ema = None
         pass
 
     def fit(self, x, cond=None):
