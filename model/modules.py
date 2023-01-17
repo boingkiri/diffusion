@@ -32,9 +32,10 @@ class ResidualBlock(nn.Module):
         h = nn.Conv(self.out_channels, (3, 3))(h)
 
         # Add time embedding value
-        t = nn.swish(t)
-        t_emb = nn.Dense(self.out_channels)(t)
-        h += t_emb[:, None, None, :]
+        if t is not None:
+            t = nn.swish(t)
+            t_emb = nn.Dense(self.out_channels)(t)
+            h += t_emb[:, None, None, :]
 
         h = nn.GroupNorm(self.n_groups)(h)
         h = nn.swish(h)

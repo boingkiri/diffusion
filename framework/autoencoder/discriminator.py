@@ -19,47 +19,50 @@ def vanilla_d_loss(logits_real, logits_fake):
     return d_loss
 
 class LPIPSwithDiscriminator_KL(nn.Module):
-    def __init__(
-        self, 
-        disc_start, 
-        # codebook_weight=1.0, 
-        logvar_init=0.0,
-        kl_weight=1.0,
-        pixelloss_weight=1.0,
-        disc_num_layers=3,
-        disc_in_channels=3,
-        disc_factor=1.0,
-        disc_weight=1.0,
-        perceptual_weight=1.0,
-        use_actnorm=False,
-        disc_conditional=False,
-        disc_ndf=64,
-        disc_loss='hinge'
-    ) -> None:
+    # def __init__(
+    #     self, 
+    #     disc_start, 
+    #     # codebook_weight=1.0, 
+    #     logvar_init=0.0,
+    #     kl_weight=1.0,
+    #     pixelloss_weight=1.0,
+    #     disc_num_layers=3,
+    #     disc_in_channels=3,
+    #     disc_factor=1.0,
+    #     disc_weight=1.0,
+    #     perceptual_weight=1.0,
+    #     use_actnorm=False,
+    #     disc_conditional=False,
+    #     disc_ndf=64,
+    #     disc_loss='hinge'
+    # ) -> None:
+    disc_start: int
+    # codebook_weight=1.0, 
+    logvar_init=0.0
+    kl_weight=1.0
+    pixelloss_weight=1.0
+    disc_num_layers=3
+    disc_in_channels=3
+    disc_factor=1.0
+    disc_weight=1.0
+    perceptual_weight=1.0
+    use_actnorm=False
+    disc_conditional=False
+    disc_ndf=64
+    disc_loss='hinge'
 
-        self.logvar_init = logvar_init
-        self.kl_weight = kl_weight
-
-        # self.codebook_weight = codebook_weight
-        self.pixelloss_weight = pixelloss_weight
-        self.perceptual_weight = perceptual_weight
-
+    def setup(self):
         self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16')
         self.discriminator = NLayerDiscriminator(
-            input_nc=disc_in_channels,
-            n_layers=disc_num_layers,
-            use_actnorm=use_actnorm,
-            ndf=disc_ndf
+            input_nc=self.disc_in_channels,
+            ndf=self.disc_ndf,
+            n_layers=self.disc_num_layers,
+            use_actnorm=self.use_actnorm,
         )
-
-        self.discriminator_iter_start = disc_start
-        if disc_loss == "hinge":
+        if self.disc_loss == "hinge":
             self.disc_loss = hinge_d_loss
-        elif disc_loss == "vanilla":
+        elif self.disc_loss == "vanilla":
             self.disc_loss = vanilla_d_loss
-        self.disc_factor = disc_factor
-        self.discriminator_weight = disc_weight
-        self.disc_conditional = disc_conditional
     
     def calculate_adaptive_weight(self, nll_loss, g_loss, last_layer=None):
         if last_layer is not None:
@@ -71,7 +74,7 @@ class LPIPSwithDiscriminator_KL(nn.Module):
 
         d_weight = jnp.linalg.norm(nll_grads) / (jnp.linalg.norm(g_grads) + 1e-4)
         d_weight = jnp.clip(d_weight, 0.0, 1e4)
-        d_weight = d_weight * self.discriminator_weight
+        d_weight = d_weight * self.disc_weight
         return d_weight
 
     def adopt_weight(self, weight, global_step, threshold=0, value=0.):
@@ -114,7 +117,7 @@ class LPIPSwithDiscriminator_KL(nn.Module):
                 d_weight = self.calculate_adaptive_weight(nll_loss, g_loss, last_layer=last_layer)
             else:
                 d_weight = jnp.array(0.0)
-            disc_factor = self.adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
+            disc_factor = self.adopt_weight(self.disc_factor, global_step, threshold=self.disc_start)
             loss = weighted_nll_loss + self.kl_weight * kl_loss + d_weight * disc_factor * g_loss
             log = {
                 "{}/total_loss".format(split): jnp.mean(loss), 
@@ -139,7 +142,7 @@ class LPIPSwithDiscriminator_KL(nn.Module):
             logits_real = self.discriminator(d_inputs)
             logits_fake = self.discriminator(d_reconstructions)
 
-            disc_factor = self.adopt_weight(self.disc_factor, global_step, threshold=self.discriminator_iter_start)
+            disc_factor = self.adopt_weight(self.disc_factor, global_step, threshold=self.disc_start)
             d_loss = disc_factor * self.disc_loss(logits_real, logits_fake)
 
             log = {
@@ -154,12 +157,12 @@ class NLayerDiscriminator(nn.Module):
     """Defines a PatchGAN discriminator as in Pix2Pix
         --> see https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/models/networks.py
     """
-    input_nc = 3
-    ndf = 64
-    n_layers = 3
+    input_nc: int = 3
+    ndf: int = 64
+    n_layers: int = 3
     # Actnorm is used in taming github, I will use just batchNorm instead
-    use_actnorm = False
-    use_bias = use_actnorm
+    use_actnorm: bool = False
+    use_bias: bool = False
 
     @nn.compact
     def call(self, x):

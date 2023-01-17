@@ -5,6 +5,8 @@ exp:
   sampling_dir: "sampling"
   in_process_dir : "in_process"
   checkpoint_dir: "checkpoints"
+  checkpoint_prefix: ['ae_', 'diffusion_']
+
 dataset: "cifar10"
 
 # Define configuration of model
@@ -17,6 +19,8 @@ model:
     n_blocks: 2
     dropout_rate: 0.1
     n_heads: 4
+    n_groups: 32
+    embed_dim: 3
 
   diffusion:
     image_channels: 3
@@ -26,12 +30,13 @@ model:
     n_blocks: 2
     dropout_rate: 0.1
     n_heads: 4
+    n_groups: 32
 
 # Define DDPM
 framework:
   train_idx: 1 # 1 (AE) or 2 (Diffusion). This is only for ldm. Selected model will be trained. 
   autoencoder:
-    loss: "KL" # VQ or KL
+    mode: "KL" # VQ or KL
     train:
       learning_rate: 2.0e-4
       gradient_clip: 1.0

@@ -1,33 +1,31 @@
 from framework.DDPM.ddpm import DDPM
-from framework.autoencoder.autoencoder import AutoEncoder
-
-# from utils import jax_utils
+from framework.autoencoder.autoencoder import AutoEncoderKL
 
 import jax
-# import jax.numpy as jnp
 
 from framework.default_diffusion import DefaultModel 
 
 class LDM(DefaultModel):
     def __init__(self, config, rand_key, fs_obj):
-        super().__init__()
+        super().__init__(config, rand_key)
         self.framework_config = config['framework']
         self.random_key = rand_key
         self.first_stage_model = None
         self.diffusion_model = None
 
-        ae_key, self.random_key = self.random_key.split(2)
+        self.fs_obj = fs_obj
 
-        self.first_stage_model = AutoEncoder(config, ae_key)
+        ae_key, self.random_key = jax.random.split(self.random_key, 2)
+
+        self.first_stage_model = AutoEncoderKL(config, ae_key)
 
         if self.get_train_order() == 2:
-            ddpm_key, self.random_key = self.random_key.split(2)
+            ddpm_key, self.random_key = jax.random.split(self.random_key, 2)
             self.diffusion_model = DDPM(config, ddpm_key)
         
         def sample_fn(num_img, img_size=(32, 32, 3)):
             sample = self.diffusion_model.sampling(num_img, img_size)
             sample = self.first_stage_model.decoder_forward(sample)
-
             return sample
         
         self.sampling_jit = jax.jit(sample_fn)
@@ -44,10 +42,10 @@ class LDM(DefaultModel):
     def get_train_order(self):
         return self.framework_config['train_order']
 
-    def fit(self, x0, cond=None):
+    def fit(self, x0, cond=None, step=0):
         if self.get_train_order() == 1:
             # GAN will be used
-            g_log, d_log = self.first_stage_model.fit(x0, cond)
+            g_log, d_log = self.first_stage_model.fit(x0, cond, step)
             return g_log, d_log
         elif self.get_train_order() == 2:
             # self.
