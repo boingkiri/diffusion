@@ -5,7 +5,7 @@ class DiagonalGaussianDistribution():
     def __init__(self, parameters, rand_rng, deterministic=False):
         self.parameters = parameters # jnp array
         self.rand_rng = rand_rng
-        self.mean, self.logvar = jnp.split(parameters, 2, dim=-1)
+        self.mean, self.logvar = jnp.split(parameters, 2, axis=-1)
         self.logvar = jnp.clip(self.logvar, -30.0, 20.0)
         self.deterministic = deterministic
         self.std = jnp.exp(0.5 * self.logvar)
@@ -32,13 +32,13 @@ class DiagonalGaussianDistribution():
                 + self.var / other.var - 1.0 - self.logvar + other.logvar, 
                 axis=[1, 2, 3]
             )
-    def nll(self, sample, dims=[1, 2, 3]):
+    def nll(self, sample, axis=[1, 2, 3]):
         if self.deterministic:
             return jnp.array([0.])
         logtwopi = jnp.log(2.0 * jnp.pi)
         return 0.5 * jnp.sum(
             logtwopi + self.logvar + jnp.power(sample - self.mean, 2) / self.var,
-            dim=dims
+            axis=axis
         )
     
     def mode(self):

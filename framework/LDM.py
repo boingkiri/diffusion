@@ -16,7 +16,6 @@ class LDM(DefaultModel):
         self.fs_obj = fs_obj
 
         ae_key, self.random_key = jax.random.split(self.random_key, 2)
-
         self.first_stage_model = AutoEncoderKL(config, ae_key)
 
         if self.get_train_order() == 2:
@@ -40,7 +39,7 @@ class LDM(DefaultModel):
             NotImplementedError("LDM has only 2 stages.")
     
     def get_train_order(self):
-        return self.framework_config['train_order']
+        return self.framework_config['train_idx']
 
     def fit(self, x0, cond=None, step=0):
         if self.get_train_order() == 1:

@@ -1,4 +1,5 @@
 import flax.linen as nn
+import jax
 
 from typing import Union, Tuple, List 
 from model.modules import UnetUp, UnetMiddle, UnetDown, Downsample, Upsample
@@ -48,26 +49,59 @@ class Decoder(nn.Module):
     n_heads: int = 1,
     n_groups: int= 8
     
-    @nn.compact
-    def __call__(self, x, train):
-        t = None
+    def setup(self):
         n_resolution = len(self.ch_mults)
 
-        # x = nn.Conv(self.n_channels * self.ch_mults[-1], (3, 3))(x)
-        x = nn.Conv(self.n_channels, (3, 3))(x)
-        x = UnetMiddle(self.n_channels * self.ch_mults[-1], dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
-        
+        self.conv_in = nn.Conv(self.n_channels, (3, 3))
+        self.unet_middle = UnetMiddle(self.n_channels * self.ch_mults[-1], dropout_rate=self.dropout_rate, n_groups=self.n_groups)
+        tmp_list = []
+
         for i in reversed(range(n_resolution)):
             out_channels = self.n_channels * self.ch_mults[i]
             for _ in range(self.n_blocks):
-                x = UnetUp(out_channels, self.is_atten[i], dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
+                tmp_list.append(
+                    UnetUp(out_channels, self.is_atten[i], dropout_rate=self.dropout_rate, n_groups=self.n_groups))
             if i > 0:
                 out_channels = self.n_channels * self.ch_mults[i - 1]
-                x = Upsample(out_channels)(x)
+                tmp_list.append(
+                    Upsample(out_channels)
+                )
 
-        x = nn.GroupNorm(self.n_groups)(x)
+        self.module_list = tuple(tmp_list)
+        
+        self.norm = nn.GroupNorm(self.n_groups)
+        self.conv_out = nn.Conv(self.image_channels, (3, 3))
+
+    def get_last_layer(self):
+        return self.conv_out
+
+    # @nn.compact
+    def __call__(self, x, train):
+        t = None
+        # n_resolution = len(self.ch_mults)
+
+        # x = nn.Conv(self.n_channels * self.ch_mults[-1], (3, 3))(x)
+        # x = nn.Conv(self.n_channels, (3, 3))(x)
+        x = self.conv_in(x)
+        # x = UnetMiddle(self.n_channels * self.ch_mults[-1], dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
+        x = self.unet_middle(x, t, train)
+        # for i in reversed(range(n_resolution)):
+        #     out_channels = self.n_channels * self.ch_mults[i]
+        #     for _ in range(self.n_blocks):
+        #         x = UnetUp(out_channels, self.is_atten[i], dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
+        #     if i > 0:
+        #         out_channels = self.n_channels * self.ch_mults[i - 1]
+        #         x = Upsample(out_channels)(x)
+        # x = self.module_list(x, t=t, train=train)
+        for module in self.module_list:
+            if type(module) is UnetUp:
+                x = module(x, t, train)
+            elif type(module) is Upsample:
+                x = module(x)
+
+        x = self.norm(x)
         x = nn.swish(x)
-        x = nn.Conv(self.image_channels, (3, 3))(x)
+        x = self.conv_out(x)
 
         return x
 
@@ -100,15 +134,17 @@ class AutoEncoderKL(nn.Module):
         self.quant_conv = nn.Conv(2 * self.embed_dim, (1, 1))
         self.post_quant_conv = nn.Conv(self.image_channels, (1, 1))
     
-    def encoder(self, x, train, kl_rng) -> DiagonalGaussianDistribution:
+    def encoder(self, x, train) -> DiagonalGaussianDistribution:
         h = self.encoder_model(x, train)
         moments = self.quant_conv(h)
+        kl_rng = self.make_rng('gaussian')
         posterior = DiagonalGaussianDistribution(moments, kl_rng)
         return posterior
 
     def decoder(self, z, train):
+        z = self.post_quant_conv(z)
         return self.decoder_model(z, train)
-
+    
     def __call__(self, x, train, sample_posterior=True):
         posterior = self.encoder(x, train)
 
@@ -117,6 +153,8 @@ class AutoEncoderKL(nn.Module):
         else:
             z = posterior.mode()
         x_rec = self.decoder(z, train)
+        # last_layer = self.decoder_model.variables['params']['Conv_1']['kernel']
+        # breakpoint()
         # z = self.encoder_model(x, train)
         # x_rec = self.decoder_model(z, train)
         return x_rec, posterior

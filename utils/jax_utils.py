@@ -5,6 +5,8 @@ import jax.numpy as jnp
 import optax
 from flax.training import checkpoints
 
+from framework.autoencoder.distribution import DiagonalGaussianDistribution
+
 from typing import Any
 
 class TrainState(train_state.TrainState):
@@ -13,8 +15,14 @@ class TrainState(train_state.TrainState):
 def get_framework_config(config, model_type):
   if model_type in ['diffusion', 'ddpm']:
     framework_config = config['framework']['diffusion']
+  # elif model_type in ['autoencoder']:
   elif model_type in ['autoencoder']:
     framework_config = config['framework']['autoencoder']
+  elif model_type in ['ldm']:
+    if config['framework']['train_idx'] == 1:
+      framework_config = config['framework']['autoencoder']
+    elif config['framework']['train_idx'] == 2:
+      framework_config = config['framework']['diffusion']
   return framework_config
 
 def get_learning_rate_schedule(config, model_type):
@@ -42,10 +50,20 @@ def create_train_state(config, model_type, model, rng):
   if model_type == "ddpm":
     rng_dict = {"params": param_rng, 'dropout': dropout_rng}
     params = model.init(rng_dict, x=input_format, t=jnp.ones([64,]), train=False)['params']
-  else:
-    rng_dict = {"params": param_rng, 'dropout': dropout_rng}
+  elif model_type == "autoencoder":
+    rng, gaussian_rng = jax.random.split(rng, 2)
+    rng_dict = {"params": param_rng, 'dropout': dropout_rng, 'gaussian': gaussian_rng}
     params = model.init(rng_dict, x=input_format, train=False)['params']
-  
+  elif model_type == "discriminator":
+    kl_rng, rng = jax.random.split(rng, 2)
+    input_format2 = jnp.ones([1, 32, 32, 6]) 
+    input_format3 = jnp.ones([1, 32, 32, 3]) 
+    last_layer_format = jnp.ones([3, 3, 128, 3]) 
+    
+    diagonal = DiagonalGaussianDistribution(input_format2, kl_rng)
+    rng_dict = {"params": param_rng, 'dropout': dropout_rng}
+    params = model.init(rng_dict, inputs=input_format3, reconstructions=input_format3, 
+                        posteriors=diagonal, optimizer_idx=0, global_step=0, last_layer=last_layer_format)['params']
   
   # Initialize the Adam optimizer
   learning_rate = get_learning_rate_schedule(config, model_type)

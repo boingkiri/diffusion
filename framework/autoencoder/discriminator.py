@@ -52,17 +52,19 @@ class LPIPSwithDiscriminator_KL(nn.Module):
     disc_loss='hinge'
 
     def setup(self):
-        self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16')
+        self.perceptual_loss = lpips_jax.LPIPSEvaluator(replicate=False, net='vgg16')
         self.discriminator = NLayerDiscriminator(
             input_nc=self.disc_in_channels,
             ndf=self.disc_ndf,
             n_layers=self.disc_num_layers,
             use_actnorm=self.use_actnorm,
         )
+        self.logvar_dense = nn.Dense(1, use_bias=False, kernel_init=nn.initializers.zeros)
         if self.disc_loss == "hinge":
             self.disc_loss = hinge_d_loss
         elif self.disc_loss == "vanilla":
             self.disc_loss = vanilla_d_loss
+        
     
     def calculate_adaptive_weight(self, nll_loss, g_loss, last_layer=None):
         if last_layer is not None:
@@ -89,14 +91,15 @@ class LPIPSwithDiscriminator_KL(nn.Module):
         if self.perceptual_weight > 0:
             p_loss = self.perceptual_loss(inputs, reconstructions)
             rec_loss += self.perceptual_weight * p_loss
-        dummy_input = 1.
-        logvar = nn.Dense(1, use_bias=False, kernel_init=nn.initializers.zeros)(dummy_input)
+        dummy_input = jnp.array([1.])
+        logvar = self.logvar_dense(dummy_input)
         nll_loss = rec_loss / jnp.exp(logvar) + logvar
         weighted_nll_loss = nll_loss
         if weights is not None:
             weighted_nll_loss = nll_loss * weights
 
         weighted_nll_loss = jnp.sum(weighted_nll_loss) / weighted_nll_loss.shape[0]
+        
         nll_loss = jnp.sum(nll_loss) / nll_loss.shape[0]
         kl_loss = posteriors.kl()
         kl_loss = jnp.sum(kl_loss) / kl_loss.shape[0]
@@ -165,10 +168,10 @@ class NLayerDiscriminator(nn.Module):
     use_bias: bool = False
 
     @nn.compact
-    def call(self, x):
+    def __call__(self, x):
         kw = 4
         padw = 1
-        norm_layer = nn.BatchNorm
+        # norm_layer = nn.BatchNorm
         x = nn.Conv(
             self.ndf, 
             (kw, kw), 
@@ -184,9 +187,9 @@ class NLayerDiscriminator(nn.Module):
                 (kw, kw), 
                 strides=2, 
                 padding=padw, 
-                bias=self.use_bias,
+                use_bias=self.use_bias,
                 kernel_init=nn.initializers.normal(0.02))(x)
-            x = norm_layer()(x)
+            x = nn.BatchNorm(use_running_average=False)(x)
             x = nn.leaky_relu(x, 0.2)
         
         nf_mult = min(2 ** self.n_layers, 8)
@@ -195,9 +198,9 @@ class NLayerDiscriminator(nn.Module):
             (kw, kw), 
             strides=2, 
             padding=padw, 
-            bias=self.use_bias,
+            use_bias=self.use_bias,
             kernel_init=nn.initializers.normal(0.02))(x)
-        x = norm_layer()(x)
+        x = nn.BatchNorm(use_running_average=False)(x)
         x = nn.leaky_relu(x, 0.2)
 
         x = nn.Conv(
