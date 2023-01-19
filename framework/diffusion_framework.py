@@ -71,16 +71,6 @@ class DiffusionFramework():
             
             # loss_ema = loss.item()
             loss_ema = log['loss']
-            # current_ema_decay = ema_obj.ema_update(state.params, step)
-            # if current_ema_decay is not None:
-            #     ema_decay = current_ema_decay
-            
-            # datasets_bar.set_description("Step: {step} loss: {loss:.4f} EMA decay: {ema_decay:.4f} lr*1e4: {lr:.4f}".format(
-            #     step=step,
-            #     loss=loss_ema,
-            #     ema_decay=ema_decay,
-            #     lr=current_learning_rate_schedule(step) * (1e4)
-            # ))
             datasets_bar.set_description("Step: {step} loss: {loss:.4f}  lr*1e4: {lr:.4f}".format(
                 step=self.step,
                 loss=loss_ema,
@@ -114,11 +104,3 @@ class DiffusionFramework():
             if self.step >= self.total_step:
                 break
             self.step += 1
-
-    # def save_model(self):
-    #     checkpoint_dir = self.fs_utils.get_checkpoint_dir()
-    #     state_dict = self.framework.get_model_state() # Dictionary of state
-        
-    #     for key in state_dict:
-    #         state = state_dict[key]
-    #         jax_utils.save_train_state(state, checkpoint_dir,)

@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 
+from functools import partial
 
 def hinge_d_loss(logits_real, logits_fake):
     loss_real = jnp.mean(nn.relu(1. - logits_real))
@@ -35,50 +36,71 @@ class LPIPSwithDiscriminator_KL(nn.Module):
 
     def setup(self):
         self.perceptual_loss = lpips_jax.LPIPSEvaluator(replicate=False, net='vgg16')
+        # self.discriminator = nn.scan(
+        #     NLayerDiscriminator, 
+        #     variable_broadcast="params",
+        #     split_rngs={"params": False}
+        # )(
+        #     input_nc=self.disc_in_channels,
+        #     ndf=self.disc_ndf,
+        #     n_layers=self.disc_num_layers,
+        #     use_actnorm=self.use_actnorm,
+        # )
         self.discriminator = NLayerDiscriminator(
             input_nc=self.disc_in_channels,
             ndf=self.disc_ndf,
             n_layers=self.disc_num_layers,
             use_actnorm=self.use_actnorm,
         )
+        # self.discriminator = 
         self.logvar_dense = nn.Dense(1, use_bias=False, kernel_init=nn.initializers.zeros)
         if self.disc_loss == "hinge":
             self.disc_loss = hinge_d_loss
         elif self.disc_loss == "vanilla":
             self.disc_loss = vanilla_d_loss
+
+
+        def nll_loss_fn(inputs, reconstructions, g_params=None):
+            rec_loss = jnp.absolute(inputs - reconstructions)
+            if self.perceptual_weight > 0:
+                p_loss = self.perceptual_loss(inputs, reconstructions)
+                rec_loss += self.perceptual_weight * p_loss
+            dummy_input = jnp.array([1.])
+            logvar = self.logvar_dense(dummy_input)
+            nll_loss = rec_loss / jnp.exp(logvar) + logvar
+            nll_loss = jnp.sum(nll_loss) / nll_loss.shape[0]
+            return nll_loss
+        
+        def generator_d_loss_fn(reconstructions, cond=None, g_params=None, discriminator_model=self.discriminator):
+            if cond is None:
+                assert not self.disc_conditional
+                d_inputs = reconstructions
+            else:
+                assert self.disc_conditional
+                d_inputs = jnp.concatenate((reconstructions, cond), axis=-1)
+            d_loss = discriminator_model(d_inputs)
+            d_loss_mean = -jnp.mean(d_loss)
+            return d_loss_mean
+        
+        # self, input, reconstructions, *g_params*
+        self.nll_loss_and_grad = jax.value_and_grad(nll_loss_fn, argnums=2)
+        # self.nll_loss = nll_loss_fn
+        # self, reconstructions, cond, *g_params*
+        self.generator_d_loss_and_grad = jax.value_and_grad(generator_d_loss_fn, argnums=2)
+        # self.generator_d_loss = generator_d_loss_fn
+
     
     def calculate_adaptive_weight(self, nll_grads, g_grads):
+        nll_grads = nll_grads['decoder_model']['conv_out']['kernel']
+        g_grads = g_grads['decoder_model']['conv_out']['kernel']
         d_weight = jnp.linalg.norm(nll_grads) / (jnp.linalg.norm(g_grads) + 1e-4)
         d_weight = jnp.clip(d_weight, 0.0, 1e4)
         d_weight = d_weight * self.disc_weight
         return d_weight
 
     def adopt_weight(self, weight, global_step, threshold=0, value=0.):
-        if global_step < threshold:
-            weight = value
+        weight = jnp.where(global_step < threshold, value, weight)
         return weight
-    
-    def nll_loss(self, inputs, reconstructions):
-        rec_loss = jnp.absolute(inputs - reconstructions)
-        if self.perceptual_weight > 0:
-            p_loss = self.perceptual_loss(inputs, reconstructions)
-            rec_loss += self.perceptual_weight * p_loss
-        dummy_input = jnp.array([1.])
-        logvar = self.logvar_dense(dummy_input)
-        nll_loss = rec_loss / jnp.exp(logvar) + logvar
-        nll_loss = jnp.sum(nll_loss) / nll_loss.shape[0]
-        return nll_loss
-    
-    def generator_d_loss(self, reconstructions, cond=None):
-        if cond is None:
-            assert not self.disc_conditional
-            d_inputs = reconstructions
-        else:
-            assert self.disc_conditional
-            d_inputs = jnp.concatenate((reconstructions, cond), axis=-1)
-        d_loss = self.discriminator(d_inputs)
-        d_loss_mean = -jnp.mean(d_loss)
-        return d_loss_mean
     
     def discriminator_d_loss(self, inputs, reconstructions, cond=None):
         if cond is None:
@@ -129,50 +151,49 @@ class LPIPSwithDiscriminator_KL(nn.Module):
             }
         return disc_loss, log
 
-    def __call__(self, inputs, reconstructions, posteriors, optimizer_idx,
-                 global_step, cond=None, split='train', weights=None):
-        nll_loss = self.nll_loss(inputs, reconstructions)
+    def __call__(self, inputs, reconstructions, posteriors_kl, optimizer_idx,
+                 global_step, cond=None, split='train', weights=None, g_params=None):
+        nll_loss, nll_grad = self.nll_loss_and_grad(inputs, reconstructions, g_params)
+        # nll_loss = self.nll_loss(inputs, reconstructions, g_params)
         weighted_nll_loss = nll_loss
         if weights is not None:
             weighted_nll_loss = nll_loss * weights
 
         # weighted_nll_loss = jnp.sum(weighted_nll_loss) / weighted_nll_loss.shape[0]
         # nll_loss = jnp.sum(nll_loss) / nll_loss.shape[0]
-        kl_loss = posteriors.kl()
+        # kl_loss = posteriors.kl()
+        kl_loss = posteriors_kl
         kl_loss = jnp.sum(kl_loss) / kl_loss.shape[0]
 
         # GAN update
-        if optimizer_idx == 0:
-            # generator update
-            # if cond is None:
-            #     assert not self.disc_conditional
-            #     d_inputs = reconstructions
-            # else:
-            #     assert self.disc_conditional
-            #     d_inputs = jnp.concatenate((reconstructions, cond), axis=-1)
-            # logits_fake = self.discriminator(d_inputs)
-            # g_loss = -jnp.mean(logits_fake)
-            g_loss = self.generator_d_loss(d_inputs, cond)
-
-            if self.disc_factor > 0.0:
-                d_weight = self.calculate_adaptive_weight(nll_loss, g_loss, last_layer=last_layer)
+        def generator_process(discriminator_model):
+            g_loss, g_grad = self.generator_d_loss_and_grad(reconstructions, cond, g_params, discriminator_model)
+            # g_loss = self.generator_d_loss(reconstructions, cond, g_params)
+            if self.disc_factor > 0.0 and optimizer_idx == 0:
+                d_weight = self.calculate_adaptive_weight(nll_grad, g_grad)
             else:
                 d_weight = jnp.array(1.0)
             disc_factor = self.adopt_weight(self.disc_factor, global_step, threshold=self.disc_start)
             loss = weighted_nll_loss + self.kl_weight * kl_loss + d_weight * disc_factor * g_loss
             log = {
-                "{}/total_loss".format(split): jnp.mean(loss), 
-                # "{}/logvar".format(split): logvar,
-                "{}/kl_loss".format(split): jnp.mean(kl_loss), 
-                "{}/nll_loss".format(split): jnp.mean(nll_loss),
+                "{}/type": 0,
+                "{}/0_total_loss".format(split): jnp.mean(loss), 
+                "{}/0_kl_loss".format(split): jnp.mean(kl_loss), 
+                "{}/0_nll_loss".format(split): jnp.mean(nll_loss),
+                "{}/0_d_weight".format(split): d_weight,
+                "{}/0_disc_factor".format(split): disc_factor,
+                "{}/0_g_loss".format(split): jnp.mean(g_loss),
+                # "{}/logvar".format(split): self.logvar_dense.variable(),
                 # "{}/rec_loss".format(split): jnp.mean(rec_loss),
-                "{}/d_weight".format(split): d_weight,
-                "{}/disc_factor".format(split): disc_factor,
-                "{}/g_loss".format(split): jnp.mean(g_loss),
+                "{}/1_disc_loss".format(split): 0.0,
+                "{}/1_logits_real".format(split): 0.0,
+                "{}/1_logits_fake".format(split): 0.0
+
+
             }
             return loss, log
-
-        else:
+        
+        def discriminator_process(discriminator_model):
             if cond is None:
                 d_inputs = inputs
                 d_reconstructions = reconstructions
@@ -180,18 +201,31 @@ class LPIPSwithDiscriminator_KL(nn.Module):
                 d_inputs = jnp.concatenate((inputs, cond), axis=-1)
                 d_reconstructions = jnp.concatenate((reconstructions, cond), axis=-1)
 
-            logits_real = self.discriminator(d_inputs)
-            logits_fake = self.discriminator(d_reconstructions)
+            # logits_real = self.discriminator(d_inputs)
+            # logits_fake = self.discriminator(d_reconstructions)
+            logits_real = discriminator_model(d_inputs)
+            logits_fake = discriminator_model(d_reconstructions)
 
             disc_factor = self.adopt_weight(self.disc_factor, global_step, threshold=self.disc_start)
             d_loss = disc_factor * self.disc_loss(logits_real, logits_fake)
 
             log = {
-                "{}/disc_loss".format(split): jnp.mean(d_loss),
-                "{}/logits_real".format(split): jnp.mean(logits_real),
-                "{}/logits_fake".format(split): jnp.mean(logits_fake)
+                "{}/type": 1,
+                "{}/0_total_loss".format(split): 0.0, 
+                "{}/0_kl_loss".format(split): 0.0, 
+                "{}/0_nll_loss".format(split): 0.0,
+                "{}/0_d_weight".format(split): 0.0,
+                "{}/0_disc_factor".format(split): 0.0,
+                "{}/0_g_loss".format(split): 0.0,
+                ####
+                "{}/1_disc_loss".format(split): jnp.mean(d_loss),
+                "{}/1_logits_real".format(split): jnp.mean(logits_real),
+                "{}/1_logits_fake".format(split): jnp.mean(logits_fake)
             }
             return d_loss, log
+        
+        loss, log = nn.cond(optimizer_idx == 0, generator_process, discriminator_process, self.discriminator)
+        return loss, log
 
 
 class NLayerDiscriminator(nn.Module):
@@ -229,7 +263,6 @@ class NLayerDiscriminator(nn.Module):
                 kernel_init=nn.initializers.normal(0.02))(x)
             # x = nn.BatchNorm(use_running_average=not train)(x)
             # Instead of using Batchnorm, I use Layernorm for implementation simplicity
-            # x = nn.LayerNorm()(x)
             x = nn.GroupNorm(num_groups=32)(x)
             x = nn.leaky_relu(x, 0.2)
         

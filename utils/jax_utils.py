@@ -4,13 +4,38 @@ import jax
 import jax.numpy as jnp
 import optax
 from flax.training import checkpoints
+import flax.linen as nn
 
 from framework.autoencoder.distribution import DiagonalGaussianDistribution
 
 from typing import Any
+from functools import partial
 
 class TrainState(train_state.TrainState):
   params_ema: Any = None
+
+class GradModule(nn.Module):
+  module: nn.Module
+  kwargs: dict
+  argnums: int = 0
+  has_aux: bool = False
+  holomorphic: bool = False
+  allow_int: bool = False
+  reduce_axes=()
+  
+  def setup(self):
+    self.created_module = self.module(**self.kwargs)
+  
+  def __call__(self, input_kwargs):
+    return jax.grad(
+      self.created_module,
+      argnums=self.argnums,
+      has_aux=self.has_aux,
+      holomorphic=self.holomorphic,
+      allow_int=self.allow_int,
+      reduce_axes=self.reduce_axes)(**input_kwargs)
+  
+
 
 def get_framework_config(config, model_type):
   if model_type in ['diffusion', 'ddpm']:
@@ -43,7 +68,7 @@ def get_learning_rate_schedule(config, model_type):
     learning_rate = optax.constant_schedule(learning_rate)
   return learning_rate
 
-def create_train_state(config, model_type, model, rng):
+def create_train_state(config, model_type, model, rng, aux_data=None):
   """
   Creates initial 'TrainState'
   """
@@ -57,16 +82,28 @@ def create_train_state(config, model_type, model, rng):
     rng_dict = {"params": param_rng, 'dropout': dropout_rng, 'gaussian': gaussian_rng}
     params = model.init(rng_dict, x=input_format, train=False)['params']
   elif model_type == "discriminator":
+    # aux_data : generator_model, generator_params
+
     kl_rng, rng = jax.random.split(rng, 2)
-    input_format2 = jnp.ones([1, 32, 32, 6]) 
     input_format3 = jnp.ones([1, 32, 32, 3]) 
-    last_layer_format = jnp.ones([3, 3, 128, 3]) 
-    
-    diagonal = DiagonalGaussianDistribution(input_format2, kl_rng)
-    rng_dict = {"params": param_rng, 'dropout': dropout_rng}
-    params = model.init(rng_dict, inputs=input_format3, reconstructions=input_format3, 
-                        posteriors=diagonal, optimizer_idx=0, global_step=0)['params']
-  
+
+    generator_model: nn.Module = aux_data[0]
+    generator_params = aux_data[1]
+    def experiment():
+      reconstructions, posteriors = generator_model.apply(
+        {"params": generator_params},
+        x=input_format,
+        train=False,
+        rngs={'gaussian': kl_rng}
+      )
+      rng_dict = {"params": param_rng, 'dropout': dropout_rng}
+      # return model.init(rng_dict, inputs=input_format3, reconstructions=reconstructions, 
+      #                     posteriors=posteriors, optimizer_idx=0, global_step=0, g_params=generator_params)['params']
+      posteriors_kl = posteriors.kl()
+      return model.init(rng_dict, inputs=input_format3, reconstructions=reconstructions, 
+                          posteriors_kl=posteriors_kl, optimizer_idx=0, global_step=0, g_params=generator_params)
+    experiment_fn_jit = jax.jit(experiment)
+    params = experiment_fn_jit()['params']
   # Initialize the Adam optimizer
   learning_rate = get_learning_rate_schedule(config, model_type)
   framework_config = get_framework_config(config, model_type)

@@ -13,47 +13,33 @@ from typing import TypedDict
 
 
 def generator_loss(g_params, d_params, autoencoder: nn.Module, discriminator: nn.Module, x, step, kl_rng):
-    def nll_and_d_loss(g_params, x, kl_rng):
-        rng = {'gaussian': kl_rng}
-        x_rec, posteriors = autoencoder.apply({"params": g_params}, x=x, train=True, rngs=rng)
-        nll_loss = discriminator.apply(
-            {"params": d_params}, inputs=x, reconstructions=x_rec, method=discriminator.nll_loss)
-        g_loss = discriminator.apply(
-            {"params": d_params}, reconstructions=x_rec, method=discriminator.generator_d_loss)
-        losses = jnp.zeros(2)
-        losses = losses.at[0].set(nll_loss)
-        losses = losses.at[1].set(g_loss)
-        return losses, (x_rec, posteriors)
-    
-    losses_fn = jax.jit(jax.value_and_grad(nll_and_d_loss, has_aux=True))
-
-    (_, (x_rec, posteriors)), grad = losses_fn(g_params, x, kl_rng)
-    nll_loss, g_loss = losses_fn[0], losses_fn[1]
-    nll_grad, g_grad = grad[0]['decoder_model']['conv_out']['kernel'], grad[1]['decoder_model']['conv_out']['kernel']
-    
+    # losses_fn = jax.jit(jax.value_and_grad(nll_and_d_loss, has_aux=True))
+    rng = {'gaussian': kl_rng}
+    x_rec, posteriors = autoencoder.apply({"params": g_params}, x=x, train=True, rngs=rng)
+    posteriors_kl = posteriors.kl()
     loss, log = discriminator.apply(
         {"params": d_params}, 
-        nll_loss=nll_loss, 
-        gan_loss=g_loss, 
-        nll_grad=nll_grad,
-        g_grad=g_grad,
-        posteriors=posteriors,
+        inputs=x, 
+        reconstructions=x_rec, 
+        posteriors_kl=posteriors_kl,
+        optimizer_idx=0,
         global_step=step,
-        method=discriminator.generator_loss) # There will be more input
+        g_params=g_params)
     # return loss, (log, x_rec, posterior, last_layer)
-    return loss, (log, x_rec, posteriors)
+    return loss, (log, x_rec, posteriors_kl)
 
-def discriminator_loss(d_params, discriminator: nn.Module, x, x_rec, step, posterior):
+def discriminator_loss(d_params, discriminator: nn.Module, x, x_rec, step, posteriors_kl):
     loss, log = discriminator.apply(
         {"params": d_params}, 
-        input=x, 
-        reconstruction=x_rec, 
-        global_step=step, posterior=posterior,
-        method=discriminator.discriminator_loss) # There will be more input
+        inputs=x, 
+        reconstructions=x_rec,
+        posteriors_kl=posteriors_kl, 
+        optimizer_idx=1, 
+        global_step=step) # There will be more input
     return loss, log
 
-def update_grad(state:train_state.TrainState, grad):
-    return state.apply_gradients(state, grad)
+def update_grad(state:train_state.TrainState, grads):
+    return state.apply_gradients(grads=grads)
 
 def encoder_fn(g_params, autoencoder, x, train, kl_rng):
     rng = {'gaussian': kl_rng}
@@ -80,10 +66,12 @@ class AutoEncoderKL():
 
         # model state contains two parameters: autoencoder(generator) and discriminator
         g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-        d_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng) # Generator
         # self.d_model_state = jax_utils.create_train_state(config, 'discriminator', self.discriminator, d_state_rng) # Discriminator
-        self.d_model_state = jax_utils.create_train_state(config, 'discriminator', self.discriminator, d_state_rng) # Discriminator
+        
+        d_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+        aux_data = [self.model, self.g_model_state.params]
+        self.d_model_state = jax_utils.create_train_state(config, 'discriminator', self.discriminator, d_state_rng, aux_data) # Discriminator
         # self.g_model_ema = EMA(self.g_model_state.params)
 
         self.g_loss_fn = jax.jit(
@@ -108,17 +96,14 @@ class AutoEncoderKL():
     def fit(self, x, cond=None, step=0):
         kl_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         # (g_loss, (g_log, x_rec, posterior, last_layer)), grad = self.g_loss_fn(
-        (g_loss, (g_log, x_rec, posteriors)), grad = self.g_loss_fn(
+        (g_loss, (g_log, x_rec, posteriors_kl)), grad = self.g_loss_fn(
             self.g_model_state.params, 
             d_params=self.d_model_state.params,
             x=x, step=step, kl_rng=kl_rng)
-        breakpoint()
         self.g_model_state = self.update_model(self.g_model_state, grad)
-        breakpoint()
         (d_loss, d_log), grad = self.d_loss_fn(
             self.d_model_state.params,
-            discriminator=self.discriminator,
-            x=x, x_rec=x_rec, posterior=posteriors
+            x=x, x_rec=x_rec, posteriors_kl=posteriors_kl, step=step
         )
         self.d_model_state = self.update_model(self.d_model_state, grad)
         return g_log, d_log
