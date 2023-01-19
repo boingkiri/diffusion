@@ -138,7 +138,7 @@ class DDPM(DefaultModel):
         self.ema_obj.ema_update(self.model_state.params, step)
 
         return_dict = {
-            "loss": loss
+            "diffusion_loss": loss
         }
         return return_dict
     

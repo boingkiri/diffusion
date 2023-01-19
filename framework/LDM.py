@@ -44,8 +44,8 @@ class LDM(DefaultModel):
     def fit(self, x0, cond=None, step=0):
         if self.get_train_order() == 1:
             # GAN will be used
-            g_log, d_log = self.first_stage_model.fit(x0, cond, step)
-            return g_log, d_log
+            log_dict = self.first_stage_model.fit(x0, cond, step)
+            return log_dict
         elif self.get_train_order() == 2:
             # self.
             z = self.first_stage_model.encoder_forward(x0)

@@ -106,7 +106,12 @@ class AutoEncoderKL():
             x=x, x_rec=x_rec, posteriors_kl=posteriors_kl, step=step
         )
         self.d_model_state = self.update_model(self.d_model_state, grad)
-        return g_log, d_log
+
+        log = {
+            "autoencoder": g_log,
+            "discriminator": d_log
+        }
+        return log
         # return g_log
     
     def sampling(self, num_image, img_size=(32, 32, 3)):
