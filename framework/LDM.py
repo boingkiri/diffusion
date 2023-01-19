@@ -52,9 +52,15 @@ class LDM(DefaultModel):
             loss = self.diffusion_model.fit(z, cond)
             return loss
     
-    def sampling(self, num_image, img_size=(32, 32, 3)):
-        assert self.get_train_order() == 2
-        sample = self.sampling_jit(num_image, img_size)
+    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
+        # assert self.get_train_order() == 2
+        if self.get_train_order() == 1:
+            assert original_data is not None
+            sample = self.first_stage_model.reconstruction(original_data)
+        elif self.get_train_order() == 2:
+            sample = self.sampling_jit(num_image, img_size)
+        else:
+            NotImplementedError("Train order should have only 1 or 2 for its value.")
         return sample
     
 

@@ -12,9 +12,10 @@ from flax.training import train_state
 from typing import TypedDict 
 
 
-def generator_loss(g_params, d_params, autoencoder: nn.Module, discriminator: nn.Module, x, step, kl_rng):
+def generator_loss(g_params, d_params, autoencoder: nn.Module, discriminator: nn.Module, x, step, rng):
     # losses_fn = jax.jit(jax.value_and_grad(nll_and_d_loss, has_aux=True))
-    rng = {'gaussian': kl_rng}
+    kl_rng, dropout_rng = jax.random.split(rng, 2)
+    rng = {'gaussian': kl_rng, "dropout": dropout_rng}
     x_rec, posteriors = autoencoder.apply({"params": g_params}, x=x, train=True, rngs=rng)
     posteriors_kl = posteriors.kl()
     loss, log = discriminator.apply(
@@ -41,13 +42,20 @@ def discriminator_loss(d_params, discriminator: nn.Module, x, x_rec, step, poste
 def update_grad(state:train_state.TrainState, grads):
     return state.apply_gradients(grads=grads)
 
-def encoder_fn(g_params, autoencoder, x, train, kl_rng):
-    rng = {'gaussian': kl_rng}
-    z = autoencoder.apply({"params": g_params}, x, train, rngs=rng, method=autoencoder.encoder)
+def encoder_fn(g_params, autoencoder, x, rng):
+    kl_rng, dropout_rng = jax.random.split(rng, 2)
+    rng = {'gaussian': kl_rng, "dropout": dropout_rng}
+    z = autoencoder.apply({"params": g_params}, x, False, rngs=rng, method=autoencoder.encoder)
     return z
 
-def decoder_fn(g_params, autoencoder, z, train):
-    x_rec = autoencoder.apply({"params": g_params}, z, train, method=autoencoder.decoder)
+def decoder_fn(g_params, autoencoder, z):
+    x_rec = autoencoder.apply({"params": g_params}, z, False, method=autoencoder.decoder)
+    return x_rec
+
+def reconstruction_fn(g_params, autoencoder, x, rng):
+    kl_rng, dropout_rng = jax.random.split(rng, 2)
+    rng = {"gaussian": kl_rng, "drooput": dropout_rng}
+    x_rec, _ = autoencoder.apply({"params": g_params}, x, False, rngs= rng)
     return x_rec
 
 # Firstly, I implement autoencoder without any regularization such as VQ and KL.
@@ -64,11 +72,12 @@ class AutoEncoderKL():
 
         self.discriminator = LPIPSwithDiscriminator_KL(disc_start=0)
 
-        # model state contains two parameters: autoencoder(generator) and discriminator
+        # Autoencoder init
         g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng) # Generator
         # self.d_model_state = jax_utils.create_train_state(config, 'discriminator', self.discriminator, d_state_rng) # Discriminator
         
+        # Discriminator init
         d_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         aux_data = [self.model, self.g_model_state.params]
         self.d_model_state = jax_utils.create_train_state(config, 'discriminator', self.discriminator, d_state_rng, aux_data) # Discriminator
@@ -88,20 +97,21 @@ class AutoEncoderKL():
                     discriminator=self.discriminator)
             )
         self.update_model = jax.jit(update_grad) # TODO: Can this function be adapted to both generator and discriminator? 
-        # self.encoder = jax.jit(nn.apply(encoder_fn, autoencoder=self.model))
-        # self.decoder = jax.jit(nn.apply(decoder_fn, autoencoder=self.model))
         self.encoder = jax.jit(functools.partial(encoder_fn, autoencoder=self.model))
         self.decoder = jax.jit(functools.partial(decoder_fn, autoencoder=self.model))
+        
+        # self.recon_model = jax.jit(self.model.apply(self.g_model_state, ))
+        self.recon_model = jax.jit(functools.partial(reconstruction_fn, autoencoder=self.model))
     
     def fit(self, x, cond=None, step=0):
-        kl_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+        rng, self.random_rng = jax.random.split(self.random_rng, 2)
         # (g_loss, (g_log, x_rec, posterior, last_layer)), grad = self.g_loss_fn(
-        (g_loss, (g_log, x_rec, posteriors_kl)), grad = self.g_loss_fn(
+        (_, (g_log, x_rec, posteriors_kl)), grad = self.g_loss_fn(
             self.g_model_state.params, 
             d_params=self.d_model_state.params,
-            x=x, step=step, kl_rng=kl_rng)
+            x=x, step=step, rng=rng)
         self.g_model_state = self.update_model(self.g_model_state, grad)
-        (d_loss, d_log), grad = self.d_loss_fn(
+        (_, d_log), grad = self.d_loss_fn(
             self.d_model_state.params,
             x=x, x_rec=x_rec, posteriors_kl=posteriors_kl, step=step
         )
@@ -112,19 +122,23 @@ class AutoEncoderKL():
             "discriminator": d_log
         }
         return log
-        # return g_log
     
     def sampling(self, num_image, img_size=(32, 32, 3)):
         # if img_size == None:
             # img_size = (32, 32, 3) # CIFAR10
-        NotImplementedError("AutoEncoder cannot generate samples by itself. Use LDM framework.")        
+        NotImplementedError("AutoEncoder cannot generate samples by itself. Use LDM framework.")
+
+    def reconstruction(self, original_data):
+        rng, self.random_rng = jax.random.split(self.random_rng, 2)
+        x_rec = self.recon_model(self.g_model_state.params, x=original_data, rng=rng)
+        return x_rec
         
     def encoder_forward(self, x):
-        e_x = self.encoder(g_params=self.g_model_state, x=x, train=True)
+        e_x = self.encoder(g_params=self.g_model_state, x=x)
         return e_x
         
     def decoder_forward(self, z):
-        d_e_x = self.decoder(g_params=self.g_model_state, z=z, train=True)
+        d_e_x = self.decoder(g_params=self.g_model_state, z=z)
         return d_e_x
     
     # def get_last_layer(self):

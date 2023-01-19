@@ -39,26 +39,27 @@ class DiffusionFramework():
     def set_step(self, config):
         # framework_config = config['framework']
         if self.model_type == "ddpm":
-            self.step = self.fs_utils.get_start_step_from_checkpoint() - 1
+            # self.step = self.fs_utils.get_start_step_from_checkpoint() - 1
+            self.step = self.fs_utils.get_start_step_from_checkpoint()
             self.total_step = config['framework']['diffusion']['train']['total_step']
         elif self.model_type == "ldm":
-            train_idx = config['framework']['train_idx']
-            self.step = self.fs_utils.get_start_step_from_checkpoint(idx=train_idx)
-            if train_idx == 0: # AE
+            self.train_idx = config['framework']['train_idx']
+            self.step = self.fs_utils.get_start_step_from_checkpoint(idx=self.train_idx)
+            if self.train_idx == 1: # AE
                 self.total_step = config['framework']['autoencoder']['train']['total_step']
-            elif train_idx == 1: # Diffusion
+            elif self.train_idx == 2: # Diffusion
                 self.total_step = config['framework']['diffusion']['train']['total_step']
 
     def fit(self, x, cond=None, step=0):
         log = self.framework.fit(x, step=step)
         return log
 
-    def sampling(self, num_img, img_size=None):
+    def sampling(self, num_img, img_size=None, original_data=None):
         dataset_name = self.fs_utils.get_dataset_name()
         if img_size is None:
             if dataset_name == "cifar10":
                 img_size = (32, 32, 3)
-        sample = self.framework.sampling(num_img, img_size=img_size)
+        sample = self.framework.sampling(num_img, img_size=img_size, original_data=original_data)
         return sample
     
     def train(self):
@@ -70,7 +71,9 @@ class DiffusionFramework():
             log = self.framework.fit(x, step=self.step)
             
             # loss_ema = loss.item()
-            loss_ema = log['loss']
+            # loss_ema = log['loss']
+            if self.model_type == "ldm":
+                loss_ema = log["autoencoder"]["train/0_total_loss"]
             datasets_bar.set_description("Step: {step} loss: {loss:.4f}  lr*1e4: {lr:.4f}".format(
                 step=self.step,
                 loss=loss_ema,
@@ -78,15 +81,12 @@ class DiffusionFramework():
             ))
 
             if self.step % 1000 == 0:
-                sample = self.sampling(8, (32, 32, 3))
-                # self.fs_utils.save_images_to_dir(sample, )
+                # Record various loss in here. 
+                sample = self.sampling(8, (32, 32, 3), original_data=x[:8])
                 xset = jnp.concatenate([sample[:8], x[:8]], axis=0)
-                # xset = torch.from_numpy(np.array(xset))
                 self.fs_utils.save_comparison(xset, self.step, self.fs_utils.get_in_process_dir())
 
-            # if step % 10000 == 0:
             if self.step % 50000 == 0:
-                # state = state.replace(params_ema = ema_obj.get_ema_params())
                 model_state = self.framework.get_model_state()
 
                 jax_utils.save_train_state(

@@ -142,7 +142,7 @@ class DDPM(DefaultModel):
         }
         return return_dict
     
-    def sampling(self, num_image, img_size=(32, 32, 3)):
+    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
         self.set_ema_params_to_state()
         latent_sampling_tuple = (num_image, *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
