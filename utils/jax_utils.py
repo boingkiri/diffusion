@@ -16,13 +16,15 @@ def get_framework_config(config, model_type):
   if model_type in ['diffusion', 'ddpm']:
     framework_config = config['framework']['diffusion']
   # elif model_type in ['autoencoder']:
-  elif model_type in ['autoencoder']:
+  elif model_type in ['autoencoder', 'discriminator']:
     framework_config = config['framework']['autoencoder']
   elif model_type in ['ldm']:
     if config['framework']['train_idx'] == 1:
       framework_config = config['framework']['autoencoder']
     elif config['framework']['train_idx'] == 2:
       framework_config = config['framework']['diffusion']
+  else:
+    breakpoint()
   return framework_config
 
 def get_learning_rate_schedule(config, model_type):
@@ -63,7 +65,7 @@ def create_train_state(config, model_type, model, rng):
     diagonal = DiagonalGaussianDistribution(input_format2, kl_rng)
     rng_dict = {"params": param_rng, 'dropout': dropout_rng}
     params = model.init(rng_dict, inputs=input_format3, reconstructions=input_format3, 
-                        posteriors=diagonal, optimizer_idx=0, global_step=0, last_layer=last_layer_format)['params']
+                        posteriors=diagonal, optimizer_idx=0, global_step=0)['params']
   
   # Initialize the Adam optimizer
   learning_rate = get_learning_rate_schedule(config, model_type)

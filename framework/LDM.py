@@ -53,13 +53,6 @@ class LDM(DefaultModel):
             return loss
     
     def sampling(self, num_image, img_size=(32, 32, 3)):
-        # latent_sampling_tuple = (num_image, *img_size)
-        # sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        # latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
-
-        # for t in reversed(range(self.n_timestep)):
-        #     normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
-        #     latent_sample = self.p_sample_jit(self.model_state.params, latent_sample, t, normal_key, dropout_key)
         assert self.get_train_order() == 2
         sample = self.sampling_jit(num_image, img_size)
         return sample
