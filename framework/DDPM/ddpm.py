@@ -115,7 +115,7 @@ class DDPM(DefaultModel):
     def get_model_state(self) -> TypedDict:
         self.set_ema_params_to_state()
         # return {"DDPM": self.model_state}
-        return self.model_state
+        return [self.model_state]
     
     def set_ema_params_to_state(self):
         self.model_state = self.model_state.replace(params_ema=self.ema_obj.get_ema_params())

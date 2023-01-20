@@ -39,19 +39,19 @@ class DiffusionFramework():
     def set_step(self, config):
         # framework_config = config['framework']
         if self.model_type == "ddpm":
-            # self.step = self.fs_utils.get_start_step_from_checkpoint() - 1
             self.step = self.fs_utils.get_start_step_from_checkpoint()
             self.total_step = config['framework']['diffusion']['train']['total_step']
         elif self.model_type == "ldm":
             self.train_idx = config['framework']['train_idx']
-            self.step = self.fs_utils.get_start_step_from_checkpoint(idx=self.train_idx)
+            # self.step = self.fs_utils.get_start_step_from_checkpoint(idx=self.train_idx)
+            self.step = self.fs_utils.get_start_step_from_checkpoint(idx=self.train_idx) - 1
             if self.train_idx == 1: # AE
                 self.total_step = config['framework']['autoencoder']['train']['total_step']
             elif self.train_idx == 2: # Diffusion
                 self.total_step = config['framework']['diffusion']['train']['total_step']
 
     def fit(self, x, cond=None, step=0):
-        log = self.framework.fit(x, step=step)
+        log = self.framework.fit(x, cond=cond, step=step)
         return log
 
     def sampling(self, num_img, img_size=None, original_data=None):
@@ -62,6 +62,31 @@ class DiffusionFramework():
         sample = self.framework.sampling(num_img, img_size=img_size, original_data=original_data)
         return sample
     
+    def save_model_state(self, state:list):
+        if self.model_type == "ddpm" or \
+            (self.model_type == "ldm" and self.train_idx == 2):
+            assert len(state) == 1
+            jax_utils.save_train_state(
+                state[0], 
+                self.fs_utils.get_checkpoint_dir(), 
+                self.step, 
+                prefix=self.fs_utils.get_state_prefix(self.model_type))
+
+        elif self.model_type == "ldm" and self.train_idx == 1:
+            assert len(state) == 2
+            autoencoder_prefix, discriminator_prefix = self.fs_utils.get_state_prefix(self.model_type)
+            jax_utils.save_train_state(
+                state[0], 
+                self.fs_utils.get_checkpoint_dir(), 
+                self.step, 
+                prefix=autoencoder_prefix)
+            jax_utils.save_train_state(
+                state[1], 
+                self.fs_utils.get_checkpoint_dir(), 
+                self.step, 
+                prefix=discriminator_prefix)
+
+
     def train(self):
         datasets = common_utils.load_dataset_from_tfds()
         datasets_bar = tqdm(datasets, total=self.total_step-self.step)
@@ -74,6 +99,8 @@ class DiffusionFramework():
             # loss_ema = log['loss']
             if self.model_type == "ldm":
                 loss_ema = log["autoencoder"]["train/0_total_loss"]
+            # elif self.model_type == "ddpm":
+
             datasets_bar.set_description("Step: {step} loss: {loss:.4f}  lr*1e4: {lr:.4f}".format(
                 step=self.step,
                 loss=loss_ema,
@@ -88,18 +115,14 @@ class DiffusionFramework():
 
             if self.step % 50000 == 0:
                 model_state = self.framework.get_model_state()
-
-                jax_utils.save_train_state(
-                    model_state, 
-                    self.fs_utils.get_checkpoint_dir(), 
-                    self.step, 
-                    prefix=self.fs_utils.get_state_prefix(self.model_type))
+                self.save_model_state(model_state)
 
                 # Calculate FID score with 1000 samples
-                fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
-                if self.fs_utils.get_best_fid() >= fid_score:
-                    best_checkpoint_dir = self.fs_utils.get_best_checkpoint_dir()
-                    jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step)
+                if self.fid_utils.do_fid_during_training():
+                    fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
+                    if self.fs_utils.get_best_fid() >= fid_score:
+                        best_checkpoint_dir = self.fs_utils.get_best_checkpoint_dir()
+                        jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step)
             
             if self.step >= self.total_step:
                 break

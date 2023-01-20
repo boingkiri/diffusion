@@ -16,11 +16,11 @@ class LDM(DefaultModel):
         self.fs_obj = fs_obj
 
         ae_key, self.random_key = jax.random.split(self.random_key, 2)
-        self.first_stage_model = AutoEncoderKL(config, ae_key)
+        self.first_stage_model = AutoEncoderKL(config, ae_key, fs_obj)
 
         if self.get_train_order() == 2:
             ddpm_key, self.random_key = jax.random.split(self.random_key, 2)
-            self.diffusion_model = DDPM(config, ddpm_key)
+            self.diffusion_model = DDPM(config, ddpm_key, fs_obj)
         
         def sample_fn(num_img, img_size=(32, 32, 3)):
             sample = self.diffusion_model.sampling(num_img, img_size)
@@ -32,9 +32,9 @@ class LDM(DefaultModel):
    
     def get_model_state(self):
         if self.get_train_order() == 1:
-            return self.first_stage_model_state
+            return self.first_stage_model.get_model_state()
         elif self.get_train_order == 2:
-            return self.diffusion_model_state
+            return self.diffusion_model.get_model_state()
         else:
             NotImplementedError("LDM has only 2 stages.")
     

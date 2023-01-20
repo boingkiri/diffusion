@@ -153,24 +153,28 @@ class FSUtils():
         return current_sampling
     
     def get_state_prefix(self, model_type):
+        prefix_list = self.get_exp_config()['checkpoint_prefix']
         if model_type == "ddpm":
-            prefix = "ddpm_"
-        elif model_type in ["autoencoder", "ae"]:
-            prefix = "autoencoder_"
-        elif model_type == "diffusion":
-            prefix = "diffusion_"
+            prefix = prefix_list[0]
+        elif model_type == "ldm":
+            if self.__config['framework']['train_idx'] == 1:
+                prefix = prefix_list[0]
+            else:
+                prefix = prefix_list[1]
+       
         return prefix
-    
-    # def get_state_step(self, model_type, checkpoint_path=None):
-    #     if checkpoint_path is None:
-    #         checkpoint_path = self.get_checkpoint_dir()
-        
 
-
-    def load_model_state(self, model_type, state):
+    def load_model_state(self, model_type, state, indicator=None):
         prefix = self.get_state_prefix(model_type)
+        if type(prefix) is list:
+            assert indicator is not None
+            if indicator == "autoencoder":
+                prefix = prefix[0]
+            elif indicator == "discriminator":
+                prefix = prefix[0]
+            else:
+                NotImplementedError("load_model_state: parameter 'indicator' only support 'autoencoder' or 'discriminator'.")
         checkpoint_dir = self.get_checkpoint_dir()
-        # step = self.get_state_step(model_type)
         state = jax_utils.load_state_from_checkpoint_dir(checkpoint_dir, state, None, prefix)
         return state
     

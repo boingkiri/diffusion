@@ -83,7 +83,6 @@ def create_train_state(config, model_type, model, rng, aux_data=None):
     params = model.init(rng_dict, x=input_format, train=False)['params']
   elif model_type == "discriminator":
     # aux_data : generator_model, generator_params
-
     kl_rng, rng = jax.random.split(rng, 2)
     input_format3 = jnp.ones([1, 32, 32, 3]) 
 

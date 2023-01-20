@@ -2,6 +2,7 @@ from model.autoencoder import AutoEncoderKL as AEKL
 from framework.autoencoder.discriminator import LPIPSwithDiscriminator_KL
 from utils import jax_utils
 from utils.ema import EMA
+from utils.fs_utils import FSUtils
 
 import functools
 
@@ -61,7 +62,7 @@ def reconstruction_fn(g_params, autoencoder, x, rng):
 # Firstly, I implement autoencoder without any regularization such as VQ and KL.
 # However, it should be implemented too someday..  
 class AutoEncoderKL():
-    def __init__(self, config, rand_rng):
+    def __init__(self, config, rand_rng, fs_obj: FSUtils):
     # def setup(self):
         self.framework_config = config['framework']['autoencoder']
         self.random_rng = rand_rng
@@ -75,12 +76,14 @@ class AutoEncoderKL():
         # Autoencoder init
         g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng) # Generator
+        self.g_model_state = fs_obj.load_model_state("ldm", self.g_model_state, 'autoencoder')       
         # self.d_model_state = jax_utils.create_train_state(config, 'discriminator', self.discriminator, d_state_rng) # Discriminator
         
         # Discriminator init
         d_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         aux_data = [self.model, self.g_model_state.params]
         self.d_model_state = jax_utils.create_train_state(config, 'discriminator', self.discriminator, d_state_rng, aux_data) # Discriminator
+        self.d_model_state = fs_obj.load_model_state("ldm", self.d_model_state, 'discriminator')       
         # self.g_model_ema = EMA(self.g_model_state.params)
 
         self.g_loss_fn = jax.jit(
@@ -148,8 +151,8 @@ class AutoEncoderKL():
         self.model_state = self.model_state.replace(params_ema=self.ema_obj.get_ema_params())
 
     def get_model_state(self) -> TypedDict:
-        self.set_ema_params_to_state()
+        # self.set_ema_params_to_state()
         # return {"DDPM": self.model_state}
-        return self.model_state
+        return [self.g_model_state, self.d_model_state]
 
         

@@ -14,7 +14,7 @@ import shutil
 class FIDUtils():
     def __init__(self, config) -> None:
         self.rng = jax.random.PRNGKey(42)
-        self.config = config
+        self.__config = config
         self.model, self.params, self.apply_fn = self.load_fid_model()
         self.img_size = (299, 299)
         self.fs_utils = FSUtils(config)
@@ -80,3 +80,6 @@ class FIDUtils():
 
         return fid_score
     
+    def do_fid_during_training(self):
+        return self.__config['framework']['fid_during_training']
+
