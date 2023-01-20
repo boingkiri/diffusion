@@ -9,11 +9,11 @@ from utils import jax_utils, common_utils
 from utils.fid_utils import FIDUtils
 
 from tqdm import tqdm
+import wandb
 
 class DiffusionFramework():
     """
         This framework contains overall methods for training and sampling
-
     """
     def __init__(self, model_type, config, random_rng) -> None:
         self.model_type = model_type.lower()
@@ -99,7 +99,7 @@ class DiffusionFramework():
             # loss_ema = loss.item()
             # loss_ema = log['loss']
             if self.model_type == "ldm":
-                loss_ema = log["autoencoder"]["train/0_total_loss"]
+                loss_ema = log["train/total_loss"]
             # elif self.model_type == "ddpm":
 
             datasets_bar.set_description("Step: {step} loss: {loss:.4f}  lr*1e4: {lr:.4f}".format(
@@ -109,10 +109,13 @@ class DiffusionFramework():
             ))
 
             if self.step % 1000 == 0:
-                # Record various loss in here. 
                 sample = self.sampling(8, (32, 32, 3), original_data=x[:8])
                 xset = jnp.concatenate([sample[:8], x[:8]], axis=0)
-                self.fs_utils.save_comparison(xset, self.step, self.fs_utils.get_in_process_dir())
+                sample_path = self.fs_utils.save_comparison(xset, self.step, self.fs_utils.get_in_process_dir())
+                log['Sampling'] = wandb.Image(sample_path, caption=f"Step: {self.step}")
+                # Record various loss in here. 
+                wandb.log(log, step=self.step)
+
 
             if self.step % 50000 == 0:
                 model_state = self.framework.get_model_state()

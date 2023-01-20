@@ -176,20 +176,17 @@ class LPIPSwithDiscriminator_KL(nn.Module):
             disc_factor = self.adopt_weight(self.disc_factor, global_step, threshold=self.disc_start)
             loss = weighted_nll_loss + self.kl_weight * kl_loss + d_weight * disc_factor * g_loss
             log = {
-                "{}/type": 0,
-                "{}/0_total_loss".format(split): jnp.mean(loss), 
-                "{}/0_kl_loss".format(split): jnp.mean(kl_loss), 
-                "{}/0_nll_loss".format(split): jnp.mean(nll_loss),
-                "{}/0_d_weight".format(split): d_weight,
-                "{}/0_disc_factor".format(split): disc_factor,
-                "{}/0_g_loss".format(split): jnp.mean(g_loss),
+                "{}/total_loss".format(split): jnp.mean(loss), 
+                "{}/kl_loss".format(split): jnp.mean(kl_loss), 
+                "{}/nll_loss".format(split): jnp.mean(nll_loss),
+                "{}/d_weight".format(split): d_weight,
+                "{}/disc_factor".format(split): disc_factor,
+                "{}/g_loss".format(split): jnp.mean(g_loss),
                 # "{}/logvar".format(split): self.logvar_dense.variable(),
                 # "{}/rec_loss".format(split): jnp.mean(rec_loss),
-                "{}/1_disc_loss".format(split): 0.0,
-                "{}/1_logits_real".format(split): 0.0,
-                "{}/1_logits_fake".format(split): 0.0
-
-
+                "{}/disc_loss".format(split): 0.0,
+                "{}/logits_real".format(split): 0.0,
+                "{}/logits_fake".format(split): 0.0
             }
             return loss, log
         
@@ -210,17 +207,16 @@ class LPIPSwithDiscriminator_KL(nn.Module):
             d_loss = disc_factor * self.disc_loss(logits_real, logits_fake)
 
             log = {
-                "{}/type": 1,
-                "{}/0_total_loss".format(split): 0.0, 
-                "{}/0_kl_loss".format(split): 0.0, 
-                "{}/0_nll_loss".format(split): 0.0,
-                "{}/0_d_weight".format(split): 0.0,
-                "{}/0_disc_factor".format(split): 0.0,
-                "{}/0_g_loss".format(split): 0.0,
+                "{}/total_loss".format(split): 0.0, 
+                "{}/kl_loss".format(split): 0.0, 
+                "{}/nll_loss".format(split): 0.0,
+                "{}/d_weight".format(split): 0.0,
+                "{}/disc_factor".format(split): 0.0,
+                "{}/g_loss".format(split): 0.0,
                 ####
-                "{}/1_disc_loss".format(split): jnp.mean(d_loss),
-                "{}/1_logits_real".format(split): jnp.mean(logits_real),
-                "{}/1_logits_fake".format(split): jnp.mean(logits_fake)
+                "{}/disc_loss".format(split): jnp.mean(d_loss),
+                "{}/logits_real".format(split): jnp.mean(logits_real),
+                "{}/logits_fake".format(split): jnp.mean(logits_fake)
             }
             return d_loss, log
         

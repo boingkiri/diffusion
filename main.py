@@ -1,11 +1,10 @@
 import argparse
 
-# from utils.common_utils import get_config_from_yaml, init_setting
 from utils.common_utils import get_config_from_yaml
 from framework.diffusion_framework import DiffusionFramework
 
-
 from jax import random
+import wandb
 
 def start(args):
     args.model = args.model.lower()
@@ -19,6 +18,7 @@ def start(args):
     rng = random.PRNGKey(config["rand_seed"])
     
     diffusion_framework = DiffusionFramework(args.model, config, rng)
+    wandb.init(project="my-ldm-WIP", config=config)
     
     if args.sampling_dir is not None:
         config['exp']['sampling_dir'] = args.sampling_dir
@@ -30,7 +30,6 @@ def start(args):
     if args.do_sampling:
         print("Sampling selected")
         diffusion_framework.sampling_and_save(args.num_sampling)
-        # sampling_and_save(config, args.num_sampling, ddpm, state, rng)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

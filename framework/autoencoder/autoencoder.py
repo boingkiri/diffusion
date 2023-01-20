@@ -77,14 +77,12 @@ class AutoEncoderKL():
         g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng) # Generator
         self.g_model_state = fs_obj.load_model_state("ldm", self.g_model_state, 'autoencoder')       
-        # self.d_model_state = jax_utils.create_train_state(config, 'discriminator', self.discriminator, d_state_rng) # Discriminator
         
         # Discriminator init
         d_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         aux_data = [self.model, self.g_model_state.params]
         self.d_model_state = jax_utils.create_train_state(config, 'discriminator', self.discriminator, d_state_rng, aux_data) # Discriminator
         self.d_model_state = fs_obj.load_model_state("ldm", self.d_model_state, 'discriminator')       
-        # self.g_model_ema = EMA(self.g_model_state.params)
 
         self.g_loss_fn = jax.jit(
                 functools.partial(
@@ -120,9 +118,18 @@ class AutoEncoderKL():
         )
         self.d_model_state = self.update_model(self.d_model_state, grad)
 
+        split = "train"
         log = {
-            "autoencoder": g_log,
-            "discriminator": d_log
+            "{}/total_loss".format(split): g_log["train/total_loss"], 
+            "{}/kl_loss".format(split): g_log["train/kl_loss"], 
+            "{}/nll_loss".format(split): g_log["train/nll_loss"],
+            "{}/d_weight".format(split): g_log["train/d_weight"],
+            "{}/disc_factor".format(split): g_log["train/disc_factor"],
+            "{}/g_loss".format(split): g_log["train/g_loss"],
+            ####
+            "{}/disc_loss".format(split): d_log["train/disc_loss"],
+            "{}/logits_real".format(split): d_log["train/logits_real"],
+            "{}/logits_fake".format(split): d_log["train/logits_fake"]
         }
         return log
     

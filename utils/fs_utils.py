@@ -134,6 +134,7 @@ class FSUtils():
         save_filename = os.path.join(savepath, f"{steps}.png")
         f.savefig(save_filename)
         plt.close()
+        return save_filename
     
     def save_images_to_dir(self, images, save_path_dir=None, starting_pos=0):
         current_sampling = 0
