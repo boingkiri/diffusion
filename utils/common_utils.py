@@ -98,23 +98,6 @@ def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128):
   return augmented_train_ds
 
 
-def save_images(images, steps, savepath):
-  images = unnormalize_minus_one_to_one(images)
-
-  n_images = len(images)
-  f, axes = plt.subplots(n_images // 4, 4)
-  images = np.clip(images, 0, 1)
-  axes = np.concatenate(axes)
-
-  for img, axis in zip(images, axes):
-    axis.imshow(img)
-    axis.axis('off')
-  
-  save_filename = os.path.join(savepath, f"{steps}.png")
-  f.savefig(save_filename)
-  plt.close()
-
-
 def get_image_size_from_dataset(dataset):
   if dataset == "cifar10":
     return [32, 32, 3]

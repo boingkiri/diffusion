@@ -22,6 +22,7 @@ class DiffusionFramework():
         self.set_model(config)
         self.set_step(config)
         self.learning_rate_schedule = jax_utils.get_learning_rate_schedule(config, model_type)
+        self.sample_batch_size = config['sampling']['batch_size']
     
     def set_utils(self, config):
         self.fid_utils = FIDUtils(config)
@@ -127,3 +128,15 @@ class DiffusionFramework():
             if self.step >= self.total_step:
                 break
             self.step += 1
+    
+    def sampling_and_save(self, total_num, img_size=None):
+        if img_size is None:
+            dataset_name = self.fs_utils.get_dataset_name()
+            if dataset_name == "cifar10":
+                img_size = (32, 32, 3)
+        current_num = 0
+        batch_size = self.sample_batch_size
+        while total_num > current_num:
+            samples = self.sampling(batch_size, img_size=None, original_data=None)
+            self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
+            current_num += batch_size

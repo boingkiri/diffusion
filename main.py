@@ -29,6 +29,7 @@ def start(args):
 
     if args.do_sampling:
         print("Sampling selected")
+        diffusion_framework.sampling_and_save(args.num_sampling)
         # sampling_and_save(config, args.num_sampling, ddpm, state, rng)
 
 if __name__ == "__main__":
