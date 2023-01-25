@@ -64,4 +64,3 @@ class LDM(DefaultModel):
         return sample
     
 
-

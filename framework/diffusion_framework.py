@@ -16,12 +16,16 @@ class DiffusionFramework():
         This framework contains overall methods for training and sampling
     """
     def __init__(self, model_type, config, random_rng) -> None:
+        self.__config = config # TODO: This code is ugly. It should not need to reuse config obj
         self.model_type = model_type.lower()
         self.random_rng = random_rng
+        self.set_train_step_process(config)
+    
+    def set_train_step_process(self, config):
         self.set_utils(config)
         self.set_model(config)
         self.set_step(config)
-        self.learning_rate_schedule = jax_utils.get_learning_rate_schedule(config, model_type)
+        self.learning_rate_schedule = jax_utils.get_learning_rate_schedule(config, self.model_type)
         self.sample_batch_size = config['sampling']['batch_size']
     
     def set_utils(self, config):
@@ -45,7 +49,6 @@ class DiffusionFramework():
         elif self.model_type == "ldm":
             self.train_idx = config['framework']['train_idx']
             self.step = self.fs_utils.get_start_step_from_checkpoint(idx=self.train_idx)
-            # self.step = self.fs_utils.get_start_step_from_checkpoint(idx=self.train_idx) - 1
             if self.train_idx == 1: # AE
                 self.total_step = config['framework']['autoencoder']['train']['total_step']
             elif self.train_idx == 2: # Diffusion
@@ -133,7 +136,8 @@ class DiffusionFramework():
                     wandb.log({"FID score": fid_score}, step=self.step)
             
             if self.step >= self.total_step:
-                break
+                if not self.next_step():
+                    break
             self.step += 1
     
     def sampling_and_save(self, total_num, img_size=None):
@@ -147,3 +151,12 @@ class DiffusionFramework():
             samples = self.sampling(batch_size, img_size=None, original_data=None)
             self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
             current_num += batch_size
+    
+    def next_step(self):
+        if self.model_type == "ldm" and self.train_idx == 1:
+            self.__config['framework']['train_idx'] = 2
+            self.set_train_step_process(self.__config)
+            return True
+        else:
+            return False
+
