@@ -49,7 +49,7 @@ framework:
       gradient_clip: 1.0
       warmup: 5000
       batch_size: 128
-      total_step: 800000
+      total_step: 500000
       sampling_step: 10000
       saving_step: 100000
   diffusion:
@@ -61,7 +61,7 @@ framework:
       gradient_clip: 1.0
       warmup: 5000
       batch_size: 128
-      total_step: 800000
+      total_step: 500000
       sampling_step: 10000
       saving_step: 100000
 
