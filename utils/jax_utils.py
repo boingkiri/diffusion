@@ -88,7 +88,8 @@ def create_train_state(config, model_type, model, rng, aux_data=None):
 
     generator_model: nn.Module = aux_data[0]
     generator_params = aux_data[1]
-    def experiment():
+  
+    def kl_model_init():
       reconstructions, posteriors = generator_model.apply(
         {"params": generator_params},
         x=input_format,
@@ -101,7 +102,20 @@ def create_train_state(config, model_type, model, rng, aux_data=None):
       posteriors_kl = posteriors.kl()
       return model.init(rng_dict, inputs=input_format3, reconstructions=reconstructions, 
                           posteriors_kl=posteriors_kl, optimizer_idx=0, global_step=0, g_params=generator_params)
-    experiment_fn_jit = jax.jit(experiment)
+    def vq_model_init():
+      reconstructions, quantization_diff, ind = generator_model.apply(
+        {"params": generator_params},
+        x=input_format,
+        train=False,
+        rngs={'gaussian': kl_rng}
+      )
+      rng_dict = {"params": param_rng, 'dropout': dropout_rng}
+      return model.init(rng_dict, inputs=input_format3, reconstructions=reconstructions, 
+                          codebook_loss=quantization_diff, optimizer_idx=0, global_step=0, g_params=generator_params, predicted_indices=ind)
+    if config['framework']['autoencoder']['mode'] == 'KL':
+      experiment_fn_jit = jax.jit(kl_model_init)
+    elif config['framework']['autoencoder']['mode'] == 'VQ':
+      experiment_fn_jit = jax.jit(vq_model_init)
     params = experiment_fn_jit()['params']
   # Initialize the Adam optimizer
   learning_rate = get_learning_rate_schedule(config, model_type)
@@ -110,7 +124,10 @@ def create_train_state(config, model_type, model, rng, aux_data=None):
   optax_chain = []
   if "gradient_clip" in framework_config['train']:
     optax_chain.append(optax.clip(framework_config['train']['gradient_clip']))
-  optax_chain.append(optax.adam(learning_rate))
+  optimizer_config = framework_config['train']['optimizer']
+  if optimizer_config['type'] == "Adam":
+    betas = [0.9, 0.999] if "betas" not in optimizer_config else optimizer_config['betas']
+    optax_chain.append(optax.adam(learning_rate, b1=betas[0], b2=betas[1]))
   tx = optax.chain(
     *optax_chain
   )

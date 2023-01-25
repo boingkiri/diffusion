@@ -1,5 +1,5 @@
 from framework.DDPM.ddpm import DDPM
-from framework.autoencoder.autoencoder import AutoEncoderKL
+from framework.autoencoder.autoencoder import AutoEncoder
 
 import jax
 
@@ -16,7 +16,7 @@ class LDM(DefaultModel):
         self.fs_obj = fs_obj
 
         ae_key, self.random_key = jax.random.split(self.random_key, 2)
-        self.first_stage_model = AutoEncoderKL(config, ae_key, fs_obj)
+        self.first_stage_model = AutoEncoder(config, ae_key, fs_obj)
 
         if self.get_train_order() == 2:
             ddpm_key, self.random_key = jax.random.split(self.random_key, 2)
