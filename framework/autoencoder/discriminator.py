@@ -11,8 +11,8 @@ def hinge_d_loss(logits_real, logits_fake, weights=1.0):
     # loss_fake = jnp.mean(nn.relu(1. + logits_fake))
     loss_real = jnp.mean(nn.relu(1. - logits_real), axis=[1, 2, 3])
     loss_fake = jnp.mean(nn.relu(1. - logits_fake), axis=[1, 2, 3])
-    loss_real = (weights * loss_real).sum() / weights
-    loss_fake = (weights * loss_fake).sum() / weights
+    loss_real = jnp.sum(weights * loss_real) / weights
+    loss_fake = jnp.sum(weights * loss_fake) / weights
     d_loss = 0.5 * (loss_real + loss_fake)
     return d_loss
 
@@ -28,10 +28,10 @@ def adopt_weight(weight, global_step, threshold=0, value=0.):
     return weight
 
 def l1(x, y):
-    return jnp.absolute(x-y)
+    return jnp.absolute(x - y)
 
 def l2(x, y):
-    return jnp.power((x-y), 2)
+    return jnp.power((x - y), 2)
 
 def measure_perplexity(predicted_indices, n_embed):
     # src: https://github.com/karpathy/deep-vector-quantization/blob/main/model.py
@@ -53,6 +53,7 @@ class LPIPSwitchDiscriminator(nn.Module):
     perceptual_weight: float=1.0
     use_actnorm: bool=False
     disc_conditional: bool=False
+    disc_ndf: int=64
     disc_loss: str='hinge'
     pixel_loss: str='l1'
 
@@ -112,20 +113,6 @@ class LPIPSwitchDiscriminator(nn.Module):
         d_weight = jnp.clip(d_weight, 0.0, 1e4)
         d_weight = d_weight * self.disc_weight
         return d_weight
-    
-    def discriminator_d_loss(self, inputs, reconstructions, cond=None):
-        if cond is None:
-            assert not self.disc_conditional
-            d_real_inputs = inputs
-            d_fake_inputs = reconstructions
-        else:
-            assert self.disc_conditional
-            d_real_inputs = jnp.concatenate((inputs, cond), axis=-1)
-            d_fake_inputs = jnp.concatenate((reconstructions, cond), axis=-1)
-        d_real_loss = self.discriminator(d_real_inputs)
-        d_fake_loss = self.discriminator(d_fake_inputs)
-        d_loss_mean = self.disc_loss_fn(d_real_loss, d_fake_loss)
-        return d_loss_mean, d_real_loss, d_fake_loss
 
     def regularization_loss(self, loss):
         NotImplementedError("LPIPSwitchDiscriminator should implement as KL or VQ.")
@@ -173,7 +160,6 @@ class LPIPSwitchDiscriminator(nn.Module):
 
             disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.disc_start)
             d_loss = disc_factor * self.disc_loss_fn(logits_real, logits_fake)
-
             log = {
                 "{}/total_loss".format(split): 0.0, 
                 "{}/regularization_loss".format(split): 0.0, 
@@ -181,7 +167,6 @@ class LPIPSwitchDiscriminator(nn.Module):
                 "{}/d_weight".format(split): 0.0,
                 "{}/disc_factor".format(split): 0.0,
                 "{}/g_loss".format(split): 0.0,
-                ####
                 "{}/disc_loss".format(split): jnp.mean(d_loss),
                 "{}/logits_real".format(split): jnp.mean(logits_real),
                 "{}/logits_fake".format(split): jnp.mean(logits_fake)
@@ -211,8 +196,10 @@ class LPIPSwithDiscriminator_KL(LPIPSwitchDiscriminator):
     def setup(self):
         super().setup()
         self.logvar_dense = nn.Dense(1, use_bias=False, kernel_init=nn.initializers.zeros)
+
         def nll_loss_fn(inputs, reconstructions, g_params=None):
-            rec_loss = jnp.absolute(inputs - reconstructions)
+            # rec_loss = jnp.absolute(inputs - reconstructions)
+            rec_loss = self.pixel_loss_fn(inputs, reconstructions)
             if self.perceptual_weight > 0:
                 p_loss = self.perceptual_loss(inputs, reconstructions)
                 rec_loss += self.perceptual_weight * p_loss
@@ -226,7 +213,7 @@ class LPIPSwithDiscriminator_KL(LPIPSwitchDiscriminator):
     
     def regularization_loss(self, loss):
         # NotImplementedError("LPIPSwitchDiscriminator should implement as KL or VQ.")
-        return loss * self.kl_weight
+        return loss[0] * self.kl_weight
 
     # In this case, regularization loss is kl divergence of posterior.
     def __call__(self, inputs, reconstructions, posteriors_kl, optimizer_idx,
@@ -234,6 +221,7 @@ class LPIPSwithDiscriminator_KL(LPIPSwitchDiscriminator):
         loss, log = super().__call__(inputs, reconstructions, posteriors_kl, optimizer_idx, global_step, 
                             cond, split, weights, g_params)
         log[f'{split}/kl_loss'] = log[f'{split}/regularization_loss']
+        log.pop(f'{split}/regularization_loss', None)
         return loss, log
         
 
@@ -267,6 +255,7 @@ class LPIPSwithDiscriminator_VQ(LPIPSwitchDiscriminator):
         loss, log = super().__call__(inputs, reconstructions, codebook_loss, optimizer_idx, global_step, 
                             cond, split, weights, g_params)
         log[f'{split}/quant_loss'] = log[f'{split}/regularization_loss']
+        log.pop(f'{split}/regularization_loss', None)
         if predicted_indices is not None:
             assert self.n_classes is not None
             perplexity, cluster_usage = measure_perplexity(predicted_indices, self.n_classes)
