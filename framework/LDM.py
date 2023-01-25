@@ -47,7 +47,6 @@ class LDM(DefaultModel):
             log_dict = self.first_stage_model.fit(x0, cond, step)
             return log_dict
         elif self.get_train_order() == 2:
-            # self.
             z = self.first_stage_model.encoder_forward(x0)
             loss = self.diffusion_model.fit(z, cond)
             return loss

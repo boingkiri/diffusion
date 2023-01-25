@@ -85,7 +85,6 @@ def decoder_fn(g_params, autoencoder, z):
 def reconstruction_fn(g_params, autoencoder, x, rng):
     kl_rng, dropout_rng = jax.random.split(rng, 2)
     rng = {"gaussian": kl_rng, "drooput": dropout_rng}
-    # x_rec, _ = autoencoder.apply({"params": g_params}, x, False, rngs= rng)
     return_values = autoencoder.apply({"params": g_params}, x, False, rngs= rng)
     x_rec = return_values[0]
     return x_rec
