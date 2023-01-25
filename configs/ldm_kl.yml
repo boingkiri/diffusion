@@ -1,6 +1,6 @@
 # Define experiment name and its path
 exp:
-  exp_name: "ldm_cifar10_1211"
+  exp_name: "ldm_kl_cifar10_1211"
   exp_dir: "experiments"
   sampling_dir: "sampling"
   in_process_dir : "in_process"
