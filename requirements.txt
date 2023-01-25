@@ -6,4 +6,4 @@ optax
 # git+https://github.com/matthias-wright/flaxmodels.git
 lpips_jax
 wandb
-"jax[tpu]>=0.2.16" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+# "jax[tpu]>=0.2.16" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
