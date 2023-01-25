@@ -16,9 +16,14 @@ def start(args):
 
     config = get_config_from_yaml(args.config)
     rng = random.PRNGKey(config["rand_seed"])
+
+    if args.model == "ldm":
+        wandb.init(project="my-ldm-WIP", config=config)
+    elif args.model == "ddpm":
+        wandb.init(project="my-ddpm-WIP", config=config)
     
     diffusion_framework = DiffusionFramework(args.model, config, rng)
-    wandb.init(project="my-ldm-WIP", config=config)
+    
     
     if args.sampling_dir is not None:
         config['exp']['sampling_dir'] = args.sampling_dir

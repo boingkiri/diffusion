@@ -1,6 +1,6 @@
 # Define experiment name and its path
 exp:
-  exp_name: "ddpm_cifar10_1211"
+  exp_name: "ddpm_cifar10_1211_again"
   exp_dir: "experiments"
   sampling_dir: "sampling"
   in_process_dir : "in_process"
@@ -24,6 +24,7 @@ model:
 # Define DDPM
 framework:
   # train_order: 1 # 1 (AE) or 2 (Diffusion). This is only for ldm. Selected model will be trained. 
+  fid_during_training: true
   diffusion:
     beta: [0.0001, 0.02]
     n_timestep: 1000

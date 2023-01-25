@@ -100,6 +100,8 @@ class DiffusionFramework():
             # loss_ema = log['loss']
             if self.model_type == "ldm":
                 loss_ema = log["train/total_loss"]
+            elif self.model_type == "ddpm":
+                loss_ema = log["diffusion_loss"]
             # elif self.model_type == "ddpm":
 
             datasets_bar.set_description("Step: {step} loss: {loss:.4f}  lr*1e4: {lr:.4f}".format(
@@ -127,6 +129,8 @@ class DiffusionFramework():
                     if self.fs_utils.get_best_fid() >= fid_score:
                         best_checkpoint_dir = self.fs_utils.get_best_checkpoint_dir()
                         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step)
+                    
+                    wandb.log({"FID score": fid_score}, step=self.step)
             
             if self.step >= self.total_step:
                 break

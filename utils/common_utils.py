@@ -47,23 +47,6 @@ def get_config_from_yaml(config_dir):
     return config
 
 
-# def init_setting(config, rng):
-#     """
-#       Return:
-#         framework:
-#         start_step:
-
-#     """
-#     state_rng, ddpm_rng, rng = jax.random.split(rng, 3)
-    
-#     start_step = fs_utils.get_start_step_from_checkpoint(config)
-#     state = jax_utils.create_train_state(config, model, state_rng)
-#     state = load_state_from_checkpoint_dir(config, state)
-    
-#     ema_obj = EMA(**config['ema'], ema_params=state.params_ema)
-
-#     return state, start_step, ema_obj, rng
-
 def normalize_to_minus_one_to_one(image):
     return image * 2 - 1
 
