@@ -24,9 +24,9 @@ model:
     n_embed: 8192
   
   discriminator:
-    disc_start: 50001
+    disc_start: 0
     codebook_weight: 1.0
-    disc_weight: 0.5
+    disc_weight: 0.75
 
   diffusion:
     image_channels: 3

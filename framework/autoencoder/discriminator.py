@@ -39,7 +39,7 @@ def measure_perplexity(predicted_indices, n_embed):
     encodings = jax.nn.one_hot(predicted_indices, n_embed)
     encodings = encodings.astype(float).reshape(-1, n_embed)
     avg_probs = jnp.mean(encodings, 0)
-    perplexity = jnp.exp((-(avg_probs * jnp.log(avg_probs + 1e-10)).sum()))
+    perplexity = jnp.exp(-(avg_probs * jnp.log(avg_probs + 1e-10)).sum())
     cluster_use = jnp.sum(avg_probs > 0)
     return perplexity, cluster_use
 
@@ -81,7 +81,7 @@ class LPIPSwitchDiscriminator(nn.Module):
 
 
         def nll_loss_fn(inputs, reconstructions, g_params=None):
-            rec_loss = jnp.absolute(inputs - reconstructions)
+            rec_loss = self.pixel_loss_fn(inputs, reconstructions)
             if self.perceptual_weight > 0:
                 p_loss = self.perceptual_loss(inputs, reconstructions)
                 rec_loss += self.perceptual_weight * p_loss
@@ -134,7 +134,6 @@ class LPIPSwitchDiscriminator(nn.Module):
     def __call__(self, inputs, reconstructions, regularization_loss, optimizer_idx,
                  global_step, cond=None, split='train', weights=None, g_params=None):
         nll_loss, nll_grad = self.nll_loss_and_grad(inputs, reconstructions, g_params)
-        # nll_loss = self.nll_loss(inputs, reconstructions, g_params)
         weighted_nll_loss = nll_loss
         if weights is not None:
             weighted_nll_loss = nll_loss * weights
@@ -258,9 +257,7 @@ class LPIPSwithDiscriminator_VQ(LPIPSwitchDiscriminator):
         super().setup()
     
     def regularization_loss(self, loss):
-        # NotImplementedError("LPIPSwitchDiscriminator should implement as KL or VQ.")
         return loss * self.codebook_weight
-    
 
     # In this case, regularization loss is codebook loss.
     def __call__(self, inputs, reconstructions, codebook_loss, optimizer_idx,
