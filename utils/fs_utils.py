@@ -172,7 +172,7 @@ class FSUtils():
             if indicator == "autoencoder":
                 prefix = prefix[0]
             elif indicator == "discriminator":
-                prefix = prefix[0]
+                prefix = prefix[1]
             else:
                 NotImplementedError("load_model_state: parameter 'indicator' only support 'autoencoder' or 'discriminator'.")
         checkpoint_dir = self.get_checkpoint_dir()

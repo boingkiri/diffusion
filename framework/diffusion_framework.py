@@ -44,8 +44,8 @@ class DiffusionFramework():
             self.total_step = config['framework']['diffusion']['train']['total_step']
         elif self.model_type == "ldm":
             self.train_idx = config['framework']['train_idx']
-            # self.step = self.fs_utils.get_start_step_from_checkpoint(idx=self.train_idx)
-            self.step = self.fs_utils.get_start_step_from_checkpoint(idx=self.train_idx) - 1
+            self.step = self.fs_utils.get_start_step_from_checkpoint(idx=self.train_idx)
+            # self.step = self.fs_utils.get_start_step_from_checkpoint(idx=self.train_idx) - 1
             if self.train_idx == 1: # AE
                 self.total_step = config['framework']['autoencoder']['train']['total_step']
             elif self.train_idx == 2: # Diffusion

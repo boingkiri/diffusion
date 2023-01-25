@@ -21,18 +21,18 @@ def vanilla_d_loss(logits_real, logits_fake):
 
 class LPIPSwithDiscriminator_KL(nn.Module):
     disc_start: int
-    logvar_init=0.0
-    kl_weight=1.0
-    pixelloss_weight=1.0
-    disc_num_layers=3
-    disc_in_channels=3
-    disc_factor=1.0
-    disc_weight=1.0
-    perceptual_weight=1.0
-    use_actnorm=False
-    disc_conditional=False
-    disc_ndf=64
-    disc_loss='hinge'
+    logvar_init: float=0.0
+    kl_weight: float=1.0
+    pixelloss_weight: float=1.0
+    disc_num_layers: int=3
+    disc_in_channels: int=3
+    disc_factor: float=1.0
+    disc_weight: float=1.0
+    perceptual_weight: float=1.0
+    use_actnorm: bool=False
+    disc_conditional: bool=False
+    disc_ndf: int=64
+    disc_loss: str='hinge'
 
     def setup(self):
         self.perceptual_loss = lpips_jax.LPIPSEvaluator(replicate=False, net='vgg16')
@@ -55,9 +55,9 @@ class LPIPSwithDiscriminator_KL(nn.Module):
         # self.discriminator = 
         self.logvar_dense = nn.Dense(1, use_bias=False, kernel_init=nn.initializers.zeros)
         if self.disc_loss == "hinge":
-            self.disc_loss = hinge_d_loss
+            self.disc_loss_fn = hinge_d_loss
         elif self.disc_loss == "vanilla":
-            self.disc_loss = vanilla_d_loss
+            self.disc_loss_fn = vanilla_d_loss
 
 
         def nll_loss_fn(inputs, reconstructions, g_params=None):
@@ -113,7 +113,7 @@ class LPIPSwithDiscriminator_KL(nn.Module):
             d_fake_inputs = jnp.concatenate((reconstructions, cond), axis=-1)
         d_real_loss = self.discriminator(d_real_inputs)
         d_fake_loss = self.discriminator(d_fake_inputs)
-        d_loss_mean = self.disc_loss(d_real_loss, d_fake_loss)
+        d_loss_mean = self.disc_loss_fn(d_real_loss, d_fake_loss)
         return d_loss_mean, d_real_loss, d_fake_loss
 
     def generator_loss(self, nll_loss, gan_loss, nll_grad, g_grad, posteriors, global_step=0, split='train', weights=None):
@@ -204,7 +204,7 @@ class LPIPSwithDiscriminator_KL(nn.Module):
             logits_fake = discriminator_model(d_reconstructions)
 
             disc_factor = self.adopt_weight(self.disc_factor, global_step, threshold=self.disc_start)
-            d_loss = disc_factor * self.disc_loss(logits_real, logits_fake)
+            d_loss = disc_factor * self.disc_loss_fn(logits_real, logits_fake)
 
             log = {
                 "{}/total_loss".format(split): 0.0, 

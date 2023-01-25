@@ -71,7 +71,8 @@ class AutoEncoderKL():
         self.mode = self.framework_config['mode']
         self.model = AEKL(**config['model']['autoencoder'])
 
-        self.discriminator = LPIPSwithDiscriminator_KL(disc_start=0)
+        # self.discriminator = LPIPSwithDiscriminator_KL(disc_start=0)
+        self.discriminator = LPIPSwithDiscriminator_KL(**config['model']['discriminator'])
 
         # Autoencoder init
         g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
