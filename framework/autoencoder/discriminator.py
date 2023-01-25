@@ -79,7 +79,6 @@ class LPIPSwitchDiscriminator(nn.Module):
         else:
             NotImplementedError("pixel loss function should be one of the 'l1' and 'l2'")
 
-
         def nll_loss_fn(inputs, reconstructions, g_params=None):
             rec_loss = jnp.absolute(inputs - reconstructions)
             if self.perceptual_weight > 0:
@@ -230,9 +229,9 @@ class LPIPSwithDiscriminator_KL(LPIPSwitchDiscriminator):
         return loss * self.kl_weight
 
     # In this case, regularization loss is kl divergence of posterior.
-    def __call__(self, inputs, reconstructions, posterior_kl, optimizer_idx,
+    def __call__(self, inputs, reconstructions, posteriors_kl, optimizer_idx,
                  global_step, cond=None, split='train', weights=None, g_params=None):
-        loss, log = super().__call__(inputs, reconstructions, posterior_kl, optimizer_idx, global_step, 
+        loss, log = super().__call__(inputs, reconstructions, posteriors_kl, optimizer_idx, global_step, 
                             cond, split, weights, g_params)
         log[f'{split}/kl_loss'] = log[f'{split}/regularization_loss']
         return loss, log
