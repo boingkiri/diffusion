@@ -81,7 +81,7 @@ class DiffusionFramework():
             assert len(state) == 2
             # autoencoder_prefix, discriminator_prefix = self.fs_utils.get_state_prefix(self.model_type)
             autoencoder_prefix = self.fs_utils.get_autoencoder_prefix()
-            discriminator_prefix = self.fs_utils.get_autoencoder_prefix()
+            discriminator_prefix = self.fs_utils.get_discriminator_prefix()
             jax_utils.save_train_state(
                 state[0], 
                 self.fs_utils.get_checkpoint_dir(), 
