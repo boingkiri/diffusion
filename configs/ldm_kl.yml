@@ -1,7 +1,6 @@
 # Define experiment name and its path
 exp:
-  # exp_name: "ldm_kl_cifar10_1211"
-  exp_name: "ldm_cifar10_1211"
+  exp_name: "ldm_kl_cifar10"
   exp_dir: "experiments"
   sampling_dir: "sampling"
   in_process_dir : "in_process"
@@ -45,7 +44,7 @@ model:
 
 # Define DDPM
 framework:
-  train_idx: 2 # 1 (AE) or 2 (Diffusion). This is only for ldm. Selected model will be trained. 
+  train_idx: 1 # 1 (AE) or 2 (Diffusion). This is only for ldm. Selected model will be trained. 
   fid_during_training: false # True when calculating fid during training, otherwise, false.
   autoencoder:
     mode: "KL" # VQ or KL
@@ -65,7 +64,7 @@ framework:
     n_timestep: 1000
     loss: "l2"
     train:
-      learning_rate: 2.0e-4
+      learning_rate: 4.5e-06
       gradient_clip: 1.0
       warmup: 5000
       batch_size: 128
