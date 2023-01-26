@@ -5,7 +5,10 @@ exp:
   sampling_dir: "sampling"
   in_process_dir : "in_process"
   checkpoint_dir: "checkpoints"
-  checkpoint_prefix: [['ae_', "discriminator_"], 'diffusion_']
+  # checkpoint_prefix: [['ae_', "discriminator_"], 'diffusion_']
+  autoencoder_prefix: 'ae_'
+  discriminator_prefix: 'discriminator_'
+  diffusion_prefix: 'diffusion_'
 
 dataset: "cifar10"
 
