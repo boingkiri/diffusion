@@ -106,14 +106,16 @@ class LPIPSwitchDiscriminator(nn.Module):
         # self, reconstructions, cond, *g_params*
         self.generator_d_loss_and_grad = jax.value_and_grad(generator_d_loss_fn, argnums=2)
 
-    
+    # TODO: need to implement real adaptive weight (need to get nll and gan gradient)
+    # I could not calculate the gradient of nll and gan.
     def calculate_adaptive_weight(self, nll_grads, g_grads):
-        nll_grads = nll_grads['decoder_model']['conv_out']['kernel']
-        g_grads = g_grads['decoder_model']['conv_out']['kernel']
-        d_weight = jnp.linalg.norm(nll_grads) / (jnp.linalg.norm(g_grads) + 1e-4)
-        d_weight = jnp.clip(d_weight, 0.0, 1e4)
-        d_weight = d_weight * self.disc_weight
-        return d_weight
+        # nll_grads = nll_grads['decoder_model']['conv_out']['kernel']
+        # g_grads = g_grads['decoder_model']['conv_out']['kernel']
+        # d_weight = jnp.linalg.norm(nll_grads) / (jnp.linalg.norm(g_grads) + 1e-4)
+        # d_weight = jnp.clip(d_weight, 0.0, 1e4)
+        # d_weight = d_weight * self.disc_weight
+        # return d_weight
+        return self.disc_weight
 
     def regularization_loss(self, loss):
         NotImplementedError("LPIPSwitchDiscriminator should implement as KL or VQ.")
