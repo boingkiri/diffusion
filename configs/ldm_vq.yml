@@ -1,11 +1,10 @@
 # Define experiment name and its path
 exp:
-  exp_name: "ldm_vq_cifar10_1211"
+  exp_name: "ldm_vq_cifar10"
   exp_dir: "experiments"
   sampling_dir: "sampling"
   in_process_dir : "in_process"
   checkpoint_dir: "checkpoints"
-  # checkpoint_prefix: [['ae_', "discriminator_"], 'diffusion_']
   autoencoder_prefix: 'ae_'
   discriminator_prefix: 'discriminator_'
   diffusion_prefix: 'diffusion_'
@@ -64,7 +63,7 @@ framework:
     n_timestep: 1000
     loss: "l2"
     train:
-      learning_rate: 2.0e-4
+      learning_rate: 4.5e-06
       gradient_clip: 1.0
       warmup: 5000
       batch_size: 128
