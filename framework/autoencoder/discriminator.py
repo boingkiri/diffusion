@@ -86,7 +86,8 @@ class LPIPSwitchDiscriminator(nn.Module):
                 p_loss = self.perceptual_loss(inputs, reconstructions)
                 rec_loss += self.perceptual_weight * p_loss
             nll_loss = rec_loss
-            nll_loss = jnp.sum(nll_loss) / nll_loss.shape[0]
+            # nll_loss = jnp.sum(nll_loss) / nll_loss.shape[0]
+            nll_loss = jnp.mean(nll_loss)
             return nll_loss
         
         def generator_d_loss_fn(reconstructions, cond=None, g_params=None, discriminator_model=self.discriminator):
@@ -97,7 +98,7 @@ class LPIPSwitchDiscriminator(nn.Module):
                 assert self.disc_conditional
                 d_inputs = jnp.concatenate((reconstructions, cond), axis=-1)
             d_loss = discriminator_model(d_inputs)
-            d_loss_mean = -jnp.mean(d_loss)
+            d_loss_mean = -jnp.mean(d_loss) # Discriminator: 0 - fake, 1 - true 
             return d_loss_mean
         
         # self, input, reconstructions, *g_params*
@@ -212,7 +213,7 @@ class LPIPSwithDiscriminator_KL(LPIPSwitchDiscriminator):
     
     def regularization_loss(self, loss):
         # NotImplementedError("LPIPSwitchDiscriminator should implement as KL or VQ.")
-        return loss[0] * self.kl_weight
+        return jnp.mean(loss) * self.kl_weight
 
     # In this case, regularization loss is kl divergence of posterior.
     def __call__(self, inputs, reconstructions, posteriors_kl, optimizer_idx,
@@ -244,7 +245,7 @@ class LPIPSwithDiscriminator_VQ(LPIPSwitchDiscriminator):
         super().setup()
     
     def regularization_loss(self, loss):
-        return loss * self.codebook_weight
+        return jnp.mean(loss) * self.codebook_weight
 
     # In this case, regularization loss is codebook loss.
     def __call__(self, inputs, reconstructions, codebook_loss, optimizer_idx,
