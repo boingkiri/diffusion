@@ -43,10 +43,6 @@ class FSUtils():
         current_exp_dir = self.get_current_exp_dir()
         in_process_dir = os.path.join(current_exp_dir, exp_config['in_process_dir'])
         return in_process_dir
-    
-    def get_checkpoint_prefix(self):
-        exp_config= self.get_exp_config()
-        return exp_config['checkpoint_prefix']
 
     def get_dataset_name(self):
         return self.__config['dataset']
@@ -106,9 +102,14 @@ class FSUtils():
                 dest_dir_path = os.path.join(dataset_name, "train")
                 os.rename(train_dir_path, dest_dir_path)
 
-    def get_start_step_from_checkpoint(self, idx=0):
+    def get_start_step_from_checkpoint(self, model_type):
         # checkpoint_format = "checkpoint_"
-        checkpoint_format = self.get_checkpoint_prefix()[idx]
+        if model_type == "diffusion":
+            checkpoint_format = self.get_diffusion_prefix()
+        elif model_type == "autoencoder":
+            checkpoint_format = self.get_autoencoder_prefix()
+        elif model_type == "discriminator": # idk this is useful though.
+            checkpoint_format = self.get_discriminator_prefix()
         checkpoint_dir = self.get_checkpoint_dir()
         max_num = 0
         for content in os.listdir(checkpoint_dir):
@@ -152,29 +153,30 @@ class FSUtils():
             im.save(sample_path)
             current_sampling += 1
         return current_sampling
+
+    def get_autoencoder_prefix(self):
+        return self.get_exp_config()['autoencoder_prefix']
+    
+    def get_discriminator_prefix(self):
+        return self.get_exp_config()['discriminator_prefix']
+
+    def get_diffusion_prefix(self):
+        return self.get_exp_config()['diffusion_prefix']
     
     def get_state_prefix(self, model_type):
-        prefix_list = self.get_exp_config()['checkpoint_prefix']
+        # prefix_list = self.get_exp_config()['checkpoint_prefix']
         if model_type == "ddpm":
-            prefix = prefix_list[0]
-        elif model_type == "ldm":
-            if self.__config['framework']['train_idx'] == 1:
-                prefix = prefix_list[0]
-            else:
-                prefix = prefix_list[1]
+            # prefix = prefix_list[0]
+            prefix = self.get_diffusion_prefix()
+        elif model_type == "autoencoder":
+            prefix = self.get_autoencoder_prefix()
+        elif model_type == "discriminator":
+            prefix = self.get_discriminator_prefix()
        
         return prefix
 
-    def load_model_state(self, model_type, state, indicator=None):
+    def load_model_state(self, model_type, state):
         prefix = self.get_state_prefix(model_type)
-        if type(prefix) is list:
-            assert indicator is not None
-            if indicator == "autoencoder":
-                prefix = prefix[0]
-            elif indicator == "discriminator":
-                prefix = prefix[1]
-            else:
-                NotImplementedError("load_model_state: parameter 'indicator' only support 'autoencoder' or 'discriminator'.")
         checkpoint_dir = self.get_checkpoint_dir()
         state = jax_utils.load_state_from_checkpoint_dir(checkpoint_dir, state, None, prefix)
         return state

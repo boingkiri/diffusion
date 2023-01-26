@@ -75,11 +75,16 @@ def update_grad(state:train_state.TrainState, grads):
 def encoder_fn(g_params, autoencoder, x, rng):
     kl_rng, dropout_rng = jax.random.split(rng, 2)
     rng = {'gaussian': kl_rng, "dropout": dropout_rng}
-    z = autoencoder.apply({"params": g_params}, x, False, rngs=rng, method=autoencoder.encoder)
-    return z
+    z = autoencoder.apply({"params": g_params}, x=x, train=False, rngs=rng, method=autoencoder.encoder)
+    if type(z) is tuple:
+        retval = z[0]
+    else:
+        retval = z.sample()
+    # return z
+    return retval
 
 def decoder_fn(g_params, autoencoder, z):
-    x_rec = autoencoder.apply({"params": g_params}, z, False, method=autoencoder.decoder)
+    x_rec = autoencoder.apply({"params": g_params}, z=z, train=False, method=autoencoder.decoder)
     return x_rec
 
 def reconstruction_fn(g_params, autoencoder, x, rng):
@@ -111,13 +116,13 @@ class AutoEncoder():
         # Autoencoder init
         g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng) # Generator
-        self.g_model_state = fs_obj.load_model_state("ldm", self.g_model_state, 'autoencoder')       
+        self.g_model_state = fs_obj.load_model_state('autoencoder', self.g_model_state)       
         
         # Discriminator init
         d_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         aux_data = [self.model, self.g_model_state.params]
         self.d_model_state = jax_utils.create_train_state(config, 'discriminator', self.discriminator, d_state_rng, aux_data) # Discriminator
-        self.d_model_state = fs_obj.load_model_state("ldm", self.d_model_state, 'discriminator')       
+        self.d_model_state = fs_obj.load_model_state('discriminator', self.d_model_state)       
 
         if self.autoencoder_type == "KL":
             self.g_loss_fn = jax.jit(
@@ -235,11 +240,12 @@ class AutoEncoder():
         return x_rec
         
     def encoder_forward(self, x):
-        e_x = self.encoder(g_params=self.g_model_state, x=x)
+        encoder_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+        e_x = self.encoder(g_params=self.g_model_state.params, x=x, rng=encoder_rng)
         return e_x
         
     def decoder_forward(self, z):
-        d_e_x = self.decoder(g_params=self.g_model_state, z=z)
+        d_e_x = self.decoder(g_params=self.g_model_state.params, z=z)
         return d_e_x
     
     def set_ema_params_to_state(self):

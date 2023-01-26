@@ -44,14 +44,15 @@ class DiffusionFramework():
     def set_step(self, config):
         # framework_config = config['framework']
         if self.model_type == "ddpm":
-            self.step = self.fs_utils.get_start_step_from_checkpoint()
+            self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
             self.total_step = config['framework']['diffusion']['train']['total_step']
         elif self.model_type == "ldm":
             self.train_idx = config['framework']['train_idx']
-            self.step = self.fs_utils.get_start_step_from_checkpoint(idx=self.train_idx)
             if self.train_idx == 1: # AE
+                self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='autoencoder')
                 self.total_step = config['framework']['autoencoder']['train']['total_step']
             elif self.train_idx == 2: # Diffusion
+                self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
                 self.total_step = config['framework']['diffusion']['train']['total_step']
 
     def fit(self, x, cond=None, step=0):
@@ -101,9 +102,10 @@ class DiffusionFramework():
             
             # loss_ema = loss.item()
             # loss_ema = log['loss']
-            if self.model_type == "ldm":
+            if self.model_type == "ldm" and self.train_idx == 1:
                 loss_ema = log["train/total_loss"]
-            elif self.model_type == "ddpm":
+            # elif self.model_type == "ddpm":
+            else:
                 loss_ema = log["diffusion_loss"]
             # elif self.model_type == "ddpm":
 
