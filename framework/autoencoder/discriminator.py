@@ -132,10 +132,11 @@ class LPIPSwitchDiscriminator(nn.Module):
             else:
                 d_weight = jnp.array(1.0)
             disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.disc_start)
-            loss = weighted_nll_loss + self.regularization_loss(regularization_loss) + d_weight * disc_factor * g_loss
+            weighted_regularization_loss = self.regularization_loss(regularization_loss)
+            loss = weighted_nll_loss + weighted_regularization_loss + d_weight * disc_factor * g_loss
             log = {
                 "{}/total_loss".format(split): jnp.mean(loss), 
-                "{}/regularization_loss".format(split): jnp.mean(regularization_loss),  # kl_loss or vq_loss
+                "{}/regularization_loss".format(split): jnp.mean(weighted_regularization_loss),  # kl_loss or vq_loss
                 "{}/nll_loss".format(split): jnp.mean(nll_loss),
                 "{}/d_weight".format(split): d_weight,
                 "{}/disc_factor".format(split): disc_factor,
@@ -174,7 +175,6 @@ class LPIPSwitchDiscriminator(nn.Module):
         
         loss, log = nn.cond(optimizer_idx == 0, generator_process, discriminator_process, self.discriminator)
         return loss, log
-
 
 
 class LPIPSwithDiscriminator_KL(LPIPSwitchDiscriminator):
