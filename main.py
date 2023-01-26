@@ -24,7 +24,6 @@ def start(args):
     
     diffusion_framework = DiffusionFramework(args.model, config, rng)
     
-    
     if args.sampling_dir is not None:
         config['exp']['sampling_dir'] = args.sampling_dir
 

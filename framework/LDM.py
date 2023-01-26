@@ -22,14 +22,19 @@ class LDM(DefaultModel):
             ddpm_key, self.random_key = jax.random.split(self.random_key, 2)
             self.diffusion_model = DDPM(config, ddpm_key, fs_obj)
         
-        def sample_fn(num_img, img_size=(32, 32, 3)):
-            sample = self.diffusion_model.sampling(num_img, img_size)
-            sample = self.first_stage_model.decoder_forward(sample)
-            return sample
+        # def sample_fn(num_img, img_size=(32, 32, 3)):
+        #     sample = self.diffusion_model.sampling(num_img, img_size)
+        #     sample = self.first_stage_model.decoder_forward(sample)
+        #     return sample
         
-        self.sampling_jit = jax.jit(sample_fn)
+        # self.sampling_jit = jax.jit(sample_fn)
+        # self.sampling = sampl
         
-   
+    def diffusion_sampling(self, num_img, img_size=(32, 32, 3)):
+        sample = self.diffusion_model.sampling(num_img, img_size)
+        sample = self.first_stage_model.decoder_forward(sample)
+        return sample
+
     def get_model_state(self):
         if self.get_train_order() == 1:
             return self.first_stage_model.get_model_state()
@@ -57,7 +62,8 @@ class LDM(DefaultModel):
             assert original_data is not None
             sample = self.first_stage_model.reconstruction(original_data)
         elif self.get_train_order() == 2:
-            sample = self.sampling_jit(num_image, img_size)
+            # sample = self.sampling_jit(num_image, img_size)
+            sample = self.diffusion_sampling(num_image, img_size)
         else:
             NotImplementedError("Train order should have only 1 or 2 for its value.")
         return sample
