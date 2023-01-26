@@ -179,21 +179,25 @@ class VectorQuantizer(nn.Module):
             return data
         self.embedding = nn.Embed(self.n_e, self.e_dim, embedding_init=zero_centered_uniform)
 
-    def __call__(self, z):
-        z_flatten = jnp.reshape(z, (-1, self.e_dim))
+    def __call__(self, z): # z: b h w c
+        z_flatten = jnp.reshape(z, (-1, self.e_dim)) # b*h*w*c/3, 3
         # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
-        embedding_value = self.embedding.embedding
+        embedding = self.embedding.embedding
         d = jnp.sum(z_flatten ** 2, axis=1, keepdims=True) + \
-            jnp.sum(embedding_value ** 2, axis=1) - \
-            2 * jnp.einsum('bd, dn -> bn', z_flatten, jnp.transpose(embedding_value))
+            jnp.sum(embedding ** 2, axis=1) - \
+            2 * jnp.einsum('bd, dn -> bn', z_flatten, jnp.transpose(embedding))
         min_encoding_indices = jnp.argmin(d, axis=1)
         z_q = self.embedding(min_encoding_indices)
         z_q = jnp.reshape(z_q, z.shape)
         perplexity = None
         min_encodings = None
 
-        loss = self.beta * jnp.mean((jax.lax.stop_gradient(z_q) - z) ** 2) + \
+        # loss = self.beta * jnp.mean((jax.lax.stop_gradient(z_q) - z) ** 2) + \
+        #         jnp.mean((z_q - jax.lax.stop_gradient(z)) ** 2)
+        loss = jnp.mean((jax.lax.stop_gradient(z_q) - z) ** 2) + \
                 jnp.mean((z_q - jax.lax.stop_gradient(z)) ** 2)
+        # loss = self.beta * jnp.mean((z_q - jax.lax.stop_gradient(z)) ** 2) + \
+        #         jnp.mean((jax.lax.stop_gradient(z_q) - z) ** 2)
         
         # Preserve gradients
         z_q = z + jax.lax.stop_gradient(z_q - z)
