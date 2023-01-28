@@ -35,8 +35,6 @@ class GradModule(nn.Module):
       allow_int=self.allow_int,
       reduce_axes=self.reduce_axes)(**input_kwargs)
   
-
-
 def get_framework_config(config, model_type):
   if model_type in ['diffusion', 'ddpm']:
     framework_config = config['framework']['diffusion']
@@ -68,13 +66,22 @@ def get_learning_rate_schedule(config, model_type):
     learning_rate = optax.constant_schedule(learning_rate)
   return learning_rate
 
-def create_train_state(config, model_type, model, rng, aux_data=None):
+def create_train_state(config, model_type, model, rng, aux_data=None, dataset='cifar10'):
   """
   Creates initial 'TrainState'
   """
   rng, param_rng, dropout_rng = jax.random.split(rng, 3)
-  input_format = jnp.ones([1, 32, 32, 3]) 
+  if config['dataset'] == 'cifar10':
+    input_format = jnp.ones([1, 32, 32, 3]) 
   if model_type == "ddpm":
+    if 'train_idx' in config['framework'].keys() and config['framework']['train_idx'] == 2:
+      f_value = len(config['model']['autoencoder']['ch_mults']) # TODO: Too naive
+      input_format_shape = input_format.shape
+      input_format = jnp.ones(
+        [input_format_shape[0], 
+         input_format_shape[1] // f_value, 
+         input_format_shape[2] // f_value, 
+         input_format_shape[3]])
     rng_dict = {"params": param_rng, 'dropout': dropout_rng}
     params = model.init(rng_dict, x=input_format, t=jnp.ones([64,]), train=False)['params']
   elif model_type == "autoencoder":
