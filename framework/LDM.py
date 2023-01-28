@@ -12,6 +12,7 @@ class LDM(DefaultModel):
         self.random_key = rand_key
         self.first_stage_model = None
         self.diffusion_model = None
+        self.f_scale = len(config['model']['autoencoder']['ch_mults'])
 
         self.fs_obj = fs_obj
 
@@ -31,7 +32,8 @@ class LDM(DefaultModel):
         # self.sampling = sampl
         
     def diffusion_sampling(self, num_img, img_size=(32, 32, 3)):
-        sample = self.diffusion_model.sampling(num_img, img_size)
+        diffusion_img_size = (img_size[0] // self.f_scale, img_size[1] // self.f_scale, img_size[2])
+        sample = self.diffusion_model.sampling(num_img, diffusion_img_size)
         sample = self.first_stage_model.decoder_forward(sample)
         return sample
 
