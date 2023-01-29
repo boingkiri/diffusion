@@ -6,6 +6,8 @@ import flax.linen as nn
 
 from functools import partial
 
+from model.autoencoder import AbstractAutoEncoder
+
 def hinge_d_loss(logits_real, logits_fake, weights=1.0):
     # loss_real = jnp.mean(nn.relu(1. - logits_real))
     # loss_fake = jnp.mean(nn.relu(1. + logits_fake))
@@ -44,6 +46,7 @@ def measure_perplexity(predicted_indices, n_embed):
     return perplexity, cluster_use
 
 class LPIPSwitchDiscriminator(nn.Module):
+    autoencoder: AbstractAutoEncoder
     disc_start: int
     pixelloss_weight: float=1.0
     disc_num_layers: int=3
@@ -80,105 +83,122 @@ class LPIPSwitchDiscriminator(nn.Module):
         else:
             NotImplementedError("pixel loss function should be one of the 'l1' and 'l2'")
 
-        def nll_loss_fn(inputs, reconstructions, g_params=None):
+    # TODO: need to implement real adaptive weight (need to get nll and gan gradient)
+    # I could not calculate the gradient of nll and gan.
+    def calculate_adaptive_weight(self, nll_grads, g_grads):
+        nll_grads = nll_grads['kernel']
+        g_grads = g_grads['kernel']
+        nll_grads_norm = jnp.linalg.norm(nll_grads)
+        g_grads_norm = jnp.linalg.norm(g_grads)
+        d_weight = nll_grads_norm / (g_grads_norm + 1e-4)
+        d_weight = jnp.clip(d_weight, 0.0, 1e4)
+        d_weight = d_weight * self.disc_weight
+        return d_weight
+        # return self.disc_weight
+
+    def regularization_loss(self, loss):
+        NotImplementedError("LPIPSwitchDiscriminator should implement as KL or VQ.")
+    
+    def generator_loss(self, inputs, reconstructions, regularization_loss,
+                 global_step, conv_out_params=None, cond=None, split='train', weights=None):
+        # nll_loss, nll_grad = self.nll_loss_and_grad(self.autoencoder, conv_out_params, inputs, reconstructions)
+        def conv_out_fn(conv_out_params):
+            reconstructions_complete = self.autoencoder.decoder_model.conv_out.apply({'params': conv_out_params}, reconstructions)
+            return reconstructions_complete
+    
+        def nll_loss_fn(conv_out_params):
+            reconstructions = conv_out_fn(conv_out_params)
             rec_loss = self.pixel_loss_fn(inputs, reconstructions)
             if self.perceptual_weight > 0:
                 p_loss = self.perceptual_loss(inputs, reconstructions)
                 rec_loss += self.perceptual_weight * p_loss
             nll_loss = rec_loss
-            # nll_loss = jnp.sum(nll_loss) / nll_loss.shape[0]
             nll_loss = jnp.mean(nll_loss)
             return nll_loss
         
-        def generator_d_loss_fn(reconstructions, cond=None, g_params=None, discriminator_model=self.discriminator):
+        def generator_d_loss_fn(conv_out_params, cond=None):
+            reconstructions = conv_out_fn(conv_out_params)
             if cond is None:
                 assert not self.disc_conditional
                 d_inputs = reconstructions
             else:
                 assert self.disc_conditional
                 d_inputs = jnp.concatenate((reconstructions, cond), axis=-1)
-            d_loss = discriminator_model(d_inputs)
+            d_loss = self.discriminator(d_inputs)
             d_loss_mean = -jnp.mean(d_loss) # Discriminator: 0 - fake, 1 - true 
             return d_loss_mean
         
-        # self, input, reconstructions, *g_params*
-        self.nll_loss_and_grad = jax.value_and_grad(nll_loss_fn, argnums=2)
-        # self, reconstructions, cond, *g_params*
-        self.generator_d_loss_and_grad = jax.value_and_grad(generator_d_loss_fn, argnums=2)
-
-    # TODO: need to implement real adaptive weight (need to get nll and gan gradient)
-    # I could not calculate the gradient of nll and gan.
-    def calculate_adaptive_weight(self, nll_grads, g_grads):
-        # nll_grads = nll_grads['decoder_model']['conv_out']['kernel']
-        # g_grads = g_grads['decoder_model']['conv_out']['kernel']
-        # d_weight = jnp.linalg.norm(nll_grads) / (jnp.linalg.norm(g_grads) + 1e-4)
-        # d_weight = jnp.clip(d_weight, 0.0, 1e4)
-        # d_weight = d_weight * self.disc_weight
-        # return d_weight
-        return self.disc_weight
-
-    def regularization_loss(self, loss):
-        NotImplementedError("LPIPSwitchDiscriminator should implement as KL or VQ.")
-
-    def __call__(self, inputs, reconstructions, regularization_loss, optimizer_idx,
-                 global_step, cond=None, split='train', weights=None, g_params=None):
-        nll_loss, nll_grad = self.nll_loss_and_grad(inputs, reconstructions, g_params)
+        nll_loss, nll_grad = jax.value_and_grad(nll_loss_fn)(conv_out_params)
         weighted_nll_loss = nll_loss
         if weights is not None:
             weighted_nll_loss = nll_loss * weights
-
+        
         # GAN update
-        def generator_process(discriminator_model):
-            g_loss, g_grad = self.generator_d_loss_and_grad(reconstructions, cond, g_params, discriminator_model)
-            if self.disc_factor > 0.0 and optimizer_idx == 0:
-                d_weight = self.calculate_adaptive_weight(nll_grad, g_grad)
-            else:
-                d_weight = jnp.array(1.0)
-            disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.disc_start)
-            weighted_regularization_loss = self.regularization_loss(regularization_loss)
-            loss = weighted_nll_loss + weighted_regularization_loss + d_weight * disc_factor * g_loss
-            log = {
-                "{}/total_loss".format(split): jnp.mean(loss), 
-                "{}/regularization_loss".format(split): jnp.mean(weighted_regularization_loss),  # kl_loss or vq_loss
-                "{}/nll_loss".format(split): jnp.mean(nll_loss),
-                "{}/d_weight".format(split): d_weight,
-                "{}/disc_factor".format(split): disc_factor,
-                "{}/g_loss".format(split): jnp.mean(g_loss),
-                "{}/disc_loss".format(split): 0.0,
-                "{}/logits_real".format(split): 0.0,
-                "{}/logits_fake".format(split): 0.0
-            }
-            return loss, log
-        
-        def discriminator_process(discriminator_model):
-            if cond is None:
-                d_inputs = inputs
-                d_reconstructions = reconstructions
-            else:
-                d_inputs = jnp.concatenate((inputs, cond), axis=-1)
-                d_reconstructions = jnp.concatenate((reconstructions, cond), axis=-1)
-
-            logits_real = discriminator_model(d_inputs)
-            logits_fake = discriminator_model(d_reconstructions)
-
-            disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.disc_start)
-            d_loss = disc_factor * self.disc_loss_fn(logits_real, logits_fake)
-            log = {
-                "{}/total_loss".format(split): 0.0, 
-                "{}/regularization_loss".format(split): 0.0, 
-                "{}/nll_loss".format(split): 0.0,
-                "{}/d_weight".format(split): 0.0,
-                "{}/disc_factor".format(split): 0.0,
-                "{}/g_loss".format(split): 0.0,
-                "{}/disc_loss".format(split): jnp.mean(d_loss),
-                "{}/logits_real".format(split): jnp.mean(logits_real),
-                "{}/logits_fake".format(split): jnp.mean(logits_fake)
-            }
-            return d_loss, log
-        
-        loss, log = nn.cond(optimizer_idx == 0, generator_process, discriminator_process, self.discriminator)
+        g_loss, g_grad = jax.value_and_grad(generator_d_loss_fn)(conv_out_params, cond)
+        if self.disc_factor > 0.0:
+            d_weight = self.calculate_adaptive_weight(nll_grad, g_grad)
+        else:
+            d_weight = jnp.array(1.0)
+        disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.disc_start)
+        weighted_regularization_loss = self.regularization_loss(regularization_loss)
+        loss = weighted_nll_loss + weighted_regularization_loss + d_weight * disc_factor * g_loss
+        log = {
+            "{}/total_loss".format(split): jnp.mean(loss), 
+            "{}/regularization_loss".format(split): jnp.mean(weighted_regularization_loss),  # kl_loss or vq_loss
+            "{}/nll_loss".format(split): jnp.mean(nll_loss),
+            "{}/d_weight".format(split): d_weight,
+            "{}/disc_factor".format(split): disc_factor,
+            "{}/g_loss".format(split): jnp.mean(g_loss),
+            "{}/disc_loss".format(split): 0.0,
+            "{}/logits_real".format(split): 0.0,
+            "{}/logits_fake".format(split): 0.0
+        }
         return loss, log
+    
+    def discriminator_loss(self, inputs, reconstructions, global_step, cond=None, split='train'):
+        if cond is None:
+            d_inputs = inputs
+            d_reconstructions = reconstructions
+        else:
+            d_inputs = jnp.concatenate((inputs, cond), axis=-1)
+            d_reconstructions = jnp.concatenate((reconstructions, cond), axis=-1)
 
+        logits_real = self.discriminator(d_inputs)
+        logits_fake = self.discriminator(d_reconstructions)
+
+        disc_factor = adopt_weight(self.disc_factor, global_step, threshold=self.disc_start)
+        d_loss = disc_factor * self.disc_loss_fn(logits_real, logits_fake)
+        log = {
+            "{}/total_loss".format(split): 0.0, 
+            "{}/regularization_loss".format(split): 0.0,  # kl_loss or vq_loss
+            "{}/nll_loss".format(split): 0.0,
+            "{}/d_weight".format(split): 0.0,
+            "{}/disc_factor".format(split): 0.0,
+            "{}/g_loss".format(split): 0.0,
+            "{}/disc_loss".format(split): jnp.mean(d_loss),
+            "{}/logits_real".format(split): jnp.mean(logits_real),
+            "{}/logits_fake".format(split): jnp.mean(logits_fake)
+        }
+        return d_loss, log
+
+    def __call__(self, inputs, reconstructions, global_step, optimizer_idx,
+                regularization_loss = None, conv_out_params=None, cond=None, split='train', weights=None):
+        def generator_fn():
+            loss, log = self.generator_loss(
+                inputs, reconstructions, 
+                regularization_loss, global_step, 
+                conv_out_params, cond, 
+                split, weights)
+            return loss, log
+        def discriminator_fn():
+            loss, log = self.discriminator_loss(
+                inputs, reconstructions, global_step, cond, split)
+            return loss, log
+        # jax.nn.cond(optimizer_idx == 0, generator_fn, discriminator_fn, )
+        # loss, log = jax.lax.cond(optimizer_idx == 0, generator_fn, discriminator_fn)
+        # loss, log = nn.cond(optimizer_idx==0, generator_fn, discriminator_fn, self.discriminator)
+        loss, log = generator_fn() if optimizer_idx == 0 else discriminator_fn()
+        return loss, log
 
 class LPIPSwithDiscriminator_KL(LPIPSwitchDiscriminator):
     disc_start: int
@@ -199,19 +219,19 @@ class LPIPSwithDiscriminator_KL(LPIPSwitchDiscriminator):
         super().setup()
         self.logvar_dense = nn.Dense(1, use_bias=False, kernel_init=nn.initializers.zeros)
 
-        def nll_loss_fn(inputs, reconstructions, g_params=None):
-            # rec_loss = jnp.absolute(inputs - reconstructions)
-            rec_loss = self.pixel_loss_fn(inputs, reconstructions)
-            if self.perceptual_weight > 0:
-                p_loss = self.perceptual_loss(inputs, reconstructions)
-                rec_loss += self.perceptual_weight * p_loss
-            dummy_input = jnp.array([1.])
-            logvar = self.logvar_dense(dummy_input)
-            nll_loss = rec_loss / jnp.exp(logvar) + logvar
-            nll_loss = jnp.sum(nll_loss) / nll_loss.shape[0]
-            return nll_loss
+        # def nll_loss_fn(inputs, reconstructions, g_params=None):
+        #     # rec_loss = jnp.absolute(inputs - reconstructions)
+        #     rec_loss = self.pixel_loss_fn(inputs, reconstructions)
+        #     if self.perceptual_weight > 0:
+        #         p_loss = self.perceptual_loss(inputs, reconstructions)
+        #         rec_loss += self.perceptual_weight * p_loss
+        #     dummy_input = jnp.array([1.])
+        #     logvar = self.logvar_dense(dummy_input)
+        #     nll_loss = rec_loss / jnp.exp(logvar) + logvar
+        #     nll_loss = jnp.sum(nll_loss) / nll_loss.shape[0]
+        #     return nll_loss
         
-        self.nll_loss_and_grad = jax.value_and_grad(nll_loss_fn, argnums=2)
+        # self.nll_loss_and_grad = jax.value_and_grad(nll_loss_fn, argnums=2)
     
     def regularization_loss(self, loss):
         # NotImplementedError("LPIPSwitchDiscriminator should implement as KL or VQ.")
@@ -219,9 +239,17 @@ class LPIPSwithDiscriminator_KL(LPIPSwitchDiscriminator):
 
     # In this case, regularization loss is kl divergence of posterior.
     def __call__(self, inputs, reconstructions, posteriors_kl, optimizer_idx,
-                 global_step, cond=None, split='train', weights=None, g_params=None):
-        loss, log = super().__call__(inputs, reconstructions, posteriors_kl, optimizer_idx, global_step, 
-                            cond, split, weights, g_params)
+                 global_step, conv_out_params=None, cond=None, split='train', weights=None):
+        loss, log = super().__call__(
+                            inputs=inputs, 
+                            reconstruction=reconstructions, 
+                            regularization_loss=posteriors_kl, 
+                            global_step=global_step,
+                            optimizer_idx=optimizer_idx,
+                            conv_out_params=conv_out_params,
+                            cond=cond,
+                            split=split, 
+                            weights=weights)
         log[f'{split}/kl_loss'] = log[f'{split}/regularization_loss']
         log.pop(f'{split}/regularization_loss', None)
         return loss, log
@@ -251,9 +279,17 @@ class LPIPSwithDiscriminator_VQ(LPIPSwitchDiscriminator):
 
     # In this case, regularization loss is codebook loss.
     def __call__(self, inputs, reconstructions, codebook_loss, optimizer_idx,
-                 global_step, cond=None, split='train', weights=None, g_params=None, predicted_indices=None):
-        loss, log = super().__call__(inputs, reconstructions, codebook_loss, optimizer_idx, global_step, 
-                            cond, split, weights, g_params)
+                 global_step, conv_out_params=None, cond=None, split='train', weights=None, predicted_indices=None):
+        loss, log = super().__call__(
+                            inputs=inputs, 
+                            reconstructions=reconstructions, 
+                            regularization_loss=codebook_loss, 
+                            global_step=global_step,
+                            optimizer_idx=optimizer_idx, 
+                            conv_out_params=conv_out_params,
+                            cond=cond,
+                            split=split,
+                            weights=weights)
         log[f'{split}/quant_loss'] = log[f'{split}/regularization_loss']
         log.pop(f'{split}/regularization_loss', None)
         if predicted_indices is not None:
@@ -293,7 +329,7 @@ class NLayerDiscriminator(nn.Module):
             x = nn.Conv(
                 self.ndf * nf_mult, 
                 (kw, kw), 
-                strides=2, 
+                strides=2,  
                 padding=padw, 
                 use_bias=self.use_bias,
                 kernel_init=nn.initializers.normal(0.02))(x)
@@ -318,7 +354,4 @@ class NLayerDiscriminator(nn.Module):
             1, (kw, kw), strides=1, padding=padw,
             )(x)
         return x
-
-
-
 

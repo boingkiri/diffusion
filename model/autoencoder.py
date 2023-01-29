@@ -75,8 +75,7 @@ class Decoder(nn.Module):
     def get_last_layer(self):
         return self.conv_out
 
-    # @nn.compact
-    def __call__(self, x, train):
+    def forward_before_conv_out(self, x, train):
         t = None
         x = self.conv_in(x)
         x = self.unet_middle(x, t, train)
@@ -88,8 +87,11 @@ class Decoder(nn.Module):
 
         x = self.norm(x)
         x = nn.swish(x)
+        return x
+    
+    def __call__(self, x, train):
+        x = self.forward_before_conv_out(x, train)
         x = self.conv_out(x)
-
         return x
 
 
@@ -126,6 +128,9 @@ class AbstractAutoEncoder(nn.Module):
     def decoder(self, z, train):
         NotImplementedError("Autoencoder should implement 'decoder' method.")
     
+    def forward_before_conv_out(self, x , train):
+        NotImplementedError("Autoencoder should implement 'forward_before_conv_out' method.")
+    
     def __call__(self, x, train):
         NotImplementedError("Autoencoder should implement '__call__' method.")
 
@@ -155,15 +160,24 @@ class AutoEncoderKL(AbstractAutoEncoder):
         z = self.post_quant_conv(z)
         return self.decoder_model(z, train)
     
-    def __call__(self, x, train, sample_posterior=True):
+    def decoder_before_conv_out(self, z, train):
+        z = self.post_quant_conv(z)
+        return self.decoder_model.forward_before_conv_out(z, train)
+
+    def forward_before_conv_out(self, x, train, sample_posterior=True):
         posterior = self.encoder(x, train)
 
         if sample_posterior:
             z = posterior.sample()
         else:
             z = posterior.mode()
-        x_rec = self.decoder(z, train)
+        x_rec = self.decoder_before_conv_out(z, train)
         return x_rec, posterior
+
+    def __call__(self, x, train, sample_posterior=True):
+        x_rec, posterior = self.forward_before_conv_out(x, train, sample_posterior)
+        x_rec_complete = self.decoder_model.conv_out(x_rec)
+        return x_rec_complete, x_rec, posterior
 
 
 class AutoEncoderVQ(AbstractAutoEncoder):
@@ -192,8 +206,17 @@ class AutoEncoderVQ(AbstractAutoEncoder):
         z = self.post_quant_conv(z)
         dec = self.decoder_model(z, train)
         return dec
+
+    def decoder_before_conv_out(self, z, train):
+        z = self.post_quant_conv(z)
+        return self.decoder_model.forward_before_conv_out(z, train)
+
+    def forward_before_conv_out(self, x, train):
+        quant, codebook_loss, (_, _, ind) = self.encoder(x, train)
+        x_rec = self.decoder_before_conv_out(quant, train)
+        return x_rec, codebook_loss, ind
     
     def __call__(self, x, train):
-        quant, diff, (_, _, ind) = self.encoder(x, train)
-        dec = self.decoder(quant, train)
-        return dec, diff, ind
+        x_rec, codebook_loss, ind = self.forward_before_conv_out(x, train)
+        x_rec_complete = self.decoder_model.conv_out(x_rec)
+        return x_rec_complete, x_rec, codebook_loss, ind

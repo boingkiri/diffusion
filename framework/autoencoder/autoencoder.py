@@ -18,7 +18,10 @@ def generator_loss_kl(g_params, d_params, autoencoder: nn.Module, discriminator:
     # losses_fn = jax.jit(jax.value_and_grad(nll_and_d_loss, has_aux=True))
     kl_rng, dropout_rng = jax.random.split(rng, 2)
     rng = {'gaussian': kl_rng, "dropout": dropout_rng}
-    x_rec, posteriors = autoencoder.apply({"params": g_params}, x=x, train=True, rngs=rng)
+    # x_rec, posteriors = autoencoder.apply({"params": g_params}, x=x, train=True, rngs=rng)
+    x_rec_complete, x_rec, posteriors = autoencoder.apply(
+        {"params": g_params}, x=x, train=True, rngs=rng,)
+    conv_out_params = g_params['decoder_model']['conv_out']
     posteriors_kl = posteriors.kl()
     loss, log = discriminator.apply(
         {"params": d_params}, 
@@ -27,9 +30,8 @@ def generator_loss_kl(g_params, d_params, autoencoder: nn.Module, discriminator:
         posteriors_kl=posteriors_kl,
         optimizer_idx=0,
         global_step=step,
-        g_params=g_params)
-    # return loss, (log, x_rec, posterior, last_layer)
-    return loss, (log, x_rec, posteriors_kl)
+        conv_out_params=conv_out_params)
+    return loss, (log, x_rec_complete, posteriors_kl)
 
 def discriminator_loss_kl(d_params, discriminator: nn.Module, x, x_rec, step, posteriors_kl):
     loss, log = discriminator.apply(
@@ -45,7 +47,10 @@ def generator_loss_vq(g_params, d_params, autoencoder: nn.Module, discriminator:
     # losses_fn = jax.jit(jax.value_and_grad(nll_and_d_loss, has_aux=True))
     kl_rng, dropout_rng = jax.random.split(rng, 2)
     rng = {'gaussian': kl_rng, "dropout": dropout_rng}
-    x_rec, codebook_diff, ind = autoencoder.apply({"params": g_params}, x=x, train=True, rngs=rng)
+    # x_rec, codebook_diff, ind = autoencoder.apply({"params": g_params}, x=x, train=True, rngs=rng)
+    x_rec_complete, x_rec, codebook_diff, ind = autoencoder.apply(
+        {"params": g_params}, x=x, train=True, rngs=rng)
+    conv_out_params = g_params['decoder_model']['conv_out']
     loss, log = discriminator.apply(
         {"params": d_params}, 
         inputs=x, 
@@ -53,11 +58,10 @@ def generator_loss_vq(g_params, d_params, autoencoder: nn.Module, discriminator:
         codebook_loss=codebook_diff,
         optimizer_idx=0,
         global_step=step,
-        g_params=g_params,
+        conv_out_params=conv_out_params,
         predicted_indices=ind
         )
-    # return loss, (log, x_rec, posterior, last_layer)
-    return loss, (log, x_rec, codebook_diff)
+    return loss, (log, x_rec_complete, codebook_diff)
 
 def discriminator_loss_vq(d_params, discriminator: nn.Module, x, x_rec, step, codebook_loss):
     loss, log = discriminator.apply(
@@ -107,17 +111,23 @@ class AutoEncoder():
         self.autoencoder_type = config['framework']['autoencoder']['mode']
         if self.autoencoder_type == "KL":
             self.model = AEKL(**config['model']['autoencoder'])
-            self.discriminator = LPIPSwithDiscriminator_KL(**config['model']['discriminator'])
         elif self.autoencoder_type == "VQ":
             self.model = AEVQ(**config['model']['autoencoder'])
-            self.discriminator = LPIPSwithDiscriminator_VQ(**config['model']['discriminator'], n_classes=config['model']['autoencoder']['n_embed'])
-        
 
         # Autoencoder init
         g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng) # Generator
         self.g_model_state = fs_obj.load_model_state('autoencoder', self.g_model_state)       
         
+        if self.autoencoder_type == "KL":
+            self.discriminator = LPIPSwithDiscriminator_KL(
+                **config['model']['discriminator'], 
+                autoencoder=self.model)
+        elif self.autoencoder_type == "VQ":
+            self.discriminator = LPIPSwithDiscriminator_VQ(
+                **config['model']['discriminator'], 
+                n_classes=config['model']['autoencoder']['n_embed'],
+                autoencoder=self.model)
         # Discriminator init
         d_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         aux_data = [self.model, self.g_model_state.params]
@@ -152,6 +162,16 @@ class AutoEncoder():
                         jax.value_and_grad(discriminator_loss_vq, has_aux=True),
                         discriminator=self.discriminator)
                 )
+            # self.g_loss_fn = functools.partial(
+            #             jax.value_and_grad(generator_loss_vq, has_aux=True), 
+            #             autoencoder=self.model,
+            #             discriminator=self.discriminator
+            #         )
+            
+            # self.d_loss_fn = functools.partial(
+            #             jax.value_and_grad(discriminator_loss_vq, has_aux=True),
+            #             discriminator=self.discriminator
+            #         )
         self.update_model = jax.jit(update_grad) # TODO: Can this function be adapted to both generator and discriminator? 
         self.encoder = jax.jit(functools.partial(encoder_fn, autoencoder=self.model))
         self.decoder = jax.jit(functools.partial(decoder_fn, autoencoder=self.model))
