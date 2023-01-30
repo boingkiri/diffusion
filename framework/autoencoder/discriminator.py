@@ -12,7 +12,7 @@ def hinge_d_loss(logits_real, logits_fake, weights=1.0):
     # loss_real = jnp.mean(nn.relu(1. - logits_real))
     # loss_fake = jnp.mean(nn.relu(1. + logits_fake))
     loss_real = jnp.mean(nn.relu(1. - logits_real), axis=[1, 2, 3])
-    loss_fake = jnp.mean(nn.relu(1. - logits_fake), axis=[1, 2, 3])
+    loss_fake = jnp.mean(nn.relu(1. + logits_fake), axis=[1, 2, 3])
     loss_real = jnp.sum(weights * loss_real) / weights
     loss_fake = jnp.sum(weights * loss_fake) / weights
     d_loss = 0.5 * (loss_real + loss_fake)
