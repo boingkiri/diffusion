@@ -242,7 +242,7 @@ class LPIPSwithDiscriminator_KL(LPIPSwitchDiscriminator):
                  global_step, conv_out_params=None, cond=None, split='train', weights=None):
         loss, log = super().__call__(
                             inputs=inputs, 
-                            reconstruction=reconstructions, 
+                            reconstructions=reconstructions, 
                             regularization_loss=posteriors_kl, 
                             global_step=global_step,
                             optimizer_idx=optimizer_idx,
