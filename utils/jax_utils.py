@@ -83,7 +83,7 @@ def create_train_state(config, model_type, model, rng, aux_data=None, dataset='c
          input_format_shape[2] // f_value, 
          input_format_shape[3]])
     rng_dict = {"params": param_rng, 'dropout': dropout_rng}
-    params = model.init(rng_dict, x=input_format, t=jnp.ones([64,]), train=False)['params']
+    params = model.init(rng_dict, x=input_format, t=jnp.ones([1,]), train=False)['params']
   elif model_type == "autoencoder":
     rng, gaussian_rng = jax.random.split(rng, 2)
     rng_dict = {"params": param_rng, 'dropout': dropout_rng, 'gaussian': gaussian_rng}
@@ -132,6 +132,7 @@ def create_train_state(config, model_type, model, rng, aux_data=None, dataset='c
   learning_rate = get_learning_rate_schedule(config, model_type)
   framework_config = get_framework_config(config, model_type)
 
+  # Setting Optimizer
   optax_chain = []
   if "gradient_clip" in framework_config['train']:
     optax_chain.append(optax.clip(framework_config['train']['gradient_clip']))

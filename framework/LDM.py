@@ -30,9 +30,10 @@ class LDM(DefaultModel):
         # self.sampling_jit = jax.jit(sample_fn)
         # self.sampling = sampl
         
-    def diffusion_sampling(self, num_img, img_size=(32, 32, 3)):
+    def diffusion_sampling(self, num_img, img_size=(32, 32, 3), original_data=None):
         diffusion_img_size = (img_size[0] // self.f_scale, img_size[1] // self.f_scale, img_size[2])
-        sample = self.diffusion_model.sampling(num_img, diffusion_img_size)
+        original_data_encoding = self.first_stage_model.encoder_forward(original_data)
+        sample = self.diffusion_model.sampling(num_img, diffusion_img_size, original_data_encoding)
         sample = self.first_stage_model.decoder_forward(sample)
         return sample
 
@@ -53,6 +54,7 @@ class LDM(DefaultModel):
             log_dict = self.first_stage_model.fit(x0, cond, step)
             return log_dict
         elif self.get_train_order() == 2:
+            # breakpoint()
             z = self.first_stage_model.encoder_forward(x0)
             loss = self.diffusion_model.fit(z, cond)
             return loss
@@ -64,7 +66,7 @@ class LDM(DefaultModel):
             sample = self.first_stage_model.reconstruction(original_data)
         elif self.get_train_order() == 2:
             # sample = self.sampling_jit(num_image, img_size)
-            sample = self.diffusion_sampling(num_image, img_size)
+            sample = self.diffusion_sampling(num_image, img_size, original_data)
         else:
             NotImplementedError("Train order should have only 1 or 2 for its value.")
         return sample

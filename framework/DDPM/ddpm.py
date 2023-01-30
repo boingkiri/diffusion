@@ -22,7 +22,7 @@ class DDPM(DefaultModel):
 
         # Create UNet and its state
         self.model = UNet(**config['model']['diffusion'])
-        state_rng, self.rand_key = jax.random.split(rand_key, 2)
+        state_rng, self.rand_key = jax.random.split(self.rand_key, 2)
         self.model_state = jax_utils.create_train_state(config, 'ddpm', self.model, state_rng)
         self.model_state = fs_obj.load_model_state("ddpm", self.model_state)
 
@@ -44,13 +44,13 @@ class DDPM(DefaultModel):
         # DDPM loss configuration
         self.loss = loss
 
-        def loss_fn(params, perturbed_data, time, real, dropout_key):
+        def loss_fn(params, perturbed_data, time, real_noise, dropout_key):
             pred_noise = self.model.apply(
                 {'params': params}, x=perturbed_data, t=time, train=True, rngs={'dropout': dropout_key})
             if self.loss == "l2":
-                loss = jnp.mean((pred_noise - real) ** 2)
+                loss = jnp.mean((pred_noise - real_noise) ** 2)
             elif self.loss == "l1":
-                loss = jnp.mean(jnp.absolute(pred_noise - real))
+                loss = jnp.mean(jnp.absolute(pred_noise - real_noise))
             return loss
         
         def update_grad(state:train_state.TrainState, grad):
@@ -62,7 +62,6 @@ class DDPM(DefaultModel):
 
             pred_noise = self.model.apply(
                 {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': dropout_key})
-
             beta = jnp.take(self.beta, time)
             sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)
             eps_coef = beta / sqrt_one_minus_alpha_bar
@@ -82,9 +81,12 @@ class DDPM(DefaultModel):
             return return_val
         
         self.loss_fn = jax.jit(loss_fn)
+        # self.loss_fn = loss_fn
         self.grad_fn = jax.jit(jax.value_and_grad(self.loss_fn))
+        # self.grad_fn = jax.value_and_grad(self.loss_fn)
         self.update_grad = jax.jit(update_grad)
         self.p_sample_jit = jax.jit(p_sample_jit)
+        # self.p_sample_jit = p_sample_jit
 
     def q_xt_x0(self, x0, t):
         mean_coeff = jnp.take(self.sqrt_alpha_bar, t)
@@ -94,22 +96,18 @@ class DDPM(DefaultModel):
         std = std[:, None, None, None]
         return mean, std
     
-    def q_sample(self, x0, t, eps):
+    def q_sample(self, x0, t, eps=None):
         # Sample from q(x_t|x_0)
-
         if eps is None:
             # TODO: need to check
-            key, normal_key = jax.random.split(self.rand_key)
-            self.rand_key = key
+            self.rand_key, normal_key = jax.random.split(self.rand_key, 2)
             eps = jax.random.normal(normal_key, x0.shape)
         mean, std = self.q_xt_x0(x0, t)
         return mean + std * eps, eps
     
     def p_sample(self, param, xt, t):
         # Sample from p_theta(x_{t-1}|x_t)
-
-        key, normal_key, dropout_key = jax.random.split(self.rand_key, 3)
-        self.rand_key = key
+        self.rand_key, normal_key, dropout_key = jax.random.split(self.rand_key, 3)
         return self.p_sample_jit(param, xt, t, normal_key, dropout_key)
     
     def get_model_state(self) -> TypedDict:
@@ -145,12 +143,17 @@ class DDPM(DefaultModel):
         self.set_ema_params_to_state()
         latent_sampling_tuple = (num_image, *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
+        if original_data is None:
+            latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
+        else:
+            t = jnp.array([self.n_timestep - 1] * num_image)
+            perturbed_data = self.q_sample(original_data, t)[0]
+            latent_sample = perturbed_data
 
         pbar = tqdm(reversed(range(self.n_timestep)))
         for t in pbar:
             normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
             latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, normal_key, dropout_key)
-        
+        # breakpoint()
         return latent_sample
     
