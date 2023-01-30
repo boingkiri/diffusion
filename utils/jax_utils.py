@@ -95,34 +95,38 @@ def create_train_state(config, model_type, model, rng, aux_data=None, dataset='c
 
     generator_model: nn.Module = aux_data[0]
     generator_params = aux_data[1]
+    conv_out_params = generator_params['decoder_model']['conv_out']
   
     def kl_model_init():
       reconstructions, posteriors = generator_model.apply(
         {"params": generator_params},
         x=input_format,
         train=False,
-        rngs={'gaussian': kl_rng}
+        rngs={'gaussian': kl_rng},
+        method=generator_model.forward_before_conv_out
       )
       rng_dict = {"params": param_rng, 'dropout': dropout_rng}
-      # return model.init(rng_dict, inputs=input_format3, reconstructions=reconstructions, 
-      #                     posteriors=posteriors, optimizer_idx=0, global_step=0, g_params=generator_params)['params']
       posteriors_kl = posteriors.kl()
       return model.init(rng_dict, inputs=input_format3, reconstructions=reconstructions, 
-                          posteriors_kl=posteriors_kl, optimizer_idx=0, global_step=0, g_params=generator_params)
+                          posteriors_kl=posteriors_kl, optimizer_idx=0, global_step=0, conv_out_params=conv_out_params)
     def vq_model_init():
       reconstructions, quantization_diff, ind = generator_model.apply(
         {"params": generator_params},
         x=input_format,
         train=False,
-        rngs={'gaussian': kl_rng}
+        rngs={'gaussian': kl_rng},
+        method=generator_model.forward_before_conv_out
       )
       rng_dict = {"params": param_rng, 'dropout': dropout_rng}
       return model.init(rng_dict, inputs=input_format3, reconstructions=reconstructions, 
-                          codebook_loss=quantization_diff, optimizer_idx=0, global_step=0, g_params=generator_params, predicted_indices=ind)
+                          codebook_loss=quantization_diff, optimizer_idx=0, global_step=0, 
+                          conv_out_params=conv_out_params, predicted_indices=ind)
     if config['framework']['autoencoder']['mode'] == 'KL':
-      experiment_fn_jit = jax.jit(kl_model_init)
+      # experiment_fn_jit = jax.jit(kl_model_init)
+      experiment_fn_jit = kl_model_init
     elif config['framework']['autoencoder']['mode'] == 'VQ':
-      experiment_fn_jit = jax.jit(vq_model_init)
+      # experiment_fn_jit = jax.jit(vq_model_init)
+      experiment_fn_jit = vq_model_init
     params = experiment_fn_jit()['params']
   # Initialize the Adam optimizer
   learning_rate = get_learning_rate_schedule(config, model_type)
