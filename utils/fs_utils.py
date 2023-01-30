@@ -165,7 +165,7 @@ class FSUtils():
     
     def get_state_prefix(self, model_type):
         # prefix_list = self.get_exp_config()['checkpoint_prefix']
-        if model_type == "ddpm":
+        if model_type in ["ddpm", 'diffusion']:
             # prefix = prefix_list[0]
             prefix = self.get_diffusion_prefix()
         elif model_type == "autoencoder":

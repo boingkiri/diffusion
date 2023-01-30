@@ -71,11 +71,12 @@ class DiffusionFramework():
         if self.model_type == "ddpm" or \
             (self.model_type == "ldm" and self.train_idx == 2):
             assert len(state) == 1
+            diffusion_prefix = self.fs_utils.get_state_prefix('diffusion')
             jax_utils.save_train_state(
                 state[0], 
                 self.fs_utils.get_checkpoint_dir(), 
                 self.step, 
-                prefix=self.fs_utils.get_state_prefix(self.model_type))
+                prefix=diffusion_prefix)
 
         elif self.model_type == "ldm" and self.train_idx == 1:
             assert len(state) == 2
