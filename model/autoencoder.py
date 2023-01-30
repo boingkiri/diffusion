@@ -117,7 +117,8 @@ class AbstractAutoEncoder(nn.Module):
         ]
         self.encoder_model = Encoder(*params)
         self.decoder_model = Decoder(*params)
-        self.quant_conv = nn.Conv(2 * self.embed_dim, (1, 1))
+        # self.quant_conv = nn.Conv(2 * self.embed_dim, (1, 1))
+        self.quant_conv = nn.Conv(self.embed_dim, (1, 1))
         self.post_quant_conv = nn.Conv(self.image_channels, (1, 1))
     
     def encoder(self, x, train) -> DiagonalGaussianDistribution:
@@ -143,6 +144,7 @@ class AutoEncoderKL(AbstractAutoEncoder):
 
     def setup(self):
         super().setup()
+        self.quant_conv = nn.Conv(2 * self.embed_dim, (1, 1))
     
     def encoder(self, x, train) -> DiagonalGaussianDistribution:
         h = self.encoder_model(x, train)
