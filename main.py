@@ -17,10 +17,7 @@ def start(args):
     config = get_config_from_yaml(args.config)
     rng = random.PRNGKey(config["rand_seed"])
 
-    if args.model == "ldm":
-        wandb.init(project="my-ldm-WIP", config=config)
-    elif args.model == "ddpm":
-        wandb.init(project="my-ddpm-WIP", config=config)
+    
     
     diffusion_framework = DiffusionFramework(args.model, config, rng)
     
@@ -28,12 +25,18 @@ def start(args):
         config['exp']['sampling_dir'] = args.sampling_dir
 
     if args.do_train:
+        if args.model == "ldm":
+            wandb.init(project="my-ldm-WIP", config=config)
+        elif args.model == "ddpm":
+            wandb.init(project="my-ddpm-WIP", config=config)
+
         print("Training selected")
         diffusion_framework.train()
 
     if args.do_sampling:
         print("Sampling selected")
         diffusion_framework.sampling_and_save(args.num_sampling)
+        # diffusion_framework.reconstruction(args.num_sampling)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
