@@ -148,14 +148,29 @@ class DiffusionFramework():
     def sampling_and_save(self, total_num, img_size=None):
         if img_size is None:
             dataset_name = self.fs_utils.get_dataset_name()
-            if dataset_name == "cifar10":
-                img_size = (32, 32, 3)
+            img_size = common_utils.get_dataset_size(dataset_name)
         current_num = 0
         batch_size = self.sample_batch_size
         while total_num > current_num:
             samples = self.sampling(batch_size, img_size=None, original_data=None)
             self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
             current_num += batch_size
+    
+    def reconstruction(self, total_num):
+        dataset_name = self.fs_utils.get_dataset_name()
+        img_size = common_utils.get_dataset_size(dataset_name)
+
+        datasets = common_utils.load_dataset_from_tfds()
+        datasets_bar = tqdm(datasets, total=total_num)
+        current_num = 0
+        for x, _ in datasets_bar:
+            x = jax.device_put(x.numpy())
+            batch_size = x.shape[0]
+            samples = self.sampling(batch_size, img_size, original_data=x)
+            self.fs_utils.save_images_to_dir(samples, starting_pos = current_num)
+            current_num += batch_size
+            if current_num >= total_num:
+                break
     
     def next_step(self):
         if self.model_type == "ldm" and self.train_idx == 1:

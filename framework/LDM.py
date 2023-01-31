@@ -32,7 +32,7 @@ class LDM(DefaultModel):
         
     def diffusion_sampling(self, num_img, img_size=(32, 32, 3), original_data=None):
         diffusion_img_size = (img_size[0] // self.f_scale, img_size[1] // self.f_scale, img_size[2])
-        original_data_encoding = self.first_stage_model.encoder_forward(original_data)
+        original_data_encoding = self.first_stage_model.encoder_forward(original_data) if original_data is not None else None
         sample = self.diffusion_model.sampling(num_img, diffusion_img_size, original_data_encoding)
         sample = self.first_stage_model.decoder_forward(sample)
         return sample

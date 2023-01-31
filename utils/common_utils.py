@@ -46,6 +46,11 @@ def get_config_from_yaml(config_dir):
         config = yaml.load(f, Loader=yaml.FullLoader)
     return config
 
+def get_dataset_size(dataset_name):
+  if dataset_name == "cifar10":
+     return (32, 32, 3)
+  else:
+     NotImplementedError("get_dataset_size: Not implemented.")
 
 def normalize_to_minus_one_to_one(image):
     return image * 2 - 1
@@ -89,5 +94,5 @@ def get_image_size_from_dataset(dataset):
 
 if __name__=="__main__":
   sample = jnp.zeros((16, 32, 32, 3))
-  save_images(sample, 0, "sampling")
+  # save_images(sample, 0, "sampling")
 
