@@ -1,11 +1,11 @@
 # Define experiment name and its path
 exp:
-  exp_name: "ddpm_cifar10_1211_again"
+  exp_name: "ddpm_cifar10_1211_again_again"
   exp_dir: "experiments"
   sampling_dir: "sampling"
   in_process_dir : "in_process"
   checkpoint_dir: "checkpoints"
-  checkpoint_prefix: ['ddpm_']
+  diffusion_prefix: 'diffusion_'
 
 dataset: "cifar10"
 
@@ -37,7 +37,8 @@ framework:
       total_step: 800000
       sampling_step: 10000
       saving_step: 100000
-
+      optimizer:
+        type: "Adam"
 # Define EMA configuration
 ema:
   beta: 0.9999

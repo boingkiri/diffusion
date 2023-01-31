@@ -30,13 +30,12 @@ model:
     kl_weight: 1.0e-06
     disc_weight: 0.5
 
-
   diffusion:
     image_channels: 3
-    # n_channels: 128
-    n_channels: 224
-    ch_mults: [1, 2, 4] # For cifar 10
-    is_atten: [False, True, False]
+    n_channels: 128
+    # n_channels: 224
+    ch_mults: [1, 2, 2, 2] # For cifar 10
+    is_atten: [False, True, False, False]
     n_blocks: 2
     dropout_rate: 0.0
     n_heads: 1
@@ -44,7 +43,7 @@ model:
 
 # Define DDPM
 framework:
-  train_idx: 1 # 1 (AE) or 2 (Diffusion). This is only for ldm. Selected model will be trained. 
+  train_idx: 2 # 1 (AE) or 2 (Diffusion). This is only for ldm. Selected model will be trained. 
   fid_during_training: false # True when calculating fid during training, otherwise, false.
   autoencoder:
     mode: "KL" # VQ or KL
@@ -64,7 +63,7 @@ framework:
     n_timestep: 1000
     loss: "l2"
     train:
-      learning_rate: 4.5e-06
+      learning_rate: 1.0e-4
       gradient_clip: 1.0
       warmup: 5000
       batch_size: 128
