@@ -6,6 +6,7 @@ from flax.training import train_state
 from model.unet import UNet
 from utils import jax_utils
 from utils.fs_utils import FSUtils
+from utils.log_utils import WandBLog
 from utils.ema import EMA
 from framework.default_diffusion import DefaultModel
 
@@ -13,12 +14,13 @@ from typing import TypedDict
 from tqdm import tqdm
 
 class DDPM(DefaultModel):
-    def __init__(self, config, rand_key, fs_obj: FSUtils):
+    def __init__(self, config, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
         super().__init__(config, rand_key)
 
         self.n_timestep = config['framework']['diffusion']['n_timestep']
         self.rand_key = rand_key
         self.fs_obj = fs_obj
+        self.wandblog = wandblog
 
         # Create UNet and its state
         self.model = UNet(**config['model']['diffusion'])
@@ -134,6 +136,7 @@ class DDPM(DefaultModel):
         return_dict = {
             "diffusion_loss": loss
         }
+        self.wandblog.update_log(return_dict)
         return return_dict
     
     def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
@@ -151,5 +154,8 @@ class DDPM(DefaultModel):
         for t in pbar:
             normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
             latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, normal_key, dropout_key)
+        if original_data is not None:
+            rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+            self.wandblog.update_log({"DDPM Reconstruction loss": rec_loss})
         return latent_sample
     

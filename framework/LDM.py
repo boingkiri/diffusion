@@ -1,12 +1,15 @@
 from framework.DDPM.ddpm import DDPM
 from framework.autoencoder.autoencoder import AutoEncoder
 
+from utils.log_utils import WandBLog
+from utils.fs_utils import FSUtils
+
 import jax
 
 from framework.default_diffusion import DefaultModel 
 
 class LDM(DefaultModel):
-    def __init__(self, config, rand_key, fs_obj):
+    def __init__(self, config, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
         super().__init__(config, rand_key)
         self.framework_config = config['framework']
         self.random_key = rand_key
@@ -15,12 +18,13 @@ class LDM(DefaultModel):
         self.f_scale = len(config['model']['autoencoder']['ch_mults'])
 
         self.fs_obj = fs_obj
+        self.wandblog = wandblog
 
         ae_key, self.random_key = jax.random.split(self.random_key, 2)
-        self.first_stage_model = AutoEncoder(config, ae_key, fs_obj)
+        self.first_stage_model = AutoEncoder(config, ae_key, fs_obj, wandblog)
         if self.get_train_order() == 2:
             ddpm_key, self.random_key = jax.random.split(self.random_key, 2)
-            self.diffusion_model = DDPM(config, ddpm_key, fs_obj)
+            self.diffusion_model = DDPM(config, ddpm_key, fs_obj, wandblog)
         
         # def sample_fn(num_img, img_size=(32, 32, 3)):
         #     sample = self.diffusion_model.sampling(num_img, img_size)

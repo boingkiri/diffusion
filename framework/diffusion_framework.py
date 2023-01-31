@@ -7,9 +7,11 @@ import jax.numpy as jnp
 from utils.fs_utils import FSUtils
 from utils import jax_utils, common_utils
 from utils.fid_utils import FIDUtils
+from utils.log_utils import WandBLog
 
 from tqdm import tqdm
 import wandb
+
 
 class DiffusionFramework():
     """
@@ -31,15 +33,16 @@ class DiffusionFramework():
     def set_utils(self, config):
         self.fid_utils = FIDUtils(config)
         self.fs_utils = FSUtils(config)
+        self.wandblog = WandBLog()
         self.fs_utils.verifying_or_create_workspace()
 
     def set_model(self, config):
         if self.model_type == 'ddpm':
             ddpm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = DDPM(config, ddpm_rng, self.fs_utils)
+            self.framework = DDPM(config, ddpm_rng, self.fs_utils, self.wandblog)
         elif self.model_type == "ldm":
             ldm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = LDM(config, ldm_rng, self.fs_utils)
+            self.framework = LDM(config, ldm_rng, self.fs_utils, self.wandblog)
         
     def set_step(self, config):
         # framework_config = config['framework']
@@ -103,14 +106,10 @@ class DiffusionFramework():
             x = jax.device_put(x.numpy())
             log = self.framework.fit(x, step=self.step)
             
-            # loss_ema = loss.item()
-            # loss_ema = log['loss']
             if self.model_type == "ldm" and self.train_idx == 1:
                 loss_ema = log["train/total_loss"]
-            # elif self.model_type == "ddpm":
             else:
                 loss_ema = log["diffusion_loss"]
-            # elif self.model_type == "ddpm":
 
             datasets_bar.set_description("Step: {step} loss: {loss:.4f}  lr*1e4: {lr:.4f}".format(
                 step=self.step,
@@ -123,8 +122,10 @@ class DiffusionFramework():
                 xset = jnp.concatenate([sample[:8], x[:8]], axis=0)
                 sample_path = self.fs_utils.save_comparison(xset, self.step, self.fs_utils.get_in_process_dir())
                 log['Sampling'] = wandb.Image(sample_path, caption=f"Step: {self.step}")
+                self.wandblog.update_log(log)
                 # Record various loss in here. 
-                wandb.log(log, step=self.step)
+                # wandb.log(log, step=self.step)
+                self.wandblog.flush(step=self.step)
 
 
             if self.step % 50000 == 0:
@@ -138,7 +139,10 @@ class DiffusionFramework():
                         best_checkpoint_dir = self.fs_utils.get_best_checkpoint_dir()
                         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step)
                     
-                    wandb.log({"FID score": fid_score}, step=self.step)
+                    # wandb.log({"FID score": fid_score}, step=self.step)
+                    self.wandblog.update_log({"FID score": fid_score})
+                    self.wandblog.flush(step=self.step)
+
             
             if self.step >= self.total_step:
                 if not self.next_step():

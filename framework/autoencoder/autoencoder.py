@@ -4,6 +4,7 @@ from framework.autoencoder.discriminator import LPIPSwithDiscriminator_KL, LPIPS
 from utils import jax_utils
 from utils.ema import EMA
 from utils.fs_utils import FSUtils
+from utils.log_utils import WandBLog
 
 import functools
 
@@ -101,10 +102,11 @@ def reconstruction_fn(g_params, autoencoder, x, rng):
 # Firstly, I implement autoencoder without any regularization such as VQ and KL.
 # However, it should be implemented too someday..  
 class AutoEncoder():
-    def __init__(self, config, rand_rng, fs_obj: FSUtils):
+    def __init__(self, config, rand_rng, fs_obj: FSUtils, wandblog: WandBLog):
     # def setup(self):
         self.framework_config = config['framework']['autoencoder']
         self.random_rng = rand_rng
+        self.wandblog = wandblog
 
         # self.model_config = config['model']['autoencoder']
         self.mode = self.framework_config['mode']
@@ -214,6 +216,7 @@ class AutoEncoder():
         split = "train"
         log_list = [g_log, d_log]
         log = self.get_log(log_list, split=split)
+        self.wandblog.update_log(log)
         return log
     
     def get_log(self, log_list, split="train"):
