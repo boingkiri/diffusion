@@ -86,6 +86,7 @@ class DDPM(DefaultModel):
         self.grad_fn = jax.jit(jax.value_and_grad(self.loss_fn))
         self.update_grad = jax.jit(update_grad)
         self.p_sample_jit = jax.jit(p_sample_jit)
+        # self.p_sample_jit = p_sample_jit
 
     def q_xt_x0(self, x0, t):
         mean_coeff = jnp.take(self.sqrt_alpha_bar, t)
@@ -153,7 +154,8 @@ class DDPM(DefaultModel):
         pbar = tqdm(reversed(range(self.n_timestep)))
         for t in pbar:
             normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
-            latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, normal_key, dropout_key)
+            # latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, normal_key, dropout_key)
+            latent_sample = self.p_sample_jit(self.model_state.params, latent_sample, t, normal_key, dropout_key)
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"DDPM Reconstruction loss": rec_loss})
