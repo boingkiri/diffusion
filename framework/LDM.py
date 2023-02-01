@@ -60,7 +60,7 @@ class LDM(DefaultModel):
         elif self.get_train_order() == 2:
             # breakpoint()
             z = self.first_stage_model.encoder_forward(x0)
-            loss = self.diffusion_model.fit(z, cond)
+            loss = self.diffusion_model.fit(z, cond, step)
             return loss
     
     def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
