@@ -45,7 +45,6 @@ class DiffusionFramework():
             self.framework = LDM(config, ldm_rng, self.fs_utils, self.wandblog)
         
     def set_step(self, config):
-        # framework_config = config['framework']
         if self.model_type == "ddpm":
             self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
             self.total_step = config['framework']['diffusion']['train']['total_step']
@@ -83,7 +82,6 @@ class DiffusionFramework():
 
         elif self.model_type == "ldm" and self.train_idx == 1:
             assert len(state) == 2
-            # autoencoder_prefix, discriminator_prefix = self.fs_utils.get_state_prefix(self.model_type)
             autoencoder_prefix = self.fs_utils.get_autoencoder_prefix()
             discriminator_prefix = self.fs_utils.get_discriminator_prefix()
             jax_utils.save_train_state(
@@ -123,10 +121,8 @@ class DiffusionFramework():
                 sample_path = self.fs_utils.save_comparison(xset, self.step, self.fs_utils.get_in_process_dir())
                 log['Sampling'] = wandb.Image(sample_path, caption=f"Step: {self.step}")
                 self.wandblog.update_log(log)
-                # Record various loss in here. 
                 # wandb.log(log, step=self.step)
                 self.wandblog.flush(step=self.step)
-
 
             if self.step % 50000 == 0:
                 model_state = self.framework.get_model_state()
@@ -138,17 +134,14 @@ class DiffusionFramework():
                     if self.fs_utils.get_best_fid() >= fid_score:
                         best_checkpoint_dir = self.fs_utils.get_best_checkpoint_dir()
                         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step)
-                    
-                    # wandb.log({"FID score": fid_score}, step=self.step)
                     self.wandblog.update_log({"FID score": fid_score})
                     self.wandblog.flush(step=self.step)
 
-            
             if self.step >= self.total_step:
                 if not self.next_step():
                     break
             self.step += 1
-    
+
     def sampling_and_save(self, total_num, img_size=None):
         if img_size is None:
             dataset_name = self.fs_utils.get_dataset_name()
