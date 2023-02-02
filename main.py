@@ -1,6 +1,7 @@
 import argparse
 
 from utils.common_utils import get_config_from_yaml
+from utils.fs_utils import FSUtils
 from framework.diffusion_framework import DiffusionFramework
 
 from jax import random
@@ -16,6 +17,7 @@ def start(args):
 
     config = get_config_from_yaml(args.config)
     rng = random.PRNGKey(config["rand_seed"])
+    fs_utils = FSUtils(config)
 
     
     
@@ -36,6 +38,8 @@ def start(args):
     if args.do_sampling:
         print("Sampling selected")
         diffusion_framework.sampling_and_save(args.num_sampling)
+        fid_score = diffusion_framework.fid_utils.calculate_fid(fs_utils.get_sampling_dir())
+        print(fid_score)
         # diffusion_framework.reconstruction(args.num_sampling)
 
 if __name__ == "__main__":
