@@ -119,7 +119,13 @@ class AutoEncoder():
         # Autoencoder init
         g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng) # Generator
-        self.g_model_state = fs_obj.load_model_state('autoencoder', self.g_model_state)       
+
+        try: 
+            checkpoint_dir = config['framework']['pretrained_ae']
+        except KeyError:
+            checkpoint_dir = None
+        
+        self.g_model_state = fs_obj.load_model_state('autoencoder', self.g_model_state, checkpoint_dir)
         
         if self.autoencoder_type == "KL":
             self.discriminator = LPIPSwithDiscriminator_KL(
@@ -130,6 +136,7 @@ class AutoEncoder():
                 **config['model']['discriminator'], 
                 n_classes=config['model']['autoencoder']['n_embed'],
                 autoencoder=self.model)
+
         # Discriminator init
         d_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         aux_data = [self.model, self.g_model_state.params]
@@ -144,7 +151,6 @@ class AutoEncoder():
                         discriminator=self.discriminator
                     )
                 )
-            
             self.d_loss_fn = jax.jit(
                     functools.partial(
                         jax.value_and_grad(discriminator_loss_kl, has_aux=True),
@@ -158,27 +164,15 @@ class AutoEncoder():
                         discriminator=self.discriminator
                     )
                 )
-            
             self.d_loss_fn = jax.jit(
                     functools.partial(
                         jax.value_and_grad(discriminator_loss_vq, has_aux=True),
                         discriminator=self.discriminator)
                 )
-            # self.g_loss_fn = functools.partial(
-            #             jax.value_and_grad(generator_loss_vq, has_aux=True), 
-            #             autoencoder=self.model,
-            #             discriminator=self.discriminator
-            #         )
-            
-            # self.d_loss_fn = functools.partial(
-            #             jax.value_and_grad(discriminator_loss_vq, has_aux=True),
-            #             discriminator=self.discriminator
-            #         )
-        self.update_model = jax.jit(update_grad) # TODO: Can this function be adapted to both generator and discriminator? 
+        self.update_model = jax.jit(update_grad)
         self.encoder = jax.jit(functools.partial(encoder_fn, autoencoder=self.model))
         self.decoder = jax.jit(functools.partial(decoder_fn, autoencoder=self.model))
         
-        # self.recon_model = jax.jit(self.model.apply(self.g_model_state, ))
         self.recon_model = jax.jit(functools.partial(reconstruction_fn, autoencoder=self.model))
 
         # Create ema obj
@@ -187,7 +181,6 @@ class AutoEncoder():
     
     def fit(self, x, cond=None, step=0):
         rng, self.random_rng = jax.random.split(self.random_rng, 2)
-        # (g_loss, (g_log, x_rec, posterior, last_layer)), grad = self.g_loss_fn(
         if self.autoencoder_type == "KL":
             (_, (g_log, x_rec, posteriors_kl)), grad = self.g_loss_fn(
                 self.g_model_state.params, 
@@ -253,8 +246,6 @@ class AutoEncoder():
         return log
 
     def sampling(self, num_image, img_size=(32, 32, 3)):
-        # if img_size == None:
-            # img_size = (32, 32, 3) # CIFAR10
         NotImplementedError("AutoEncoder cannot generate samples by itself. Use LDM framework.")
 
     def reconstruction(self, original_data):
@@ -276,7 +267,6 @@ class AutoEncoder():
 
     def get_model_state(self) -> TypedDict:
         self.set_ema_params_to_state()
-        # return {"DDPM": self.model_state}
         return [self.g_model_state, self.d_model_state]
 
         
