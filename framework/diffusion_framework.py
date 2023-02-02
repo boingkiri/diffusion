@@ -10,6 +10,7 @@ from utils.fid_utils import FIDUtils
 from utils.log_utils import WandBLog
 
 from tqdm import tqdm
+import os
 import wandb
 
 
@@ -34,7 +35,7 @@ class DiffusionFramework():
         self.fid_utils = FIDUtils(config)
         self.fs_utils = FSUtils(config)
         self.wandblog = WandBLog()
-        self.fs_utils.verifying_or_create_workspace()
+        self.fs_utils.verify_and_create_workspace()
 
     def set_model(self, config):
         if self.model_type == 'ddpm':
@@ -99,6 +100,9 @@ class DiffusionFramework():
     def train(self):
         datasets = common_utils.load_dataset_from_tfds()
         datasets_bar = tqdm(datasets, total=self.total_step-self.step)
+        in_process_dir = self.fs_utils.get_in_process_dir()
+        in_process_model_dir_name = "diffusion" if self.model_type == 'ldm' and self.train_idx == 2 else 'AE'
+        in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
         
         for x, _ in datasets_bar:
             x = jax.device_put(x.numpy())
@@ -118,10 +122,9 @@ class DiffusionFramework():
             if self.step % 1000 == 0:
                 sample = self.sampling(8, (32, 32, 3), original_data=x[:8])
                 xset = jnp.concatenate([sample[:8], x[:8]], axis=0)
-                sample_path = self.fs_utils.save_comparison(xset, self.step, self.fs_utils.get_in_process_dir())
+                sample_path = self.fs_utils.save_comparison(xset, self.step, in_process_dir)
                 log['Sampling'] = wandb.Image(sample_path, caption=f"Step: {self.step}")
                 self.wandblog.update_log(log)
-                # wandb.log(log, step=self.step)
                 self.wandblog.flush(step=self.step)
 
             if self.step % 50000 == 0:
