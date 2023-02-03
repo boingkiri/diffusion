@@ -18,8 +18,6 @@ def start(args):
     config = get_config_from_yaml(args.config)
     rng = random.PRNGKey(config["rand_seed"])
     fs_utils = FSUtils(config)
-
-    
     
     diffusion_framework = DiffusionFramework(args.model, config, rng)
     

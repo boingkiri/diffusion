@@ -47,14 +47,17 @@ class FSUtils():
     def get_dataset_name(self):
         return self.__config['dataset']
 
-    def verifying_or_create_workspace(self):
-        exp_config = self.get_exp_config()
-        current_exp_dir = self.get_current_exp_dir()
+    def verify_and_create_dir(self, dir_path):
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+            print(f"{dir_path} created.")
 
+    def verify_and_create_workspace(self):
+        exp_config = self.get_exp_config()
+        
         # Creating current exp dir
-        if not os.path.exists(current_exp_dir):
-            os.makedirs(current_exp_dir)
-            print("Creating experiment dir")
+        current_exp_dir = self.get_current_exp_dir()
+        self.verify_and_create_dir(current_exp_dir)
         
         # Creating config file
         config_filepath = os.path.join(current_exp_dir, 'config.yml')
@@ -63,27 +66,19 @@ class FSUtils():
         
         # Creating checkpoint dir
         checkpoint_dir = os.path.join(current_exp_dir, exp_config['checkpoint_dir'])
-        if not os.path.exists(checkpoint_dir):
-            os.makedirs(checkpoint_dir)
-            print("Creating checkpoint dir")
+        self.verify_and_create_dir(checkpoint_dir)
         
         # Creating best checkpoint dir
         best_checkpoint_dir = os.path.join(checkpoint_dir, 'best')
-        if not os.path.exists(best_checkpoint_dir):
-            os.makedirs(best_checkpoint_dir)
-            print("Creating best checkpoint dir")
+        self.verify_and_create_dir(best_checkpoint_dir)
         
         # Creating sampling dir
         sampling_dir = os.path.join(current_exp_dir, exp_config['sampling_dir'])
-        if not os.path.exists(sampling_dir):
-            os.makedirs(sampling_dir)
-            print("Creating sampling dir")
+        self.verify_and_create_dir(sampling_dir)
         
         # Creating in_process dir
         in_process_dir = os.path.join(current_exp_dir, exp_config['in_process_dir'])
-        if not os.path.exists(in_process_dir):
-            os.makedirs(in_process_dir)
-            print("Creating in process dir")
+        self.verify_and_create_dir(in_process_dir)
         
         # Creating dataset dir
         dataset_name = self.get_dataset_name()
@@ -121,6 +116,9 @@ class FSUtils():
         return max_num + 1
     
     def save_comparison(self, images, steps, savepath):
+        # Make in process dir first
+        self.verify_and_create_dir(savepath)
+
         images = common_utils.unnormalize_minus_one_to_one(images)
 
         n_images = len(images)
@@ -139,10 +137,8 @@ class FSUtils():
     
     def save_images_to_dir(self, images, save_path_dir=None, starting_pos=0):
         current_sampling = 0
-
         if save_path_dir is None:
             save_path_dir = self.get_sampling_dir()
-
         images = common_utils.unnormalize_minus_one_to_one(images)
         images = np.clip(images, 0, 1)
         images = images * 255
@@ -164,20 +160,18 @@ class FSUtils():
         return self.get_exp_config()['diffusion_prefix']
     
     def get_state_prefix(self, model_type):
-        # prefix_list = self.get_exp_config()['checkpoint_prefix']
         if model_type in ["ddpm", 'diffusion']:
-            # prefix = prefix_list[0]
             prefix = self.get_diffusion_prefix()
         elif model_type == "autoencoder":
             prefix = self.get_autoencoder_prefix()
         elif model_type == "discriminator":
             prefix = self.get_discriminator_prefix()
-       
         return prefix
 
-    def load_model_state(self, model_type, state):
+    def load_model_state(self, model_type, state, checkpoint_dir=None):
         prefix = self.get_state_prefix(model_type)
-        checkpoint_dir = self.get_checkpoint_dir()
+        if checkpoint_dir is None:
+            checkpoint_dir = self.get_checkpoint_dir()
         state = jax_utils.load_state_from_checkpoint_dir(checkpoint_dir, state, None, prefix)
         return state
     

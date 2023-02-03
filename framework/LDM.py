@@ -26,14 +26,6 @@ class LDM(DefaultModel):
             ddpm_key, self.random_key = jax.random.split(self.random_key, 2)
             self.diffusion_model = DDPM(config, ddpm_key, fs_obj, wandblog)
         
-        # def sample_fn(num_img, img_size=(32, 32, 3)):
-        #     sample = self.diffusion_model.sampling(num_img, img_size)
-        #     sample = self.first_stage_model.decoder_forward(sample)
-        #     return sample
-        
-        # self.sampling_jit = jax.jit(sample_fn)
-        # self.sampling = sampl
-        
     def diffusion_sampling(self, num_img, img_size=(32, 32, 3), original_data=None):
         diffusion_img_size = (img_size[0] // self.f_scale, img_size[1] // self.f_scale, img_size[2])
         original_data_encoding = self.first_stage_model.encoder_forward(original_data) if original_data is not None else None
@@ -54,25 +46,20 @@ class LDM(DefaultModel):
 
     def fit(self, x0, cond=None, step=0):
         if self.get_train_order() == 1:
-            # GAN will be used
             log_dict = self.first_stage_model.fit(x0, cond, step)
             return log_dict
         elif self.get_train_order() == 2:
-            # breakpoint()
             z = self.first_stage_model.encoder_forward(x0)
             loss = self.diffusion_model.fit(z, cond, step)
             return loss
     
     def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
-        # assert self.get_train_order() == 2
         if self.get_train_order() == 1:
             assert original_data is not None
             sample = self.first_stage_model.reconstruction(original_data)
         elif self.get_train_order() == 2:
-            # sample = self.sampling_jit(num_image, img_size)
             sample = self.diffusion_sampling(num_image, img_size, original_data)
         else:
             NotImplementedError("Train order should have only 1 or 2 for its value.")
         return sample
     
-
