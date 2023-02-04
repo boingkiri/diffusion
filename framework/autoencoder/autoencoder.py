@@ -14,6 +14,8 @@ import flax.linen as nn
 from flax.training import train_state
 from typing import TypedDict 
 
+import os
+
 
 def generator_loss_kl(g_params, d_params, autoencoder: nn.Module, discriminator: nn.Module, x, step, rng):
     # losses_fn = jax.jit(jax.value_and_grad(nll_and_d_loss, has_aux=True))
@@ -121,7 +123,8 @@ class AutoEncoder():
         self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng) # Generator
 
         try: 
-            checkpoint_dir = config['framework']['pretrained_ae']
+            checkpoint_dir = os.path.join(config['exp']['exp_dir'], config['framework']['pretrained_ae'])
+            checkpoint_dir = os.path.join(checkpoint_dir, config['exp']['checkpoint_dir'])
         except KeyError:
             checkpoint_dir = None
         
