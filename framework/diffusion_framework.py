@@ -49,14 +49,17 @@ class DiffusionFramework():
         if self.model_type == "ddpm":
             self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
             self.total_step = config['framework']['diffusion']['train']['total_step']
+            self.checkpoint_prefix = self.fs_utils.get_state_prefix('diffusion')
         elif self.model_type == "ldm":
             self.train_idx = config['framework']['train_idx']
             if self.train_idx == 1: # AE
                 self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='autoencoder')
                 self.total_step = config['framework']['autoencoder']['train']['total_step']
+                self.checkpoint_prefix = self.fs_utils.get_autoencoder_prefix()
             elif self.train_idx == 2: # Diffusion
                 self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
                 self.total_step = config['framework']['diffusion']['train']['total_step']
+                self.checkpoint_prefix = self.fs_utils.get_state_prefix('diffusion')
 
     def fit(self, x, cond=None, step=0):
         log = self.framework.fit(x, cond=cond, step=step)
@@ -136,7 +139,7 @@ class DiffusionFramework():
                     fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
                     if self.fs_utils.get_best_fid() >= fid_score:
                         best_checkpoint_dir = self.fs_utils.get_best_checkpoint_dir()
-                        jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step)
+                        jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, self.checkpoint_prefix)
                     self.wandblog.update_log({"FID score": fid_score})
                     self.wandblog.flush(step=self.step)
 
