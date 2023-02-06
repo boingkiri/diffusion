@@ -135,7 +135,8 @@ class DiffusionFramework():
                 self.save_model_state(model_state)
 
                 # Calculate FID score with 1000 samples
-                if self.fid_utils.do_fid_during_training():
+                if self.fid_utils.do_fid_during_training() and \
+                    not (self.model_type == "ldm" and self.train_idx == 1):
                     fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
                     if self.fs_utils.get_best_fid() >= fid_score:
                         best_checkpoint_dir = self.fs_utils.get_best_checkpoint_dir()
