@@ -1,6 +1,7 @@
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+from flax.core.frozen_dict import unfreeze, freeze
 
 from typing import Union, Tuple, List 
 from model.modules import UnetUp, UnetMiddle, UnetDown, Downsample, Upsample, VectorQuantizer
@@ -14,9 +15,10 @@ class Encoder(nn.Module):
     is_atten: Union[Tuple[bool, ...], List[bool]] = (False, False, False)
     n_blocks: int = 2
     dropout_rate: float = 0.0
-    n_heads: int = 1,
+    n_heads: int = 1
     n_groups: int= 8
-    
+    embed_dim: int= 3
+
     @nn.compact
     def __call__(self, x, train):
         t = None
@@ -35,7 +37,7 @@ class Encoder(nn.Module):
 
         x = nn.GroupNorm(self.n_groups)(x)
         x = nn.swish(x)
-        x = nn.Conv(self.image_channels, (3, 3))(x)
+        x = nn.Conv(self.embed_dim, (3, 3))(x)
 
         return x
 
@@ -46,8 +48,9 @@ class Decoder(nn.Module):
     is_atten: Union[Tuple[bool, ...], List[bool]] = (False, False, False)
     n_blocks: int = 2
     dropout_rate: float = 0.0
-    n_heads: int = 1,
+    n_heads: int = 1
     n_groups: int= 8
+    embed_dim: int= 3
     
     def setup(self):
         n_resolution = len(self.ch_mults)
@@ -95,6 +98,7 @@ class Decoder(nn.Module):
         return x
 
 
+
 class AbstractAutoEncoder(nn.Module):
     image_channels: int = 3
     n_channels: int = 128
@@ -107,21 +111,33 @@ class AbstractAutoEncoder(nn.Module):
     embed_dim: int = 3
 
     def setup(self):
-        params = [
-            self.image_channels,
-            self.n_channels,
-            self.ch_mults,
-            self.is_atten,
-            self.n_blocks,
-            self.dropout_rate,
-            self.n_heads,
-            self.n_groups
-        ]
-        self.encoder_model = Encoder(*params)
-        self.decoder_model = Decoder(*params)
-        # self.quant_conv = nn.Conv(2 * self.embed_dim, (1, 1))
-        # self.quant_conv = nn.Conv(self.embed_dim, (1, 1))
-        self.post_quant_conv = nn.Conv(self.image_channels, (1, 1))
+        pass
+    
+    def kl_setup(self):
+        self.params = {
+            "image_channels": self.image_channels,
+            "n_channels": self.n_channels,
+            "ch_mults": self.ch_mults,
+            "is_atten": self.is_atten,
+            "n_blocks": self.n_blocks,
+            "dropout_rate":self.dropout_rate,
+            "n_heads": self.n_heads,
+            "n_groups": self.n_groups, 
+            "embed_dim": self.embed_dim * 2
+        }
+    
+    def vq_setup(self):
+        self.params = {
+            "image_channels": self.image_channels,
+            "n_channels": self.n_channels,
+            "ch_mults": self.ch_mults,
+            "is_atten": self.is_atten,
+            "n_blocks": self.n_blocks,
+            "dropout_rate":self.dropout_rate,
+            "n_heads": self.n_heads,
+            "n_groups": self.n_groups, 
+            "embed_dim": self.embed_dim
+        }
     
     def encoder(self, x, train) -> DiagonalGaussianDistribution:
         NotImplementedError("Autoencoder should implement 'encoder' method.")
@@ -134,7 +150,6 @@ class AbstractAutoEncoder(nn.Module):
     
     def __call__(self, x, train):
         NotImplementedError("Autoencoder should implement '__call__' method.")
-
 
 class AutoEncoderKL(AbstractAutoEncoder):
     image_channels: int = 3
@@ -149,7 +164,11 @@ class AutoEncoderKL(AbstractAutoEncoder):
 
     def setup(self):
         super().setup()
+        super().kl_setup()
+        self.encoder_model = Encoder(**self.params)
+        self.decoder_model = Decoder(**self.params)
         self.quant_conv = nn.Conv(2 * self.embed_dim, (1, 1))
+        self.post_quant_conv = nn.Conv(self.embed_dim, (1, 1))
     
     def encoder(self, x, train) -> DiagonalGaussianDistribution:
         h = self.encoder_model(x, train)
@@ -196,7 +215,11 @@ class AutoEncoderVQ(AbstractAutoEncoder):
 
     def setup(self):
         super().setup()
+        super().vq_setup()
+        self.encoder_model = Encoder(**self.params)
+        self.decoder_model = Decoder(**self.params)
         self.quant_conv = nn.Conv(self.embed_dim, (1, 1))
+        self.post_quant_conv = nn.Conv(self.embed_dim, (1, 1))
         self.quantize = VectorQuantizer(self.n_embed, self.embed_dim, 0.25)
     
     def encoder(self, x, train):

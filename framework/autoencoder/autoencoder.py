@@ -121,15 +121,14 @@ class AutoEncoder():
         # Autoencoder init
         g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng) # Generator
-
-        try: 
+        
+        if config['framework']['train_idx'] == 2 and 'pretrained_ae' in config['framework'].keys():
             checkpoint_dir = os.path.join(config['exp']['exp_dir'], config['framework']['pretrained_ae'])
             checkpoint_dir = os.path.join(checkpoint_dir, config['exp']['checkpoint_dir'])
-        except KeyError:
+        else:
             checkpoint_dir = None
         
         self.g_model_state = fs_obj.load_model_state('autoencoder', self.g_model_state, checkpoint_dir)
-        
         if self.autoencoder_type == "KL":
             self.discriminator = LPIPSwithDiscriminator_KL(
                 **config['model']['discriminator'], 

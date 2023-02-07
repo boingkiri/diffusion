@@ -73,6 +73,7 @@ def create_train_state(config, model_type, model, rng, aux_data=None, dataset='c
   rng, param_rng, dropout_rng = jax.random.split(rng, 3)
   if config['dataset'] == 'cifar10':
     input_format = jnp.ones([1, 32, 32, 3]) 
+  
   if model_type == "ddpm":
     if 'train_idx' in config['framework'].keys() and config['framework']['train_idx'] == 2:
       f_value = len(config['model']['autoencoder']['ch_mults']) # TODO: Too naive
