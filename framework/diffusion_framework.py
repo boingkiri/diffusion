@@ -65,12 +65,8 @@ class DiffusionFramework():
         log = self.framework.fit(x, cond=cond, step=step)
         return log
 
-    def sampling(self, num_img, img_size=None, original_data=None):
-        dataset_name = self.fs_utils.get_dataset_name()
-        if img_size is None:
-            if dataset_name == "cifar10":
-                img_size = (32, 32, 3)
-        sample = self.framework.sampling(num_img, img_size=img_size, original_data=original_data)
+    def sampling(self, num_img, original_data=None):
+        sample = self.framework.sampling(num_img, original_data=original_data)
         return sample
     
     def save_model_state(self, state:list):
@@ -123,7 +119,7 @@ class DiffusionFramework():
             ))
 
             if self.step % 1000 == 0:
-                sample = self.sampling(8, (32, 32, 3), original_data=x[:8])
+                sample = self.sampling(8, original_data=x[:8])
                 xset = jnp.concatenate([sample[:8], x[:8]], axis=0)
                 sample_path = self.fs_utils.save_comparison(xset, self.step, in_process_dir)
                 log['Sampling'] = wandb.Image(sample_path, caption=f"Step: {self.step}")

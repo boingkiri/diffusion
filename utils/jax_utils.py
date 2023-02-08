@@ -77,12 +77,13 @@ def create_train_state(config, model_type, model, rng, aux_data=None, dataset='c
   if model_type == "ddpm":
     if 'train_idx' in config['framework'].keys() and config['framework']['train_idx'] == 2:
       f_value = len(config['model']['autoencoder']['ch_mults']) # TODO: Too naive
+      z_dim = config['model']['autoencoder']['embed_dim']
       input_format_shape = input_format.shape
       input_format = jnp.ones(
         [input_format_shape[0], 
          input_format_shape[1] // f_value, 
          input_format_shape[2] // f_value, 
-         input_format_shape[3]])
+         z_dim])
     rng_dict = {"params": param_rng, 'dropout': dropout_rng}
     params = model.init(rng_dict, x=input_format, t=jnp.ones([1,]), train=False)['params']
   elif model_type == "autoencoder":
