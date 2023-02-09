@@ -18,10 +18,7 @@ class UNet(nn.Module):
 
     @nn.compact
     def __call__(self, x, t, train):
-        t = TimeEmbedding(self.n_channels)(t)
-        t = nn.Dense(self.n_channels * 4)(t)
-        t = nn.swish(t)
-        t = nn.Dense(self.n_channels * 4)(t)
+        t = TimeEmbed(self.n_channels, 4 * self.n_channels)(t)
 
         x = nn.Conv(self.n_channels, (3, 3))(x)
         # Store Downward output for skip connection

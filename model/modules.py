@@ -19,10 +19,24 @@ class TimeEmbedding(nn.Module):
 
         # return emb
 
+class TimeEmbed(nn.Module):
+    n_channels: int
+    hidden_size: int
+    activation_type: str = "swish"
+    
+    @nn.compact
+    def __call__(self, t):
+        t = TimeEmbedding(self.n_channels)(t)
+        t = nn.Dense(self.hidden_size)(t)
+        # t = nn.swish(t)
+        t = getattr(nn, self.activation_type)(t)
+        t = nn.Dense(self.hidden_size)(t)
+        return t
+    
 class ResidualBlock(nn.Module):
     out_channels: int
-    # n_groups: int = 32
-    n_groups: int = 8
+    n_groups: int = 32
+    # n_groups: int = 8
     dropout_rate: float = 0.1
 
     @nn.compact
@@ -49,10 +63,47 @@ class ResidualBlock(nn.Module):
             short = x
         return h + short
 
-class AttentionBlock(nn.Module):
+class AttentionDense(nn.Module):
+    # This block is not containing skip connection.
     n_channels: int
     n_heads: int = 1
-    n_groups: int = 8
+    n_groups: int = 32
+    dropout_rate: float = 0.
+    
+    @nn.compact
+    def __call__(self, x): # x: b x y c
+        scale = self.n_channels ** -0.5
+
+        batch_size, height, width, n_channels = x.shape
+        head_channels = n_channels // self.n_heads
+
+        # Projection
+        qkv = nn.Dense(self.n_heads * head_channels * 3, use_bias=False)(x) # qkv: b x y h*c*3
+        qkv = qkv.reshape(batch_size, -1, self.n_heads, 3 * head_channels) # b (x y) h c*3
+
+        # Split as query, key, value
+        q, k, v = jnp.split(qkv, 3, axis=-1) # q,k,v = b (x y) h c
+
+        # Scale dot product 
+        atten = jnp.einsum('bihd,bjhd->bijh', q, k) * scale
+
+        # Softmax
+        atten = nn.softmax(atten, axis=2)
+
+        # Multiply by value
+        res = jnp.einsum('bijh,bjhd->bihd', atten, v)
+        res = res.reshape(batch_size, height, width, self.n_heads * head_channels)
+        res = nn.Dense(self.n_channels)(res)
+
+        return res
+
+
+class AttentionConv(nn.Module):
+    # This block is not containing skip connection.
+    n_channels: int
+    n_heads: int = 1
+    n_groups: int = 32
+    dropout_rate: float = 0.
     
     @nn.compact
     def __call__(self, x): # x: b x y c
@@ -61,8 +112,6 @@ class AttentionBlock(nn.Module):
         batch_size, height, width, n_channels = x.shape
         head_channels = n_channels // self.n_heads
         # Projection
-        x_skip = x
-        x = nn.GroupNorm(self.n_groups)(x)
         qkv = nn.Conv(self.n_heads * head_channels * 3, (1, 1), use_bias=False)(x) # qkv: b x y h*c*3
         qkv = qkv.reshape(batch_size, -1, self.n_heads, 3 * head_channels) # b (x y) h c*3
 
@@ -77,24 +126,38 @@ class AttentionBlock(nn.Module):
 
         # Multiply by value
         res = jnp.einsum('bijh,bjhd->bihd', atten, v)
-
-        # res = res.reshape(batch_size, -1, self.n_heads * self.n_channels)
         res = res.reshape(batch_size, height, width, self.n_heads * head_channels)
-        # res = nn.Dense(n_channels)(res)
         res = nn.Conv(self.n_channels, (1, 1))(res)
+
+        return res
+
+
+class AttentionBlock(nn.Module):
+    n_channels: int
+    n_heads: int = 1
+    n_groups: int = 32
+    attention_type: str = "conv"
+    
+    @nn.compact
+    def __call__(self, x): # x: b x y c
+        # Projection
+        x_skip = x
+        x = nn.GroupNorm(self.n_groups)(x)
+        if self.attention_type == "conv":
+            res = AttentionConv(self.n_channels, self.n_heads, self.n_groups)(x)
+        elif self.attention_type == "dense":
+            res = AttentionDense(self.n_channels, self.n_heads, self.n_groups)(x)
 
         # skip connection
         res += x_skip
 
         return res
 
-
 class UnetDown(nn.Module):
     out_channels: int
     has_atten: bool
     dropout_rate: float
     n_groups: int
-    
     @nn.compact
     def __call__(self, x, t, train):
         x = ResidualBlock(self.out_channels, dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
@@ -107,7 +170,6 @@ class UnetUp(nn.Module):
     has_atten: bool
     dropout_rate: float
     n_groups: int
-    
     @nn.compact
     def __call__(self, x, t, train):
         x = ResidualBlock(self.out_channels, dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
@@ -119,7 +181,6 @@ class UnetMiddle(nn.Module):
     n_channels: int
     dropout_rate: float
     n_groups: int
-
     @nn.compact
     def __call__(self, x, t, train):
         x = ResidualBlock(self.n_channels, dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
@@ -130,7 +191,6 @@ class UnetMiddle(nn.Module):
 
 class Upsample(nn.Module):
     n_channels: int
-
     @nn.compact
     def __call__(self, x):
         B, H, W, C = x.shape
@@ -144,7 +204,6 @@ class Upsample(nn.Module):
 
 class Downsample(nn.Module):
     n_channels: int
-
     @nn.compact
     def __call__(self, x):
         # B, H, W, C = x.shape
@@ -152,7 +211,6 @@ class Downsample(nn.Module):
         # x = nn.Conv(self.n_channels, (3, 3), (1, 1))(x)
         x = nn.Conv(self.n_channels, (3, 3), strides=2)(x)
         return x
-
 
 
 class VectorQuantizer(nn.Module):
@@ -191,15 +249,79 @@ class VectorQuantizer(nn.Module):
         z_q = jnp.reshape(z_q, z.shape)
         perplexity = None
         min_encodings = None
-
-        # loss = self.beta * jnp.mean((jax.lax.stop_gradient(z_q) - z) ** 2) + \
-        #         jnp.mean((z_q - jax.lax.stop_gradient(z)) ** 2)
         loss = jnp.mean((jax.lax.stop_gradient(z_q) - z) ** 2) + \
                 jnp.mean((z_q - jax.lax.stop_gradient(z)) ** 2)
-        # loss = self.beta * jnp.mean((z_q - jax.lax.stop_gradient(z)) ** 2) + \
-        #         jnp.mean((jax.lax.stop_gradient(z_q) - z) ** 2)
         
         # Preserve gradients
         z_q = z + jax.lax.stop_gradient(z_q - z)
 
         return z_q, loss, (perplexity, min_encodings, min_encoding_indices)
+
+## For DiT
+class LabelEmbedder(nn.Module):
+    num_classes: int
+    hidden_size: int
+    dropout_prob: float
+    
+    def token_drop(self, labels, force_drop_ids=None):
+        """
+        Token drop function for classifier free guidence (although it is not used for now.)
+        """
+        if force_drop_ids is None:
+            rng_val = self.make_rng('CFG') # TODO: the models should contain additional PRNG
+            drop_ids = jax.random.uniform(rng_val, labels.shape[0]) < self.dropout_prob
+        else:
+            drop_ids = force_drop_ids == 1
+        labels = jnp.where(drop_ids, self.num_classes, labels)
+        return labels
+
+    @nn.compact
+    def __call__(self, labels, train, force_drop_ids=None):
+        use_dropout = self.dropout_prob > 0
+        if (train and use_dropout) or (force_drop_ids is not None):
+            labels = self.token_drop(labels, force_drop_ids)
+        embed_classes = self.num_classes + 1 if self.dropout_prob > 0 else self.num_classes
+        embeddings = nn.Embed(embed_classes, self.hidden_size)(labels)
+        return embeddings
+
+class FeedForwardMLP(nn.Module):
+    hidden_features: int
+    out_features: int
+    dropout_rate: float
+    act_layer: str = "gelu"
+    
+    @nn.compact
+    def __call__(self, x, train):
+        x = nn.Dense(self.hidden_features)(x)
+        x = getattr(nn, self.act_layer)(x)
+        x = nn.Dropout(self.dropout_rate, deterministic=not train)(x)
+        x = nn.Dense(self.out_features)(x)
+        x = getattr(nn, self.act_layer)(x)
+        return x
+
+class PatchEmbed(nn.Module):
+    img_size: int
+    patch_size: int = 16
+    in_channels: int = 3
+    embed_dim: int = 128
+    norm_layer: bool = False
+    flatten: bool = True
+    bias: bool = True
+
+    @nn.compact
+    def __call__(self, x):
+        B, H, W, C = x.shape
+        assert H == W
+        assert H == self.img_size
+        x = nn.Conv(
+            self.embed_dim, 
+            (self.patch_size, self.patch_size), 
+            self.patch_size,
+            use_bias=self.bias)(x)
+        if self.flatten:
+            x = jnp.reshape(x, (B, -1, self.embed_dim))
+        
+        if self.norm_layer:
+            x = nn.LayerNorm()(x)
+        return x
+            
