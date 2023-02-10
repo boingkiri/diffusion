@@ -2,18 +2,8 @@ import os
 import yaml
 import os
 import requests
-import numpy as np
-import matplotlib.pyplot as plt
 
-import jax
 import jax.numpy as jnp
-from flax.training import checkpoints
-
-from model.unet import UNet
-from framework.DDPM.ddpm import DDPM
-from utils.ema import EMA
-from . import jax_utils
-
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -36,15 +26,6 @@ def download(url: str, dest_folder: str):
                     os.fsync(f.fileno())
     else:  # HTTP status code 4XX/5XX
         print("Download failed: status code {}\n{}".format(r.status_code, r.text))
-
-
-def get_config_from_yaml(config_dir):
-    if not os.path.exists(config_dir):
-        raise ValueError
-    
-    with open(config_dir) as f:
-        config = yaml.load(f, Loader=yaml.FullLoader)
-    return config
 
 def get_dataset_size(dataset_name):
   if dataset_name == "cifar10":
@@ -72,7 +53,7 @@ def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128):
     return image, label
 
   ds = tfds.load(dataset_name, as_supervised=True)
-  train_ds, test_ds = ds['train'], ds['test']
+  train_ds, _ = ds['train'], ds['test']
 
   augmented_train_ds = (
     train_ds

@@ -3,58 +3,35 @@ from flax.training import train_state
 import jax
 import jax.numpy as jnp
 import optax
-from flax.training import checkpoints
 import flax.linen as nn
+from flax.training import checkpoints
 
-from framework.autoencoder.distribution import DiagonalGaussianDistribution
+from utils.config_utils import ConfigContainer
 
 from typing import Any
-from functools import partial
 
 class TrainState(train_state.TrainState):
   params_ema: Any = None
 
-class GradModule(nn.Module):
-  module: nn.Module
-  kwargs: dict
-  argnums: int = 0
-  has_aux: bool = False
-  holomorphic: bool = False
-  allow_int: bool = False
-  reduce_axes=()
-  
-  def setup(self):
-    self.created_module = self.module(**self.kwargs)
-  
-  def __call__(self, input_kwargs):
-    return jax.grad(
-      self.created_module,
-      argnums=self.argnums,
-      has_aux=self.has_aux,
-      holomorphic=self.holomorphic,
-      allow_int=self.allow_int,
-      reduce_axes=self.reduce_axes)(**input_kwargs)
-  
-def get_framework_config(config, model_type):
+def get_framework_config(config: ConfigContainer, model_type):
   if model_type in ['diffusion', 'ddpm']:
-    framework_config = config['framework']['diffusion']
+    framework_config = config.get_diffusion_framework_config()
   # elif model_type in ['autoencoder']:
   elif model_type in ['autoencoder', 'discriminator']:
-    framework_config = config['framework']['autoencoder']
+    framework_config = config.get_autoencoder_framework_config()
   elif model_type in ['ldm']:
     if config['framework']['train_idx'] == 1:
-      framework_config = config['framework']['autoencoder']
+      framework_config = config.get_autoencoder_framework_config()
     elif config['framework']['train_idx'] == 2:
-      framework_config = config['framework']['diffusion']
+      framework_config = config.get_diffusion_framework_config()
   else:
     breakpoint()
   return framework_config
 
-def get_learning_rate_schedule(config, model_type):
+def get_learning_rate_schedule(config: ConfigContainer, model_type):
   tmp_config = get_framework_config(config, model_type)
   learning_rate = tmp_config['train']['learning_rate']
   if "warmup" in tmp_config['train']:
-    # start_step = fs_utils.get_start_step_from_checkpoint(config)
     learning_rate = optax.warmup_exponential_decay_schedule(
       init_value=0.0,
       peak_value=learning_rate,
@@ -66,18 +43,18 @@ def get_learning_rate_schedule(config, model_type):
     learning_rate = optax.constant_schedule(learning_rate)
   return learning_rate
 
-def create_train_state(config, model_type, model, rng, aux_data=None, dataset='cifar10'):
+def create_train_state(config: ConfigContainer, model_type, model, rng, aux_data=None):
   """
   Creates initial 'TrainState'
   """
   rng, param_rng, dropout_rng = jax.random.split(rng, 3)
-  if config['dataset'] == 'cifar10':
+  if config.get_dataset_name() == 'cifar10':
     input_format = jnp.ones([1, 32, 32, 3]) 
   
   if model_type == "ddpm":
-    if 'train_idx' in config['framework'].keys() and config['framework']['train_idx'] == 2:
-      f_value = len(config['model']['autoencoder']['ch_mults']) # TODO: Too naive
-      z_dim = config['model']['autoencoder']['embed_dim']
+    if 'train_idx' in config.get_framework_config().keys() and config.get_framework_config()['train_idx'] == 2:
+      f_value = len(config.get_ch_mults())
+      z_dim = config.get_z_dim()
       input_format_shape = input_format.shape
       input_format = jnp.ones(
         [input_format_shape[0], 
@@ -123,13 +100,12 @@ def create_train_state(config, model_type, model, rng, aux_data=None, dataset='c
       return model.init(rng_dict, inputs=input_format3, reconstructions=reconstructions, 
                           codebook_loss=quantization_diff, optimizer_idx=0, global_step=0, 
                           conv_out_params=conv_out_params, predicted_indices=ind)
-    if config['framework']['autoencoder']['mode'] == 'KL':
-      # experiment_fn_jit = jax.jit(kl_model_init)
+    if config.get_autoencoder_framework_config()['mode'] == 'KL':
       experiment_fn_jit = kl_model_init
-    elif config['framework']['autoencoder']['mode'] == 'VQ':
-      # experiment_fn_jit = jax.jit(vq_model_init)
+    elif config.get_autoencoder_framework_config()['mode'] == 'VQ':
       experiment_fn_jit = vq_model_init
     params = experiment_fn_jit()['params']
+
   # Initialize the Adam optimizer
   learning_rate = get_learning_rate_schedule(config, model_type)
   framework_config = get_framework_config(config, model_type)

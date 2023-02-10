@@ -1,0 +1,12 @@
+mode: ???  # VQ or KL
+train:
+  learning_rate: 4.5e-06
+  gradient_clip: 1.0
+  warmup: 5000
+  batch_size: 128
+  total_step: 500000
+  sampling_step: 10000
+  saving_step: 100000
+  optimizer:
+    type: "Adam"
+    betas: [0.5, 0.9]

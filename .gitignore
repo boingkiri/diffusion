@@ -8,3 +8,4 @@ tensorflow_datasets
 wandb
 nohup.out
 cifar
+test/outputs

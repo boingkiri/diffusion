@@ -1,0 +1,31 @@
+defaults:
+  - framework: ldm
+  - model: 
+    - autoencoder/autoencoder_kl
+    - discriminator/discriminator_kl
+    - diffusion/unet
+  -ema: ema
+  -dataset: cifar10
+
+type: "ldm"
+do_training: true
+do_sampling: true
+num_sampling: 50000
+sampling_batch: 256
+rand_seed: 42
+
+# Define experiment name and its path
+exp:
+  exp_name: "ldm_dit_cifar10_kl_4"
+  exp_dir: "experiments"
+  sampling_dir: "sampling"
+  in_process_dir : "in_process"
+  checkpoint_dir: "checkpoints"
+  autoencoder_prefix: 'ae_'
+  discriminator_prefix: 'discriminator_'
+  diffusion_prefix: 'diffusion_'
+
+
+
+  
+

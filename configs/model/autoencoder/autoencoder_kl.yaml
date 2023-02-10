@@ -1,0 +1,10 @@
+image_channels: 3
+n_channels: 128
+ch_mults: [1, 2] # For cifar 10
+is_atten: [False, False]
+n_blocks: 2
+dropout_rate: 0.0
+n_heads: 1
+n_groups: 32 
+embed_dim: 4
+
