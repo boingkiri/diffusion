@@ -81,7 +81,7 @@ class DiT(nn.Module):
         self.x_embedder = PatchEmbed(self.input_size, self.patch_size, self.in_channels, self.hidden_size, bias=True)
         self.t_embedder = TimeEmbed(self.hidden_size // 4, self.hidden_size)
         self.y_embedder = LabelEmbedder(self.num_classes, self.hidden_size, self.class_dropout_prob)
-        self.pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int)
+        self.pos_embed = get_2d_sincos_pos_embed(self.hidden_size, int)
 
         self.blocks = nn.Sequential(
             [DiTBlock(self.hidden_size, self.num_heads, mlp_ratio=self.mlp_ratio) for _ in range(self.depth)]

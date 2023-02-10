@@ -61,7 +61,7 @@ class DiffusionFramework():
                 self.total_step = config['framework']['autoencoder']['train']['total_step']
                 self.checkpoint_prefix = config.exp.autoencoder_prefix
             elif self.train_idx == 2: # Diffusion
-                self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion') - 1
+                self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
                 self.total_step = config['framework']['diffusion']['train']['total_step']
                 self.checkpoint_prefix = config.exp.diffusion_prefix
 

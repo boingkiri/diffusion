@@ -31,7 +31,7 @@ class DDPM(DefaultModel):
         model_type = model_config.pop("type")
         if model_type == "unet":
             self.model = UNet(**model_config)
-        elif model_type == "dif":
+        elif model_type == "dit":
             self.model = DiT(**model_config)
         state_rng, self.rand_key = jax.random.split(self.rand_key, 2)
         self.model_state = jax_utils.create_train_state(config, 'ddpm', self.model, state_rng)
