@@ -7,7 +7,6 @@ from model.unet import UNet
 from model.DiT import DiT
 from utils import jax_utils
 from utils.fs_utils import FSUtils
-from utils.config_utils import ConfigContainer
 from utils.log_utils import WandBLog
 from utils.ema import EMA
 from framework.default_diffusion import DefaultModel

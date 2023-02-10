@@ -6,7 +6,6 @@ import optax
 import flax.linen as nn
 from flax.training import checkpoints
 
-from utils.config_utils import ConfigContainer
 from omegaconf import DictConfig
 from typing import Any
 
@@ -50,8 +49,8 @@ def create_train_state(config: DictConfig, model_type, model, rng, aux_data=None
   rng, param_rng, dropout_rng = jax.random.split(rng, 3)
   input_format = jnp.ones([1, *config.dataset.data_size])
   if model_type == "ddpm":
-    if 'train_idx' in config.get_framework_config().keys() and config.get_framework_config()['train_idx'] == 2:
-      f_value = len(config.get_ch_mults())
+    if 'train_idx' in config.framework.keys() and config.framework['train_idx'] == 2:
+      f_value = len(config.model.autoencoder.ch_mults)
       z_dim = config.model.autoencoder.embed_dim
       input_format_shape = input_format.shape
       input_format = jnp.ones(

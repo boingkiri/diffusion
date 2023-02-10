@@ -5,7 +5,6 @@ from utils import jax_utils
 from utils.ema import EMA
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
-from utils.config_utils import ConfigContainer
 
 import functools
 

@@ -61,7 +61,7 @@ class DiffusionFramework():
                 self.total_step = config['framework']['autoencoder']['train']['total_step']
                 self.checkpoint_prefix = config.exp.autoencoder_prefix
             elif self.train_idx == 2: # Diffusion
-                self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
+                self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion') - 1
                 self.total_step = config['framework']['diffusion']['train']['total_step']
                 self.checkpoint_prefix = config.exp.diffusion_prefix
 
@@ -77,7 +77,7 @@ class DiffusionFramework():
             diffusion_prefix = self.config.exp.diffusion_prefix
             jax_utils.save_train_state(
                 state[0], 
-                self.config.get_checkpoint_dir(), 
+                self.config.exp.checkpoint_dir, 
                 self.step, 
                 prefix=diffusion_prefix)
 
@@ -87,15 +87,14 @@ class DiffusionFramework():
             discriminator_prefix = self.config.exp.discriminator_prefix
             jax_utils.save_train_state(
                 state[0], 
-                self.config.get_checkpoint_dir(), 
+                self.config.exp.checkpoint_dir, 
                 self.step, 
                 prefix=autoencoder_prefix)
             jax_utils.save_train_state(
                 state[1], 
-                self.config.get_checkpoint_dir(), 
+                self.config.exp.checkpoint_dir, 
                 self.step, 
                 prefix=discriminator_prefix)
-
 
     def train(self):
         datasets = common_utils.load_dataset_from_tfds()

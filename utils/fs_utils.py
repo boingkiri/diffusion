@@ -3,7 +3,6 @@ import os
 import yaml
 
 from . import common_utils, jax_utils
-from .config_utils import ConfigContainer
 from omegaconf import DictConfig, OmegaConf
 
 from PIL import Image

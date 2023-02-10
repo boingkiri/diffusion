@@ -9,7 +9,6 @@ import functools
 import os
 import shutil
 
-from utils.config_utils import ConfigContainer
 from omegaconf import DictConfig
 
 class FIDUtils():

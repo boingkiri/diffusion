@@ -1,4 +1,3 @@
-from utils.config_utils import ConfigContainer
 from framework.diffusion_framework import DiffusionFramework
 
 from jax import random
