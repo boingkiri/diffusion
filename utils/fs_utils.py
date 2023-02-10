@@ -4,6 +4,7 @@ import yaml
 
 from . import common_utils, jax_utils
 from .config_utils import ConfigContainer
+from omegaconf import DictConfig, OmegaConf
 
 from PIL import Image
 
@@ -11,7 +12,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class FSUtils():
-    def __init__(self, config: ConfigContainer) -> None:
+    def __init__(self, config: DictConfig) -> None:
         self.config = config
 
     def verify_and_create_dir(self, dir_path):
@@ -20,35 +21,33 @@ class FSUtils():
             print(f"{dir_path} created.")
 
     def verify_and_create_workspace(self):
-        exp_config = self.config.get_exp_config()
-        
         # Creating current exp dir
-        current_exp_dir = self.config.get_current_exp_dir()
+        current_exp_dir = self.config.exp.current_exp_dir
         self.verify_and_create_dir(current_exp_dir)
         
         # Creating config file
-        config_filepath = os.path.join(current_exp_dir, 'config.yml')
+        config_filepath = os.path.join(current_exp_dir, 'config.yaml')
         with open(config_filepath, 'w') as f:
-            yaml.dump(self.config, f)
+            yaml.dump(OmegaConf.to_yaml(self.config), f)
         
         # Creating checkpoint dir
-        checkpoint_dir = os.path.join(current_exp_dir, exp_config['checkpoint_dir'])
+        checkpoint_dir = self.config.exp.checkpoint_dir
         self.verify_and_create_dir(checkpoint_dir)
         
         # Creating best checkpoint dir
-        best_checkpoint_dir = os.path.join(checkpoint_dir, 'best')
+        best_checkpoint_dir = self.config.exp.best_dir
         self.verify_and_create_dir(best_checkpoint_dir)
         
         # Creating sampling dir
-        sampling_dir = os.path.join(current_exp_dir, exp_config['sampling_dir'])
+        sampling_dir = self.config.exp.sampling_dir
         self.verify_and_create_dir(sampling_dir)
         
         # Creating in_process dir
-        in_process_dir = os.path.join(current_exp_dir, exp_config['in_process_dir'])
+        in_process_dir = self.config.exp.in_process_dir
         self.verify_and_create_dir(in_process_dir)
         
         # Creating dataset dir
-        dataset_name = self.config.get_dataset_name()
+        dataset_name = self.config.dataset.name
         if not os.path.exists(dataset_name):
             print("Creating dataset dir")
             os.makedirs(dataset_name)
@@ -66,12 +65,12 @@ class FSUtils():
 
     def get_start_step_from_checkpoint(self, model_type):
         if model_type == "diffusion":
-            checkpoint_format = self.config.get_diffusion_prefix()
+            checkpoint_format = self.config.exp.diffusion_prefix
         elif model_type == "autoencoder":
-            checkpoint_format = self.config.get_autoencoder_prefix()
+            checkpoint_format = self.config.exp.autoencoder_prefix
         elif model_type == "discriminator": # idk this is useful though.
-            checkpoint_format = self.config.get_discriminator_prefix()
-        checkpoint_dir = self.config.get_checkpoint_dir()
+            checkpoint_format = self.config.exp.discriminator_prefix
+        checkpoint_dir = self.config.exp.checkpoint_dir
         max_num = 0
         for content in os.listdir(checkpoint_dir):
             if checkpoint_format in content:
@@ -103,7 +102,7 @@ class FSUtils():
     def save_images_to_dir(self, images, save_path_dir=None, starting_pos=0):
         current_sampling = 0
         if save_path_dir is None:
-            save_path_dir = self.config.get_sampling_dir()
+            save_path_dir = self.config.exp.sampling_dir
         images = common_utils.unnormalize_minus_one_to_one(images)
         images = np.clip(images, 0, 1)
         images = images * 255
@@ -115,16 +114,25 @@ class FSUtils():
             current_sampling += 1
         return current_sampling
 
+    def get_state_prefix(self, model_type):
+        if model_type in ["ddpm", 'diffusion']:
+            prefix = self.config.exp.diffusion_prefix
+        elif model_type == "autoencoder":
+            prefix = self.config.exp.autoencoder_prefix
+        elif model_type == "discriminator":
+            prefix = self.config.exp.discriminator_prefix
+        return prefix
+
     def load_model_state(self, model_type, state, checkpoint_dir=None):
-        prefix = self.config.get_state_prefix(model_type)
+        prefix = self.get_state_prefix(model_type)
         if checkpoint_dir is None:
-            checkpoint_dir = self.config.get_checkpoint_dir()
+            checkpoint_dir = self.config.exp.checkpoint_dir
         state = jax_utils.load_state_from_checkpoint_dir(checkpoint_dir, state, None, prefix)
         return state
     
     def get_best_fid(self):
         best_fid = None
-        in_process_dir = self.config.get_in_process_dir()
+        in_process_dir = self.config.exp.in_proecss_dir
         fid_log_file = os.path.join(in_process_dir, "fid_log.txt")
         with open(fid_log_file, 'r') as f:
             txt = f.read()

@@ -7,28 +7,28 @@ import flax.linen as nn
 from flax.training import checkpoints
 
 from utils.config_utils import ConfigContainer
-
+from omegaconf import DictConfig
 from typing import Any
 
 class TrainState(train_state.TrainState):
   params_ema: Any = None
 
-def get_framework_config(config: ConfigContainer, model_type):
+def get_framework_config(config: DictConfig, model_type):
   if model_type in ['diffusion', 'ddpm']:
-    framework_config = config.get_diffusion_framework_config()
+    framework_config = config.framework.diffusion
   # elif model_type in ['autoencoder']:
   elif model_type in ['autoencoder', 'discriminator']:
-    framework_config = config.get_autoencoder_framework_config()
+    framework_config = config.framework.autoencoder
   elif model_type in ['ldm']:
     if config['framework']['train_idx'] == 1:
-      framework_config = config.get_autoencoder_framework_config()
+      framework_config = config.framework.autoencoder
     elif config['framework']['train_idx'] == 2:
-      framework_config = config.get_diffusion_framework_config()
+      framework_config = config.framework.diffusion
   else:
     breakpoint()
   return framework_config
 
-def get_learning_rate_schedule(config: ConfigContainer, model_type):
+def get_learning_rate_schedule(config: DictConfig, model_type):
   tmp_config = get_framework_config(config, model_type)
   learning_rate = tmp_config['train']['learning_rate']
   if "warmup" in tmp_config['train']:
@@ -43,18 +43,16 @@ def get_learning_rate_schedule(config: ConfigContainer, model_type):
     learning_rate = optax.constant_schedule(learning_rate)
   return learning_rate
 
-def create_train_state(config: ConfigContainer, model_type, model, rng, aux_data=None):
+def create_train_state(config: DictConfig, model_type, model, rng, aux_data=None):
   """
   Creates initial 'TrainState'
   """
   rng, param_rng, dropout_rng = jax.random.split(rng, 3)
-  if config.get_dataset_name() == 'cifar10':
-    input_format = jnp.ones([1, 32, 32, 3]) 
-  
+  input_format = jnp.ones([1, *config.dataset.data_size])
   if model_type == "ddpm":
     if 'train_idx' in config.get_framework_config().keys() and config.get_framework_config()['train_idx'] == 2:
       f_value = len(config.get_ch_mults())
-      z_dim = config.get_z_dim()
+      z_dim = config.model.autoencoder.embed_dim
       input_format_shape = input_format.shape
       input_format = jnp.ones(
         [input_format_shape[0], 
@@ -100,9 +98,9 @@ def create_train_state(config: ConfigContainer, model_type, model, rng, aux_data
       return model.init(rng_dict, inputs=input_format3, reconstructions=reconstructions, 
                           codebook_loss=quantization_diff, optimizer_idx=0, global_step=0, 
                           conv_out_params=conv_out_params, predicted_indices=ind)
-    if config.get_autoencoder_framework_config()['mode'] == 'KL':
+    if config.framework.autoencoder.mode == 'KL':
       experiment_fn_jit = kl_model_init
-    elif config.get_autoencoder_framework_config()['mode'] == 'VQ':
+    elif config.framework.autoencoder.mode == 'VQ':
       experiment_fn_jit = vq_model_init
     params = experiment_fn_jit()['params']
 

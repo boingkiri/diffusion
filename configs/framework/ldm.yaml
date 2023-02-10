@@ -1,6 +1,6 @@
 defaults:
   - autoencoder/autoencoder_kl
+  - ddpm
 
 train_idx: 2 # 1 (AE) or 2 (Diffusion). This is only for ldm. Selected model will be trained. 
-fid_during_training: true # True when calculating fid during training, otherwise, false.
 pretrained_ae: "ldm_kl_cifar10"

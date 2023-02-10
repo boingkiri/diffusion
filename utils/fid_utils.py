@@ -10,15 +10,16 @@ import os
 import shutil
 
 from utils.config_utils import ConfigContainer
+from omegaconf import DictConfig
 
 class FIDUtils():
-    def __init__(self, config: ConfigContainer) -> None:
+    def __init__(self, config: DictConfig) -> None:
         self.rng = jax.random.PRNGKey(42)
         self.model, self.params, self.apply_fn = self.load_fid_model()
         self.img_size = (299, 299)
         self.fs_utils = FSUtils(config)
-        self.in_process_dir = config.get_in_process_dir()
-        self.dataset_name = config.get_dataset_name()
+        self.in_process_dir = config.exp.in_process_dir
+        self.dataset_name = config.dataset.name
     
     def load_fid_model(self):
         model = inception.InceptionV3(pretrained=True)

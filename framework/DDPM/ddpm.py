@@ -4,6 +4,7 @@ import jax.numpy as jnp
 from flax.training import train_state
 
 from model.unet import UNet
+from model.DiT import DiT
 from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.config_utils import ConfigContainer
@@ -14,24 +15,32 @@ from framework.default_diffusion import DefaultModel
 from typing import TypedDict
 from tqdm import tqdm
 
+from omegaconf import DictConfig
+
 class DDPM(DefaultModel):
-    def __init__(self, config: ConfigContainer, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
+    def __init__(self, config: DictConfig, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
         super().__init__(config, rand_key)
 
-        diffusion_framework = config.get_diffusion_framework_config()
+        diffusion_framework = config.framework.diffusion
         self.n_timestep = diffusion_framework['n_timestep']
         self.rand_key = rand_key
         self.fs_obj = fs_obj
         self.wandblog = wandblog
 
         # Create UNet and its state
-        self.model = UNet(**config.get_diffusion_model_config())
+        model_config = {**config.model.diffusion}
+        model_type = model_config.pop("type")
+        if model_type == "unet":
+            self.model = UNet(**model_config)
+        elif model_type == "dif":
+            self.model = DiT(**model_config)
         state_rng, self.rand_key = jax.random.split(self.rand_key, 2)
         self.model_state = jax_utils.create_train_state(config, 'ddpm', self.model, state_rng)
         self.model_state = fs_obj.load_model_state("ddpm", self.model_state)
 
         # Create ema obj
-        ema_config = config.get_ema_config()
+        # ema_config = config.get_ema_config()
+        ema_config = config.ema
         self.ema_obj = EMA(self.model_state.params, **ema_config)
 
         beta = diffusion_framework['beta']

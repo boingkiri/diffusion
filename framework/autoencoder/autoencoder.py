@@ -13,6 +13,7 @@ import jax
 import flax.linen as nn
 from flax.training import train_state
 from typing import TypedDict 
+from omegaconf import DictConfig
 
 import os
 
@@ -104,15 +105,16 @@ def reconstruction_fn(g_params, autoencoder, x, rng):
 # Firstly, I implement autoencoder without any regularization such as VQ and KL.
 # However, it should be implemented too someday..  
 class AutoEncoder():
-    def __init__(self, config: ConfigContainer, rand_rng, fs_obj: FSUtils, wandblog: WandBLog):
+    def __init__(self, config: DictConfig, rand_rng, fs_obj: FSUtils, wandblog: WandBLog):
     # def setup(self):
         # self.framework_config = config['framework']['autoencoder']
-        self.autoencoder_framework_config = config.get_autoencoder_framework_config()
+        self.autoencoder_framework_config = config.framework.autoencoder
         self.random_rng = rand_rng
         self.wandblog = wandblog
 
         # self.model_config = config['model']['autoencoder']
-        self.autoencoder_model_config = config.get_autoencoder_model_config()
+        # self.autoencoder_model_config = config.get_autoencoder_model_config()
+        self.autoencoder_model_config = config.model.autoencoder
         self.autoencoder_type = self.autoencoder_framework_config['mode']
         if self.autoencoder_type == "KL":
             self.model = AEKL(**self.autoencoder_model_config)

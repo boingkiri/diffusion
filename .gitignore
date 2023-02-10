@@ -9,3 +9,5 @@ wandb
 nohup.out
 cifar
 test/outputs
+outputs
+main.log
