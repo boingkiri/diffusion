@@ -1,0 +1,28 @@
+defaults:
+  - framework: ldm
+  - model: 
+    - autoencoder/autoencoder_kl
+    - discriminator/discriminator_kl
+    - diffusion/dit_s
+  - ema: ema
+  - dataset: cifar10
+  - exp: exp_setting
+
+type: "ldm"
+exp_name: "ldm_dit_cifar10_kl"
+do_training: true
+do_sampling: true
+num_sampling: 50000
+sampling_batch: 256
+rand_seed: 42
+fid_during_training: true # True when calculating fid during training, otherwise, false.
+
+framework:
+  train_idx: 2
+  pretrained_ae: "ldm_vq_cifar10_with_gan"
+
+hydra:  
+  output_subdir: null  
+  run:  
+    dir: .
+

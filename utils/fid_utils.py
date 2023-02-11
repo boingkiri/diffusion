@@ -4,20 +4,21 @@ import numpy as np
 
 from utils.fid import inception, fid
 from utils.fs_utils import FSUtils
-# from DDPM import sampling
-# from framework.diffusion_framework import DiffusionFramework 
 
 import functools
 import os
 import shutil
 
+from omegaconf import DictConfig
+
 class FIDUtils():
-    def __init__(self, config) -> None:
+    def __init__(self, config: DictConfig) -> None:
         self.rng = jax.random.PRNGKey(42)
-        self.__config = config
         self.model, self.params, self.apply_fn = self.load_fid_model()
         self.img_size = (299, 299)
         self.fs_utils = FSUtils(config)
+        self.in_process_dir = config.exp.in_process_dir
+        self.dataset_name = config.dataset.name
     
     def load_fid_model(self):
         model = inception.InceptionV3(pretrained=True)
@@ -26,8 +27,7 @@ class FIDUtils():
         return model, params, apply_fn
     
     def get_tmp_dir(self):
-        in_process_dir = self.fs_utils.get_in_process_dir()
-        tmp_dir = os.path.join(in_process_dir, "tmp")
+        tmp_dir = os.path.join(self.in_process_dir, "tmp")
         if not os.path.exists(tmp_dir):
             os.mkdir(tmp_dir) 
         return tmp_dir
@@ -51,8 +51,7 @@ class FIDUtils():
     
     def calculate_fid(self, src_img_path, des_img_path=None):
         if des_img_path is None:
-            dataset_name = self.fs_utils.get_dataset_name()
-            dest_mu, dest_sigma = self.precompute_dataset(dataset_name)
+            dest_mu, dest_sigma = self.precompute_dataset(self.dataset_name)
         else:
             dest_mu, dest_sigma = self.calculate_statistics(des_img_path)
         src_mu, src_sigma = self.calculate_statistics(src_img_path)
@@ -61,8 +60,7 @@ class FIDUtils():
     
     def calculate_fid_in_step(self, step, model_obj, total_num_samples, batch_size=128):
         tmp_dir = self.get_tmp_dir()
-        in_process_dir = self.fs_utils.get_in_process_dir()
-        tmp_dir = os.path.join(in_process_dir, "tmp")
+        tmp_dir = os.path.join(self.in_process_dir, "tmp")
 
         current_num_samples = 0
         while current_num_samples < total_num_samples:
@@ -73,13 +71,12 @@ class FIDUtils():
         writing_format = f"FID score of Step {step} : {fid_score:.4f}\n"
         print(writing_format)
 
-        fid_log_file = os.path.join(in_process_dir, "fid_log.txt")
+        fid_log_file = os.path.join(self.in_process_dir, "fid_log.txt")
         with open(fid_log_file, 'a') as f:
             f.write(writing_format)
         shutil.rmtree(tmp_dir)
 
         return fid_score
     
-    def do_fid_during_training(self):
-        return self.__config['framework']['fid_during_training']
+    
 

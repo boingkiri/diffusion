@@ -1,0 +1,11 @@
+type: "dit"
+input_size: 16
+patch_size: 2
+in_channels: 3
+hidden_size: 384
+depth: 12
+num_heads: 6
+mlp_ratio: 4.0
+class_dropout_prob: 0.0
+num_classes: 10
+learn_sigma: True

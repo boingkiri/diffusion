@@ -9,10 +9,12 @@ from utils.log_utils import WandBLog
 import functools
 
 import jax
-import jax.numpy as jnp
 import flax.linen as nn
 from flax.training import train_state
 from typing import TypedDict 
+from omegaconf import DictConfig
+
+import os
 
 
 def generator_loss_kl(g_params, d_params, autoencoder: nn.Module, discriminator: nn.Module, x, step, rng):
@@ -102,31 +104,31 @@ def reconstruction_fn(g_params, autoencoder, x, rng):
 # Firstly, I implement autoencoder without any regularization such as VQ and KL.
 # However, it should be implemented too someday..  
 class AutoEncoder():
-    def __init__(self, config, rand_rng, fs_obj: FSUtils, wandblog: WandBLog):
-    # def setup(self):
-        self.framework_config = config['framework']['autoencoder']
+    def __init__(self, config: DictConfig, rand_rng, fs_obj: FSUtils, wandblog: WandBLog):
+        self.autoencoder_framework_config = config.framework.autoencoder
         self.random_rng = rand_rng
         self.wandblog = wandblog
 
-        # self.model_config = config['model']['autoencoder']
-        self.mode = self.framework_config['mode']
-        self.autoencoder_type = config['framework']['autoencoder']['mode']
+        self.autoencoder_model_config = config.model.autoencoder
+        self.autoencoder_type = self.autoencoder_framework_config['mode']
         if self.autoencoder_type == "KL":
-            self.model = AEKL(**config['model']['autoencoder'])
+            self.model = AEKL(**self.autoencoder_model_config)
         elif self.autoencoder_type == "VQ":
-            self.model = AEVQ(**config['model']['autoencoder'])
+            self.model = AEVQ(**self.autoencoder_model_config)
 
         # Autoencoder init
         g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
         self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng) # Generator
-
-        try: 
-            checkpoint_dir = config['framework']['pretrained_ae']
-        except KeyError:
+        
+        if config['framework']['train_idx'] == 2 and 'pretrained_ae' in config['framework'].keys():
+            checkpoint_dir = os.path.join(config['exp']['exp_dir'], config['framework']['pretrained_ae'])
+            # checkpoint_dir = os.path.join(checkpoint_dir, config['exp']['checkpoint_dir'])
+            checkpoint_dir = os.path.join(checkpoint_dir, "checkpoints")
+            print(f"Checkpoint dir: {checkpoint_dir}")
+        else:
             checkpoint_dir = None
         
         self.g_model_state = fs_obj.load_model_state('autoencoder', self.g_model_state, checkpoint_dir)
-        
         if self.autoencoder_type == "KL":
             self.discriminator = LPIPSwithDiscriminator_KL(
                 **config['model']['discriminator'], 

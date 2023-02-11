@@ -4,6 +4,7 @@ import jax.numpy as jnp
 from flax.training import train_state
 
 from model.unet import UNet
+from model.DiT import DiT
 from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
@@ -13,27 +14,36 @@ from framework.default_diffusion import DefaultModel
 from typing import TypedDict
 from tqdm import tqdm
 
+from omegaconf import DictConfig
+
 class DDPM(DefaultModel):
-    def __init__(self, config, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
+    def __init__(self, config: DictConfig, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
         super().__init__(config, rand_key)
 
-        self.n_timestep = config['framework']['diffusion']['n_timestep']
+        diffusion_framework = config.framework.diffusion
+        self.n_timestep = diffusion_framework['n_timestep']
         self.rand_key = rand_key
         self.fs_obj = fs_obj
         self.wandblog = wandblog
 
         # Create UNet and its state
-        self.model = UNet(**config['model']['diffusion'])
+        model_config = {**config.model.diffusion}
+        model_type = model_config.pop("type")
+        if model_type == "unet":
+            self.model = UNet(**model_config)
+        elif model_type == "dit":
+            self.model = DiT(**model_config)
         state_rng, self.rand_key = jax.random.split(self.rand_key, 2)
         self.model_state = jax_utils.create_train_state(config, 'ddpm', self.model, state_rng)
         self.model_state = fs_obj.load_model_state("ddpm", self.model_state)
 
         # Create ema obj
-        ema_config = config['ema']
+        # ema_config = config.get_ema_config()
+        ema_config = config.ema
         self.ema_obj = EMA(self.model_state.params, **ema_config)
 
-        beta = config['framework']['diffusion']['beta']
-        loss = config['framework']['diffusion']['loss']
+        beta = diffusion_framework['beta']
+        loss = diffusion_framework['loss']
 
         # DDPM perturbing configuration
         self.beta = jnp.linspace(beta[0], beta[1], self.n_timestep)
@@ -155,7 +165,6 @@ class DDPM(DefaultModel):
         for t in pbar:
             normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
             latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, normal_key, dropout_key)
-            # latent_sample = self.p_sample_jit(self.model_state.params, latent_sample, t, normal_key, dropout_key)
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"DDPM Reconstruction loss": rec_loss})
