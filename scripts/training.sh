@@ -10,5 +10,7 @@
 
 # tail -f nohup.out
 
-python3 main.py
+# python3 main.py
+nohup python3 main.py &
+tail -f nohup.out
 

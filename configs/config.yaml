@@ -19,7 +19,7 @@ fid_during_training: true # True when calculating fid during training, otherwise
 
 framework:
   train_idx: 2
-  pretrained_ae: "ldm_vq_cifar10_with_gan"
+  # pretrained_ae: "ldm_vq_cifar10_with_gan"
 
 hydra:  
   output_subdir: null  

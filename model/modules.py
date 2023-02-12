@@ -74,7 +74,7 @@ class AttentionDense(nn.Module):
     def __call__(self, x): # x: b x y c
         scale = self.n_channels ** -0.5
 
-        batch_size, height, width, n_channels = x.shape
+        batch_size, num_patch, n_channels = x.shape
         head_channels = n_channels // self.n_heads
 
         # Projection
@@ -92,7 +92,7 @@ class AttentionDense(nn.Module):
 
         # Multiply by value
         res = jnp.einsum('bijh,bjhd->bihd', atten, v)
-        res = res.reshape(batch_size, height, width, self.n_heads * head_channels)
+        res = res.reshape(batch_size, num_patch, self.n_heads * head_channels)
         res = nn.Dense(self.n_channels)(res)
 
         return res

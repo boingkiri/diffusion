@@ -26,7 +26,9 @@ class DiTBlock(nn.Module):
             ]
         )
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = \
-            jnp.split(adaLN_modulation(c), axis=-1)
+            tuple(map(
+                lambda ary: jnp.expand_dims(ary, axis=1), 
+                jnp.split(adaLN_modulation(c), indices_or_sections=6, axis=-1)))
         
         # First Step
         x_skip = x
@@ -46,6 +48,7 @@ class DiTBlock(nn.Module):
         return x
 
 class DiTFinalLayer(nn.Module):
+    hidden_size: int
     patch_size: int
     out_channels: int
 
@@ -57,7 +60,11 @@ class DiTFinalLayer(nn.Module):
                 nn.Dense(2 * self.hidden_size)
             ]
         )
-        shift, scale = jnp.split(adaLN_modulation(c), axis=-1)
+        shift, scale = \
+            tuple(map(
+                lambda ary: jnp.expand_dims(ary, axis=1), 
+                jnp.split(adaLN_modulation(c), indices_or_sections=2, axis=-1)
+                ))
         x = modulate(nn.LayerNorm()(x), shift, scale)
         x = nn.Dense(self.patch_size * self.patch_size * self.out_channels)(x)
         return x
@@ -75,24 +82,29 @@ class DiT(nn.Module):
     mlp_ratio: float = 4.0
     class_dropout_prob: float = 0.1
     num_classes: int = 1000
+    dropout_rate: float = 0.0
     learn_sigma: bool = True
     def setup(self):
         self.out_channels = self.in_channels * 2 if self.learn_sigma else self.in_channels
         self.x_embedder = PatchEmbed(self.input_size, self.patch_size, self.in_channels, self.hidden_size, bias=True)
         self.t_embedder = TimeEmbed(self.hidden_size // 4, self.hidden_size)
         self.y_embedder = LabelEmbedder(self.num_classes, self.hidden_size, self.class_dropout_prob)
-        self.pos_embed = get_2d_sincos_pos_embed(self.hidden_size, int)
 
-        self.blocks = nn.Sequential(
-            [DiTBlock(self.hidden_size, self.num_heads, mlp_ratio=self.mlp_ratio) for _ in range(self.depth)]
-        )
-        self.final_layer = DiTFinalLayer(self.patch_size, self.out_channels)
-        ### TODO: NEED INITIALIZATION
-    ### TODO: NEED INITIALIZATION
+        num_patch = int(self.input_size // self.patch_size)
+        self.pos_embed = get_2d_sincos_pos_embed(self.hidden_size, num_patch)
+
+        self.blocks = [DiTBlock(
+                self.hidden_size, 
+                self.num_heads, 
+                mlp_ratio=self.mlp_ratio, 
+                dropout_rate=self.dropout_rate) 
+                for _ in range(self.depth)]
+        self.final_layer = DiTFinalLayer(self.hidden_size, self.patch_size, self.out_channels)
+        # TODO: NEED MODULE INITIALIZATION PART (XAVIOR .. ETC)
 
     def unpatchify(self, x):
         """
-        x: (N, T, patch_size**2 * C)
+        x: (N, T, patch_size ** 2 * C)
         imgs: (N, H, W, C)
         """
         c = self.out_channels
@@ -100,23 +112,27 @@ class DiT(nn.Module):
         h = w = int(x.shape[1] ** 0.5)
         assert h * w == x.shape[1]
 
-        x = x.reshape(shape=(x.shape[0], h, w, p, p, c))
+        x = x.reshape((x.shape[0], h, w, p, p, c))
         x = jnp.einsum('nhwpqc->nhpwqc', x)
-        imgs = x.reshape(shape=(x.shape[0], h * p, w * p, c))
+        imgs = x.reshape((x.shape[0], h * p, w * p, c))
         return imgs
     
-    def __call__(self, x, t, y, train):
+    # def __call__(self, x, t, y, train):
+    def __call__(self, x, t, train):
         """
         Forward pass of DiT
         x: (N, H, W, C) tensor of spatial inputs (images or latent representations of images)
         t: (N,) tensor of diffusion timesteps
-        y: (N,) tensor of class labels 
+        y: (N,) tensor of class labels (NOT YET IMPLEMENTED)
         """
         x = self.x_embedder(x) + self.pos_embed # (N, T, D) where T = H * W / (patch_size ** 2)
         t = self.t_embedder(t)                  # (N, D)
-        y = self.y_embedder(y, train)           # (N, D)
-        c  = t + y
-        x = self.blocks(x, c)
+        # y = self.y_embedder(y, train)           # (N, D)
+        # c  = t + y
+        c = t
+        for layer in self.blocks:
+            x = layer(x, c, train)
+        # x, c, train = self.blocks(x, c, train)
         x = self.final_layer(x, c)
         x = self.unpatchify(x)
         return x
@@ -154,7 +170,7 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     out: (M, D)
     """
     assert embed_dim % 2 == 0
-    omega = jnp.arange(embed_dim // 2, dtype=jnp.float64)
+    omega = jnp.arange(embed_dim // 2, dtype=jnp.float32)
     omega /= embed_dim / 2.
     omega = 1. / 10000**omega # (D/2, )
 
