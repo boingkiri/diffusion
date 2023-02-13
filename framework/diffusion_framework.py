@@ -151,13 +151,12 @@ class DiffusionFramework():
         current_num = 0
         batch_size = self.sample_batch_size
         while total_num > current_num:
-            samples = self.sampling(batch_size, img_size=None, original_data=None)
+            samples = self.sampling(batch_size, original_data=None)
             self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
             current_num += batch_size
     
     def reconstruction(self, total_num):
         img_size = common_utils.get_dataset_size(self.dataset_name)
-
         datasets = common_utils.load_dataset_from_tfds()
         datasets_bar = tqdm(datasets, total=total_num)
         current_num = 0
