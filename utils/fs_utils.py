@@ -131,7 +131,7 @@ class FSUtils():
     
     def get_best_fid(self):
         best_fid = None
-        in_process_dir = self.config.exp.in_proecss_dir
+        in_process_dir = self.config.exp.in_process_dir
         fid_log_file = os.path.join(in_process_dir, "fid_log.txt")
         with open(fid_log_file, 'r') as f:
             txt = f.read()
