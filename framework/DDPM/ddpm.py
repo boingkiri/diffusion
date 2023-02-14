@@ -40,7 +40,7 @@ class DDPM(DefaultModel):
         # Create ema obj
         # ema_config = config.get_ema_config()
         ema_config = config.ema
-        self.ema_obj = EMA(self.model_state.params, **ema_config)
+        self.ema_obj = EMA(self.model_state.params_ema, **ema_config)
 
         beta = diffusion_framework['beta']
         loss = diffusion_framework['loss']
@@ -164,7 +164,8 @@ class DDPM(DefaultModel):
         pbar = tqdm(reversed(range(self.n_timestep)))
         for t in pbar:
             normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
-            latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, normal_key, dropout_key)
+            # latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, normal_key, dropout_key)
+            latent_sample = self.p_sample_jit(self.ema_obj.get_ema_params(), latent_sample, t, normal_key, dropout_key)
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"DDPM Reconstruction loss": rec_loss})
