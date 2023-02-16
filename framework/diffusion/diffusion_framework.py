@@ -16,12 +16,12 @@ from tqdm import tqdm
 
 from omegaconf import DictConfig
 
-class DDPM(DefaultModel):
+class DiffusionFramework(DefaultModel):
     def __init__(self, config: DictConfig, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
         super().__init__(config, rand_key)
-
         diffusion_framework = config.framework.diffusion
         self.n_timestep = diffusion_framework['n_timestep']
+        self.type = diffusion_framework['type']
         self.rand_key = rand_key
         self.fs_obj = fs_obj
         self.wandblog = wandblog
@@ -34,8 +34,8 @@ class DDPM(DefaultModel):
         elif model_type == "dit":
             self.model = DiT(**model_config)
         state_rng, self.rand_key = jax.random.split(self.rand_key, 2)
-        self.model_state = jax_utils.create_train_state(config, 'ddpm', self.model, state_rng)
-        self.model_state = fs_obj.load_model_state("ddpm", self.model_state)
+        self.model_state = jax_utils.create_train_state(config, 'diffusion', self.model, state_rng)
+        self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
 
         # Create ema obj
         # ema_config = config.get_ema_config()
@@ -68,29 +68,63 @@ class DDPM(DefaultModel):
         def update_grad(state:train_state.TrainState, grad):
             return state.apply_gradients(grads=grad)
         
-        def p_sample_jit(params, perturbed_data, time, dropout_key, normal_key):
-            time = jnp.array(time)
-            time = jnp.repeat(time, perturbed_data.shape[0])
+        if self.type == "ddpm":
+            self.skip_timestep = 1
+            def p_sample_jit(params, perturbed_data, time, dropout_key, normal_key):
+                time = jnp.array(time)
+                time = jnp.repeat(time, perturbed_data.shape[0])
 
-            pred_noise = self.model.apply(
-                {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': dropout_key})
-            beta = jnp.take(self.beta, time)
-            sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)
-            eps_coef = beta / sqrt_one_minus_alpha_bar
-            eps_coef = eps_coef[:, None, None, None]
+                pred_noise = self.model.apply(
+                    {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': dropout_key})
+                beta = jnp.take(self.beta, time)
+                sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)
+                eps_coef = beta / sqrt_one_minus_alpha_bar
+                eps_coef = eps_coef[:, None, None, None]
 
-            # alpha = jnp.take(self.alpha, time)
-            sqrt_alpha = jnp.take(self.sqrt_alpha, time)
-            sqrt_alpha = sqrt_alpha[:, None, None, None]
+                # alpha = jnp.take(self.alpha, time)
+                sqrt_alpha = jnp.take(self.sqrt_alpha, time)
+                sqrt_alpha = sqrt_alpha[:, None, None, None]
 
-            mean = (perturbed_data - eps_coef * pred_noise) / sqrt_alpha
+                mean = (perturbed_data - eps_coef * pred_noise) / sqrt_alpha
 
-            var = beta[:, None, None, None]
-            eps = jax.random.normal(normal_key, perturbed_data.shape)
+                var = beta[:, None, None, None]
+                eps = jax.random.normal(normal_key, perturbed_data.shape)
 
-            return_val = jnp.where(time[0] == 0, mean, mean + (var ** 0.5) * eps)
+                return_val = jnp.where(time[0] == 0, mean, mean + (var ** 0.5) * eps)
 
-            return return_val
+                return return_val
+        elif self.type == "ddim":
+            try:
+                self.skip_timestep = diffusion_framework['skip_timestep']
+            except:
+                self.skip_timestep = 1
+            
+            def p_sample_jit(params, perturbed_data, time, next_time, dropout_key, normal_key):
+                time = jnp.array(time)
+                time = jnp.repeat(time, perturbed_data.shape[0])
+
+                next_time = jnp.where(next_time >= 0, next_time, 0)
+                next_time = jnp.array(next_time)
+                next_time = jnp.repeat(next_time, perturbed_data.shape[0])
+
+                pred_noise = self.model.apply(
+                    {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': dropout_key})
+                
+                # Take current time alpha  
+                sqrt_alpha_bar = jnp.take(self.sqrt_alpha_bar, time)[:, None, None, None]
+                sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)[:, None, None, None]
+                pred_x0 = (perturbed_data - sqrt_one_minus_alpha_bar * pred_noise) / sqrt_alpha_bar
+                
+                # Take next time alpha
+                next_sqrt_alpha_bar = jnp.take(self.sqrt_alpha_bar, next_time)[:, None, None, None]
+                next_sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, next_time)[:, None, None, None]
+                direction_point_to_xt = next_sqrt_one_minus_alpha_bar * pred_noise
+                return_val = next_sqrt_alpha_bar * pred_x0 + direction_point_to_xt
+
+                return return_val
+        
+        else:
+            NotImplementedError("Diffusion framework only accept 'DDPM' or 'DDIM' for now.")
         
         self.loss_fn = jax.jit(loss_fn)
         self.grad_fn = jax.jit(jax.value_and_grad(self.loss_fn))
@@ -161,13 +195,18 @@ class DDPM(DefaultModel):
             perturbed_data = self.q_sample(original_data, t)[0]
             latent_sample = perturbed_data
 
-        pbar = tqdm(reversed(range(self.n_timestep)))
+        pbar = tqdm(reversed(range(0, self.n_timestep, self.skip_timestep)))
+        # pbar = reversed(range(0, self.n_timestep, self.skip_timestep))
         for t in pbar:
             normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
-            # latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, normal_key, dropout_key)
-            latent_sample = self.p_sample_jit(self.ema_obj.get_ema_params(), latent_sample, t, normal_key, dropout_key)
+            if self.type == "ddpm":
+                latent_sample = self.p_sample_jit(self.ema_obj.get_ema_params(), latent_sample, t, normal_key, dropout_key)
+            elif self.type == "ddim":
+                next_t = t - self.skip_timestep
+                latent_sample = self.p_sample_jit(self.ema_obj.get_ema_params(), latent_sample, t, next_t, normal_key, dropout_key)
+
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
-            self.wandblog.update_log({"DDPM Reconstruction loss": rec_loss})
+            self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample
     

@@ -1,4 +1,5 @@
-from framework.diffusion_framework import DiffusionFramework
+# from diffusion.framework.unifying_framework import UnifyingFramework
+from framework.unifying_framework import UnifyingFramework
 
 from jax import random
 import wandb
@@ -14,13 +15,15 @@ def start(config: DictConfig):
     print("-------------------Config Setting---------------------")
     print(OmegaConf.to_yaml(config))
     print("------------------------------------------------------")
-    diffusion_framework = DiffusionFramework(model_type, config, rng)
+    diffusion_framework = UnifyingFramework(model_type, config, rng)
 
     if config.do_training:
         if config.type == "ldm":
             wandb.init(project="my-ldm-WIP", config={**config})
         elif config.type == "ddpm":
             wandb.init(project="my-ddpm-WIP", config={**config})
+        elif config.type == "ddim":
+            wandb.init(project="my-ddim-WIP", config={**config})
 
         print("Training selected")
         diffusion_framework.train()

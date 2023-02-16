@@ -1,0 +1,14 @@
+type: "ddpm"
+beta: [0.0001, 0.02]
+n_timestep: 1000
+loss: "l2"
+train:
+  learning_rate: 2.0e-4
+  gradient_clip: 1.0
+  warmup: 5000
+  batch_size: 128
+  total_step: 800000
+  sampling_step: 10000
+  saving_step: 100000
+  optimizer:
+    type: "Adam"

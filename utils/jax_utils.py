@@ -13,7 +13,7 @@ class TrainState(train_state.TrainState):
   params_ema: Any = None
 
 def get_framework_config(config: DictConfig, model_type):
-  if model_type in ['diffusion', 'ddpm']:
+  if model_type in ['diffusion', 'ddpm', 'ddim']:
     framework_config = config.framework.diffusion
   # elif model_type in ['autoencoder']:
   elif model_type in ['autoencoder', 'discriminator']:
@@ -48,8 +48,8 @@ def create_train_state(config: DictConfig, model_type, model, rng, aux_data=None
   """
   rng, param_rng, dropout_rng = jax.random.split(rng, 3)
   input_format = jnp.ones([1, *config.dataset.data_size])
-  if model_type == "ddpm":
-    if 'train_idx' in config.framework.keys() and config.framework['train_idx'] == 2:
+  if model_type == "diffusion":
+    if config.type == "ldm" and config.framework['train_idx'] == 2:
       f_value = len(config.model.autoencoder.ch_mults)
       z_dim = config.model.autoencoder.embed_dim
       input_format_shape = input_format.shape

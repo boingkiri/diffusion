@@ -1,4 +1,5 @@
-from framework.DDPM.ddpm import DDPM
+# from framework.DDPM.ddpm import DDPM
+from framework.diffusion.diffusion_framework import DiffusionFramework
 from framework.LDM import LDM
 
 import jax
@@ -16,13 +17,14 @@ import wandb
 from omegaconf import DictConfig
 
 
-class DiffusionFramework():
+class UnifyingFramework():
     """
         This framework contains overall methods for training and sampling
     """
     def __init__(self, model_type, config: DictConfig, random_rng) -> None:
         self.config = config # TODO: This code is ugly. It should not need to reuse config obj
-        self.model_type = model_type.lower()
+        self.current_model_type = model_type.lower()
+        self.diffusion_model_type = ['ddpm', 'ddim'] 
         self.random_rng = random_rng
         self.dataset_name = config.dataset.name
         self.do_fid_during_training = config.fid_during_training
@@ -32,7 +34,7 @@ class DiffusionFramework():
         self.set_utils(config)
         self.set_model(config)
         self.set_step(config)
-        self.learning_rate_schedule = jax_utils.get_learning_rate_schedule(config, self.model_type)
+        self.learning_rate_schedule = jax_utils.get_learning_rate_schedule(config, self.current_model_type)
         self.sample_batch_size = config.sampling_batch
     
     def set_utils(self, config: DictConfig):
@@ -42,19 +44,19 @@ class DiffusionFramework():
         self.fs_utils.verify_and_create_workspace()
 
     def set_model(self, config: DictConfig):
-        if self.model_type == 'ddpm':
-            ddpm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = DDPM(config, ddpm_rng, self.fs_utils, self.wandblog)
-        elif self.model_type == "ldm":
+        if self.current_model_type in self.diffusion_model_type:
+            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+            self.framework = DiffusionFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
+        elif self.current_model_type == "ldm":
             ldm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
             self.framework = LDM(config, ldm_rng, self.fs_utils, self.wandblog)
         
     def set_step(self, config: DictConfig):
-        if self.model_type == "ddpm":
+        if self.current_model_type in self.diffusion_model_type:
             self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
             self.total_step = config['framework']['diffusion']['train']['total_step']
             self.checkpoint_prefix = config.exp.diffusion_prefix
-        elif self.model_type == "ldm":
+        elif self.current_model_type == "ldm":
             self.train_idx = config['framework']['train_idx']
             if self.train_idx == 1: # AE
                 self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='autoencoder')
@@ -70,8 +72,8 @@ class DiffusionFramework():
         return sample
     
     def save_model_state(self, state:list):
-        if self.model_type == "ddpm" or \
-            (self.model_type == "ldm" and self.train_idx == 2):
+        if self.current_model_type in self.diffusion_model_type or \
+            (self.current_model_type == "ldm" and self.train_idx == 2):
             assert len(state) == 1
             # diffusion_prefix = self.config.get_state_prefix('diffusion')
             diffusion_prefix = self.config.exp.diffusion_prefix
@@ -81,7 +83,7 @@ class DiffusionFramework():
                 self.step, 
                 prefix=diffusion_prefix)
 
-        elif self.model_type == "ldm" and self.train_idx == 1:
+        elif self.current_model_type == "ldm" and self.train_idx == 1:
             assert len(state) == 2
             autoencoder_prefix = self.config.exp.autoencoder_prefix
             discriminator_prefix = self.config.exp.discriminator_prefix
@@ -100,14 +102,14 @@ class DiffusionFramework():
         datasets = common_utils.load_dataset_from_tfds()
         datasets_bar = tqdm(datasets, total=self.total_step-self.step)
         in_process_dir = self.config.exp.in_process_dir
-        in_process_model_dir_name = "diffusion" if self.model_type == 'ldm' and self.train_idx == 2 else 'AE'
+        in_process_model_dir_name = "diffusion" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'AE'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
         
         for x, _ in datasets_bar:
             x = jax.device_put(x.numpy())
             log = self.framework.fit(x, step=self.step)
             
-            if self.model_type == "ldm" and self.train_idx == 1:
+            if self.current_model_type == "ldm" and self.train_idx == 1:
                 loss_ema = log["train/total_loss"]
             else:
                 loss_ema = log["diffusion_loss"]
@@ -132,7 +134,7 @@ class DiffusionFramework():
 
                 # Calculate FID score with 1000 samples
                 if self.do_fid_during_training and \
-                    not (self.model_type == "ldm" and self.train_idx == 1):
+                    not (self.current_model_type == "ldm" and self.train_idx == 1):
                     fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
                     if self.fs_utils.get_best_fid() >= fid_score:
                         best_checkpoint_dir = self.config.exp.best_dir
@@ -170,7 +172,7 @@ class DiffusionFramework():
                 break
     
     def next_step(self):
-        if self.model_type == "ldm" and self.train_idx == 1:
+        if self.current_model_type == "ldm" and self.train_idx == 1:
             self.config['framework']['train_idx'] = 2
             self.set_train_step_process(self.config)
             return True

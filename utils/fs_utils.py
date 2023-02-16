@@ -114,7 +114,7 @@ class FSUtils():
         return current_sampling
 
     def get_state_prefix(self, model_type):
-        if model_type in ["ddpm", 'diffusion']:
+        if model_type == 'diffusion':
             prefix = self.config.exp.diffusion_prefix
         elif model_type == "autoencoder":
             prefix = self.config.exp.autoencoder_prefix

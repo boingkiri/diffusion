@@ -1,4 +1,5 @@
-from framework.DDPM.ddpm import DDPM
+# from framework.DDPM.ddpm import DDPM
+from framework.diffusion.diffusion_framework import DiffusionFramework
 from framework.autoencoder.autoencoder import AutoEncoder
 
 from utils.log_utils import WandBLog
@@ -25,7 +26,8 @@ class LDM(DefaultModel):
         self.first_stage_model = AutoEncoder(config, ae_key, fs_obj, wandblog)
         if self.get_train_order() == 2:
             ddpm_key, self.random_key = jax.random.split(self.random_key, 2)
-            self.diffusion_model = DDPM(config, ddpm_key, fs_obj, wandblog)
+            # self.diffusion_model = DDPM(config, ddpm_key, fs_obj, wandblog)
+            self.diffusion_model = DiffusionFramework(config, ddpm_key, fs_obj, wandblog)
     
     def get_sampling_size(self):
         # Assume we're using CIFAR-10 dataset

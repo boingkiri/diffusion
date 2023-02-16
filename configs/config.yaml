@@ -1,15 +1,19 @@
 defaults:
-  - framework: ldm
+  # - framework: ldm
+  - framework: 
+    - diffusion/ddim
   - model: 
     - autoencoder/autoencoder_kl
     - discriminator/discriminator_kl
-    - diffusion/dit_s
+    # - diffusion/dit_s
+    - diffusion/unet
   - ema: ema
   - dataset: cifar10
   - exp: exp_setting
 
-type: "ldm"
-exp_name: "ldm_dit_cifar10_kl"
+# type: "ldm"
+type: ddim
+exp_name: "ddim_cifar10"
 do_training: true
 do_sampling: true
 num_sampling: 50000
