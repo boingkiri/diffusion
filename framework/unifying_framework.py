@@ -102,7 +102,7 @@ class UnifyingFramework():
         datasets = common_utils.load_dataset_from_tfds()
         datasets_bar = tqdm(datasets, total=self.total_step-self.step)
         in_process_dir = self.config.exp.in_process_dir
-        in_process_model_dir_name = "diffusion" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'AE'
+        in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
         
         for x, _ in datasets_bar:
