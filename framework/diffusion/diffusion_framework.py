@@ -195,14 +195,21 @@ class DiffusionFramework(DefaultModel):
             perturbed_data = self.q_sample(original_data, t)[0]
             latent_sample = perturbed_data
 
-        pbar = tqdm(reversed(range(0, self.n_timestep, self.skip_timestep)))
-        # pbar = reversed(range(0, self.n_timestep, self.skip_timestep))
-        for t in pbar:
-            normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
-            if self.type == "ddpm":
+        # pbar = tqdm(reversed(range(0, self.n_timestep, self.skip_timestep)))
+        if self.type == "ddpm":
+            pbar = tqdm(reversed(range(0, self.n_timestep, self.skip_timestep)))
+            for t in pbar:
+                normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
                 latent_sample = self.p_sample_jit(self.ema_obj.get_ema_params(), latent_sample, t, normal_key, dropout_key)
-            elif self.type == "ddim":
-                next_t = t - self.skip_timestep
+        elif self.type == "ddim":
+            seq = jnp.linspace(0, jnp.sqrt(self.n_timestep - 1), self.n_timestep // self.skip_timestep) ** 2
+            seq = [int(s) for s in list(seq)]
+            pbar = reversed(seq)
+            # pbar = tqdm(reversed(list(range(0, self.n_timestep, self.skip_timestep)) + [self.n_timestep - 1]))
+            next_pbar = reversed([-1] + seq[:-1])
+            pbar = tqdm(pbar)
+            for t, next_t in zip(pbar, next_pbar):
+                normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
                 latent_sample = self.p_sample_jit(self.ema_obj.get_ema_params(), latent_sample, t, next_t, normal_key, dropout_key)
 
         if original_data is not None:
