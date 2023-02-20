@@ -63,7 +63,7 @@ class UnifyingFramework():
                 self.total_step = config['framework']['autoencoder']['train']['total_step']
                 self.checkpoint_prefix = config.exp.autoencoder_prefix
             elif self.train_idx == 2: # Diffusion
-                self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
+                self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion') 
                 self.total_step = config['framework']['diffusion']['train']['total_step']
                 self.checkpoint_prefix = config.exp.diffusion_prefix
 
@@ -75,7 +75,6 @@ class UnifyingFramework():
         if self.current_model_type in self.diffusion_model_type or \
             (self.current_model_type == "ldm" and self.train_idx == 2):
             assert len(state) == 1
-            # diffusion_prefix = self.config.get_state_prefix('diffusion')
             diffusion_prefix = self.config.exp.diffusion_prefix
             jax_utils.save_train_state(
                 state[0], 

@@ -68,7 +68,8 @@ class DiffusionFramework(DefaultModel):
         def loss_fn(params, perturbed_data, time, real_noise, dropout_key):
             pred_noise = self.model.apply(
                 {'params': params}, x=perturbed_data, t=time, train=True, rngs={'dropout': dropout_key})
-            
+            loss_dict = {}
+
             if not self.learn_sigma:
                 if self.loss == "l2":
                     loss = self._l2_loss(real_noise, pred_noise)
@@ -84,9 +85,10 @@ class DiffusionFramework(DefaultModel):
                     simple_loss = self._l2_loss(real_noise, pred_noise)
                     vlb_loss = self._vlb_loss(
                         perturbed_data, real_noise, 
-                        pred_noise, pred_logvar, time, stop_gradient=True)
-                    loss = simple_loss + vlb_loss / 1000.0
-            return loss
+                        pred_noise, pred_logvar, time, stop_gradient=True) / 1000.0
+                    loss = simple_loss + vlb_loss
+                    loss_dict['vlb_loss'] = vlb_loss
+            return loss, loss_dict
         
         def update_grad(state:train_state.TrainState, grad):
             return state.apply_gradients(grads=grad)
@@ -99,20 +101,22 @@ class DiffusionFramework(DefaultModel):
 
                 pred_noise = self.model.apply(
                     {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': dropout_key})
+
+                if self.learn_sigma:
+                    pred_noise, pred_logvar = jnp.split(pred_noise, 2, axis=-1)
+                
+                # Mean
                 beta = jnp.take(self.beta, time)
                 sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)
                 eps_coef = beta / sqrt_one_minus_alpha_bar
                 eps_coef = eps_coef[:, None, None, None]
-
-                # alpha = jnp.take(self.alpha, time)
                 sqrt_alpha = jnp.take(self.sqrt_alpha, time)
                 sqrt_alpha = sqrt_alpha[:, None, None, None]
-
                 mean = (perturbed_data - eps_coef * pred_noise) / sqrt_alpha
 
-                var = beta[:, None, None, None]
+                # Var
+                var = beta[:, None, None, None] if not self.learn_sigma else jnp.exp(self.get_learned_logvar(pred_logvar, time))
                 eps = jax.random.normal(normal_key, perturbed_data.shape)
-
                 return_val = jnp.where(time[0] == 0, mean, mean + (var ** 0.5) * eps)
 
                 return return_val
@@ -147,7 +151,7 @@ class DiffusionFramework(DefaultModel):
             NotImplementedError("Diffusion framework only accept 'DDPM' or 'DDIM' for now.")
         
         self.loss_fn = jax.jit(loss_fn)
-        self.grad_fn = jax.jit(jax.value_and_grad(self.loss_fn))
+        self.grad_fn = jax.jit(jax.value_and_grad(self.loss_fn, has_aux=True))
         self.update_grad = jax.jit(update_grad)
         self.p_sample_jit = jax.jit(p_sample_jit)
 
@@ -230,7 +234,7 @@ class DiffusionFramework(DefaultModel):
         t = jax.random.randint(int_key, (batch_size, ), 0, self.n_timestep)
         xt, noise = self.q_sample(x0, t, eps=noise)
         
-        loss, grad = self.grad_fn(self.model_state.params, xt, t, noise, dropout_key)
+        (loss, loss_dict), grad = self.grad_fn(self.model_state.params, xt, t, noise, dropout_key)
         new_state = self.update_grad(self.model_state, grad)
 
         self.model_state = new_state
@@ -241,6 +245,7 @@ class DiffusionFramework(DefaultModel):
         return_dict = {
             "diffusion_loss": loss
         }
+        return_dict.update(loss_dict)
         self.wandblog.update_log(return_dict)
         return return_dict
     
