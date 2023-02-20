@@ -1,6 +1,7 @@
 defaults:
   - autoencoder/autoencoder_kl
-  - diffusion/ddpm
+  # - diffusion/ddpm
+  - diffusion/improved_ddpm
 
 train_idx: 2 # 1 (AE) or 2 (Diffusion). This is only for ldm. Selected model will be trained. 
 # pretrained_ae: "ldm_vq_cifar10"

@@ -132,7 +132,6 @@ class DiT(nn.Module):
         c = t
         for layer in self.blocks:
             x = layer(x, c, train)
-        # x, c, train = self.blocks(x, c, train)
         x = self.final_layer(x, c)
         x = self.unpatchify(x)
         return x

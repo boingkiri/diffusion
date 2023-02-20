@@ -10,6 +10,7 @@ from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
 from utils.ema import EMA
 from framework.default_diffusion import DefaultModel
+# from framework.diffusion import losses
 
 from typing import TypedDict
 from tqdm import tqdm
@@ -22,6 +23,7 @@ class DiffusionFramework(DefaultModel):
         diffusion_framework = config.framework.diffusion
         self.n_timestep = diffusion_framework['n_timestep']
         self.type = diffusion_framework['type']
+        self.learn_sigma = diffusion_framework['learn_sigma']
         self.rand_key = rand_key
         self.fs_obj = fs_obj
         self.wandblog = wandblog
@@ -38,7 +40,6 @@ class DiffusionFramework(DefaultModel):
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
 
         # Create ema obj
-        # ema_config = config.get_ema_config()
         ema_config = config.ema
         self.ema_obj = EMA(self.model_state.params_ema, **ema_config)
 
@@ -52,6 +53,14 @@ class DiffusionFramework(DefaultModel):
         self.sqrt_alpha = jnp.sqrt(self.alpha)
         self.sqrt_alpha_bar = jnp.sqrt(self.alpha_bar)
         self.sqrt_one_minus_alpha_bar = jnp.sqrt(1 - self.alpha_bar)
+        self.alpha_bar_prev = jnp.cumprod(jnp.append(1., self.alpha[:-1]), axis=0)
+        self.alpha_bar_next = jnp.cumprod(jnp.append(self.alpha[1:], 0.0), axis=0)
+        self.posterior_variance = self.beta * (1. - self.alpha_bar_prev) / (1. - self.alpha_bar)
+        self.posterior_log_variance_clipped = jnp.log(jnp.append(self.posterior_variance[1], self.posterior_variance[1:]))
+        self.logvar_upper_bound = jnp.log(self.beta)
+        self.logvar_lower_bound = self.posterior_log_variance_clipped
+        self.posterior_mean_coef1 = self.beta * jnp.sqrt(self.alpha_bar_prev) / (1. - self.alpha_bar)
+        self.posterior_mean_coef2 = self.sqrt_alpha * (1. - self.alpha_bar_prev) / (1. - self.alpha_bar)
         
         # DDPM loss configuration
         self.loss = loss
@@ -59,10 +68,24 @@ class DiffusionFramework(DefaultModel):
         def loss_fn(params, perturbed_data, time, real_noise, dropout_key):
             pred_noise = self.model.apply(
                 {'params': params}, x=perturbed_data, t=time, train=True, rngs={'dropout': dropout_key})
-            if self.loss == "l2":
-                loss = jnp.mean((pred_noise - real_noise) ** 2)
-            elif self.loss == "l1":
-                loss = jnp.mean(jnp.absolute(pred_noise - real_noise))
+            
+            if not self.learn_sigma:
+                if self.loss == "l2":
+                    loss = self._l2_loss(real_noise, pred_noise)
+                elif self.loss == "l1":
+                    loss = self._l1_loss(real_noise, pred_noise)
+            else:
+                pred_noise, pred_logvar = jnp.split(pred_noise, 2, axis=-1)
+                if self.loss == "vlb":
+                    loss = self._vlb_loss(
+                        perturbed_data, real_noise, 
+                        pred_noise, pred_logvar, time, stop_gradient=False)
+                elif self.loss == "hybrid": # For improved DDPM
+                    simple_loss = self._l2_loss(real_noise, pred_noise)
+                    vlb_loss = self._vlb_loss(
+                        perturbed_data, real_noise, 
+                        pred_noise, pred_logvar, time, stop_gradient=True)
+                    loss = simple_loss + vlb_loss / 1000.0
             return loss
         
         def update_grad(state:train_state.TrainState, grad):
@@ -98,7 +121,6 @@ class DiffusionFramework(DefaultModel):
                 self.skip_timestep = diffusion_framework['skip_timestep']
             except:
                 self.skip_timestep = 1
-            
             def p_sample_jit(params, perturbed_data, time, next_time, dropout_key, normal_key):
                 time = jnp.array(time)
                 time = jnp.repeat(time, perturbed_data.shape[0])
@@ -111,9 +133,7 @@ class DiffusionFramework(DefaultModel):
                     {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': dropout_key})
                 
                 # Take current time alpha  
-                sqrt_alpha_bar = jnp.take(self.sqrt_alpha_bar, time)[:, None, None, None]
-                sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)[:, None, None, None]
-                pred_x0 = (perturbed_data - sqrt_one_minus_alpha_bar * pred_noise) / sqrt_alpha_bar
+                pred_x0 = self.predict_x0_from_eps(x_t=perturbed_data, t=time, eps=pred_noise)
                 
                 # Take next time alpha
                 next_sqrt_alpha_bar = jnp.take(self.sqrt_alpha_bar, next_time)[:, None, None, None]
@@ -130,7 +150,48 @@ class DiffusionFramework(DefaultModel):
         self.grad_fn = jax.jit(jax.value_and_grad(self.loss_fn))
         self.update_grad = jax.jit(update_grad)
         self.p_sample_jit = jax.jit(p_sample_jit)
-        # self.p_sample_jit = p_sample_jit
+
+    def _l2_loss(self, real, pred):
+        return jnp.mean((real - pred) ** 2)
+
+    def _l1_loss(self, real, pred):
+        return jnp.mean(jnp.absolute(real - pred))
+    
+    def _vlb_loss(self, real_perturbed_data, real_epsilon, pred_epsilon, pred_logvar, time, stop_gradient=False):
+        # Get real mean from real_perturbed_data
+        coef1 = jnp.take(self.posterior_mean_coef1, time)[:, None, None, None]
+        coef2 = jnp.take(self.posterior_mean_coef2, time)[:, None, None, None]
+        real_mean = coef1 * self.predict_x0_from_eps(real_perturbed_data, time, real_epsilon) \
+                    + coef2 * real_perturbed_data
+        real_logvar = jnp.take(self.posterior_log_variance_clipped, time)[:, None, None, None]
+
+
+        pred_mean = coef1 * self.predict_x0_from_eps(real_perturbed_data, time, pred_epsilon) \
+                    + coef2 * real_perturbed_data
+        pred_mean = jax.lax.stop_gradient(pred_mean) if stop_gradient else pred_mean
+        pred_logvar = self.get_learned_logvar(pred_logvar, time)
+        return self._kl_loss(real_mean, real_logvar, pred_mean, pred_logvar)
+
+    def _kl_loss(self, mean1, logvar1, mean2, logvar2):
+        kl= 0.5 * (
+            -1.0 + 
+            logvar2 - logvar1 + 
+            jnp.exp(logvar1 - logvar2) + 
+            ((mean1 - mean2) ** 2) * jnp.exp(-logvar2))
+        return jnp.mean(kl) / jnp.log(2.0)
+    
+    def get_learned_logvar(self, pred_sigma, time):
+        min_log_var = jnp.take(self.logvar_lower_bound, time)[:, None, None, None]
+        max_log_var = jnp.take(self.logvar_upper_bound, time)[:, None, None, None]
+        frac = (pred_sigma + 1) / 2 # The model var_values is [-1, 1] for [min_log_var, max_log_var]
+        pred_log_var = min_log_var * frac + max_log_var * (1. - frac)
+        return pred_log_var
+
+    def predict_x0_from_eps(self, x_t, t, eps):
+        sqrt_alpha_bar = jnp.take(self.alpha_bar, t)[:, None, None, None]
+        sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, t)[:, None, None, None]
+        pred_x0 = (x_t - sqrt_one_minus_alpha_bar * eps) / sqrt_alpha_bar
+        return pred_x0
 
     def q_xt_x0(self, x0, t):
         mean_coeff = jnp.take(self.sqrt_alpha_bar, t)
@@ -143,7 +204,6 @@ class DiffusionFramework(DefaultModel):
     def q_sample(self, x0, t, eps=None):
         # Sample from q(x_t|x_0)
         if eps is None:
-            # TODO: need to check
             self.rand_key, normal_key = jax.random.split(self.rand_key, 2)
             eps = jax.random.normal(normal_key, x0.shape)
         mean, std = self.q_xt_x0(x0, t)
