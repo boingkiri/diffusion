@@ -88,6 +88,7 @@ class DiffusionFramework(DefaultModel):
                         pred_noise, pred_logvar, time, stop_gradient=True) / 1000.0
                     loss = simple_loss + vlb_loss
                     loss_dict['vlb_loss'] = vlb_loss
+                    loss_dict['pred_logvar'] = jnp.mean(pred_logvar)
             return loss, loss_dict
         
         def update_grad(state:train_state.TrainState, grad):
