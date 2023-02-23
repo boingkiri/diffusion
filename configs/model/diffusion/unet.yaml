@@ -7,4 +7,4 @@ n_blocks: 2
 dropout_rate: 0.1
 n_heads: 1
 n_groups: 32
-learn_sigma: False
+learn_sigma: ${framework.diffusion.learn_sigma}
