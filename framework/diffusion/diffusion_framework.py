@@ -62,10 +62,11 @@ class DiffusionFramework(DefaultModel):
             self.beta = jnp.linspace(beta[0], beta[1], self.n_timestep)
         elif self.noise_schedule == "cosine":
             s = 0.008
-            cos_func = lambda t : jnp.cos((t / self.n_timestep + s) / (1 + s) * jnp.pi / 2) ** 2
+            def alpha_bar(t):
+                return jnp.cos((t / self.n_timestep + s) / (1 + s) * jnp.pi / 2) ** 2
             beta = []
             for i in range(self.n_timestep):
-                beta.append(min(1 - cos_func(i + 1) / cos_func(i), 0.999))
+                beta.append(min(1 - alpha_bar(i + 1) / alpha_bar(i), 0.999))
             self.beta = jnp.asarray(beta)
         self.alpha = 1. - self.beta
         self.alpha_bar = jnp.cumprod(self.alpha, axis=0)
@@ -95,25 +96,25 @@ class DiffusionFramework(DefaultModel):
                 {'params': params}, x=perturbed_data, t=time, train=True, rngs={'dropout': rng_key})
             loss_dict = {}
 
-            if not self.learn_sigma:
-                if self.loss == "l2":
-                    loss = self._l2_loss(real_noise, pred_noise)
-                elif self.loss == "l1":
-                    loss = self._l1_loss(real_noise, pred_noise)
-            else:
+            if self.learn_sigma:
                 pred_noise, pred_logvar = jnp.split(pred_noise, 2, axis=-1)
-                if self.loss == "vlb":
-                    loss = self._vlb_loss(
-                        perturbed_data, real_noise, 
-                        pred_noise, pred_logvar, time, stop_gradient=False)
-                elif self.loss == "hybrid": # For improved DDPM
-                    simple_loss = self._l2_loss(real_noise, pred_noise)
-                    vlb_loss = self._vlb_loss(
-                        perturbed_data, real_noise, 
-                        pred_noise, pred_logvar, time, stop_gradient=True) / 1000.0
-                    loss = simple_loss + vlb_loss
-                    loss_dict['vlb_loss'] = vlb_loss
-                    loss_dict['pred_logvar'] = jnp.mean(pred_logvar)
+            
+            if self.loss == "l2":
+                loss = self._l2_loss(real_noise, pred_noise)
+            elif self.loss == "l1":
+                loss = self._l1_loss(real_noise, pred_noise)
+            elif self.loss == "vlb":
+                loss = self._vlb_loss(
+                    perturbed_data, real_noise, 
+                    pred_noise, pred_logvar, time, stop_gradient=False)
+            elif self.loss == "hybrid": # For improved DDPM
+                simple_loss = self._l2_loss(real_noise, pred_noise)
+                vlb_loss = self._vlb_loss(
+                    perturbed_data, real_noise, 
+                    pred_noise, pred_logvar, time, stop_gradient=True) / 1000.0
+                loss = simple_loss + vlb_loss
+                loss_dict['vlb_loss'] = vlb_loss
+                loss_dict['pred_logvar'] = jnp.mean(pred_logvar)
             loss_dict['total_loss'] = loss
             return loss, loss_dict
         
@@ -188,7 +189,6 @@ class DiffusionFramework(DefaultModel):
         self.grad_fn = jax.pmap(jax.value_and_grad(self.loss_fn, has_aux=True), axis_name=self.pmap_axis)
         self.update_fn = jax.pmap(update, axis_name=self.pmap_axis)
         self.p_sample_jit = jax.pmap(p_sample_jit)
-        # self.ema_obj.ema_update(self.model_state.params, step)
 
     def _l2_loss(self, real, pred):
         return jnp.mean((real - pred) ** 2)
@@ -228,20 +228,17 @@ class DiffusionFramework(DefaultModel):
         return pred_log_var
 
     def predict_x0_from_eps(self, x_t, t, eps):
-        sqrt_alpha_bar = jnp.take(self.alpha_bar, t)[:, None, None, None]
+        # sqrt_alpha_bar = jnp.take(self.alpha_bar, t)[:, None, None, None]
+        sqrt_alpha_bar = jnp.take(self.sqrt_alpha_bar, t)[:, None, None, None]
         sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, t)[:, None, None, None]
         pred_x0 = (x_t - sqrt_one_minus_alpha_bar * eps) / sqrt_alpha_bar
         return pred_x0
 
     def q_xt_x0(self, x0, t):
-        # mean_coeff = jnp.take(self.sqrt_alpha_bar, t)
         mean_coeff = self.sqrt_alpha_bar[t][:, None, None, None]
-        # mean = mean_coeff[:, None, None, None] * x0
         mean = mean_coeff * x0
 
-        # std = jnp.take(self.sqrt_one_minus_alpha_bar, t)
         std = self.sqrt_one_minus_alpha_bar[t][:, None, None, None]
-        # std = std[:, None, None, None]
         std = std
         return mean, std
     
