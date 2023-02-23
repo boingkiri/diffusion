@@ -28,6 +28,7 @@ class UnifyingFramework():
         self.random_rng = random_rng
         self.dataset_name = config.dataset.name
         self.do_fid_during_training = config.fid_during_training
+        self.pmap = config.pmap
         self.set_train_step_process(config)
     
     def set_train_step_process(self, config: DictConfig):
@@ -98,21 +99,20 @@ class UnifyingFramework():
                 prefix=discriminator_prefix)
 
     def train(self):
-        datasets = common_utils.load_dataset_from_tfds()
+        datasets = common_utils.load_dataset_from_tfds(pmap=self.pmap)
         datasets_bar = tqdm(datasets, total=self.total_step-self.step)
         in_process_dir = self.config.exp.in_process_dir
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
         
         for x, _ in datasets_bar:
-            x = jax.device_put(x.numpy())
+            # x = jax.device_put(x.numpy())
             log = self.framework.fit(x, step=self.step)
             
             if self.current_model_type == "ldm" and self.train_idx == 1:
                 loss_ema = log["train/total_loss"]
             else:
-                loss_ema = log["diffusion_loss"]
-
+                loss_ema = log["total_loss"]
             datasets_bar.set_description("Step: {step} loss: {loss:.4f}  lr*1e4: {lr:.4f}".format(
                 step=self.step,
                 loss=loss_ema,
@@ -120,8 +120,9 @@ class UnifyingFramework():
             ))
 
             if self.step % 1000 == 0:
-                sample = self.sampling(8, original_data=x[:8])
-                xset = jnp.concatenate([sample[:8], x[:8]], axis=0)
+                batch_data = x[:8] if not self.pmap else x[0, :8]
+                sample = self.sampling(8, original_data=batch_data)
+                xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_path = self.fs_utils.save_comparison(xset, self.step, in_process_dir)
                 log['Sampling'] = wandb.Image(sample_path, caption=f"Step: {self.step}")
                 self.wandblog.update_log(log)
@@ -158,11 +159,11 @@ class UnifyingFramework():
     
     def reconstruction(self, total_num):
         img_size = common_utils.get_dataset_size(self.dataset_name)
-        datasets = common_utils.load_dataset_from_tfds()
+        datasets = common_utils.load_dataset_from_tfds(pmap=self.pmap)
         datasets_bar = tqdm(datasets, total=total_num)
         current_num = 0
         for x, _ in datasets_bar:
-            x = jax.device_put(x.numpy())
+            # x = jax.device_put(x.numpy())
             batch_size = x.shape[0]
             samples = self.sampling(batch_size, img_size, original_data=x)
             self.fs_utils.save_images_to_dir(samples, starting_pos = current_num)
