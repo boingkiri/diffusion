@@ -58,7 +58,8 @@ def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, pmap=False):
   train_ds, _ = ds['train'], ds['test']
 
   if pmap:
-    batch_size = batch_size // jax.process_count()
+    # batch_size = batch_size // jax.process_count()
+    batch_size = batch_size * jax.local_device_count()
 
   augmented_train_ds = (
     train_ds
