@@ -64,12 +64,13 @@ class UnifyingFramework():
                 self.total_step = config['framework']['autoencoder']['train']['total_step']
                 self.checkpoint_prefix = config.exp.autoencoder_prefix
             elif self.train_idx == 2: # Diffusion
-                self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion') 
+                self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
                 self.total_step = config['framework']['diffusion']['train']['total_step']
                 self.checkpoint_prefix = config.exp.diffusion_prefix
 
     def sampling(self, num_img, original_data=None):
         sample = self.framework.sampling(num_img, original_data=original_data)
+        sample = jnp.reshape(sample, (num_img, *sample.shape[-3:]))
         return sample
     
     def save_model_state(self, state:list):

@@ -65,6 +65,7 @@ class FIDUtils():
         current_num_samples = 0
         while current_num_samples < total_num_samples:
             sample = model_obj.sampling(batch_size)
+            sample = jnp.reshape(sample, (batch_size, *sample.shape[-3:]))
             current_num_samples += self.fs_utils.save_images_to_dir(sample, tmp_dir, current_num_samples)
 
         fid_score = self.calculate_fid(tmp_dir)

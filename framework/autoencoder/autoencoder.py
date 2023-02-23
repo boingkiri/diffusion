@@ -6,10 +6,11 @@ from utils.ema import EMA
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
 
-import functools
+from functools import partial
 
 import jax
 import flax.linen as nn
+import flax
 from flax.training import train_state
 from typing import TypedDict 
 from omegaconf import DictConfig
@@ -108,6 +109,7 @@ class AutoEncoder():
         self.autoencoder_framework_config = config.framework.autoencoder
         self.random_rng = rand_rng
         self.wandblog = wandblog
+        self.pmap = config.pmap
 
         self.autoencoder_model_config = config.model.autoencoder
         self.autoencoder_type = self.autoencoder_framework_config['mode']
@@ -118,7 +120,7 @@ class AutoEncoder():
 
         # Autoencoder init
         g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-        self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng) # Generator
+        self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng, None) # Generator
         
         if config['framework']['train_idx'] == 2 and 'pretrained_ae' in config['framework'].keys():
             checkpoint_dir = os.path.join(config['exp']['exp_dir'], config['framework']['pretrained_ae'])
@@ -147,39 +149,49 @@ class AutoEncoder():
 
         if self.autoencoder_type == "KL":
             self.g_loss_fn = jax.jit(
-                    functools.partial(
+                    partial(
                         jax.value_and_grad(generator_loss_kl, has_aux=True), 
                         autoencoder=self.model,
                         discriminator=self.discriminator
                     )
                 )
             self.d_loss_fn = jax.jit(
-                    functools.partial(
+                    partial(
                         jax.value_and_grad(discriminator_loss_kl, has_aux=True),
                         discriminator=self.discriminator)
                 )
         elif self.autoencoder_type == "VQ":
             self.g_loss_fn = jax.jit(
-                    functools.partial(
+                    partial(
                         jax.value_and_grad(generator_loss_vq, has_aux=True), 
                         autoencoder=self.model,
                         discriminator=self.discriminator
                     )
                 )
             self.d_loss_fn = jax.jit(
-                    functools.partial(
+                    partial(
                         jax.value_and_grad(discriminator_loss_vq, has_aux=True),
                         discriminator=self.discriminator)
                 )
         self.update_model = jax.jit(update_grad)
-        self.encoder = jax.jit(functools.partial(encoder_fn, autoencoder=self.model))
-        self.decoder = jax.jit(functools.partial(decoder_fn, autoencoder=self.model))
+
+
+        if self.pmap:
+            self.encoder = jax.pmap(partial(encoder_fn, autoencoder=self.model))
+            self.decoder = jax.pmap(partial(decoder_fn, autoencoder=self.model))
+        else:
+            self.encoder = jax.jit(partial(encoder_fn, autoencoder=self.model))
+            self.decoder = jax.jit(partial(decoder_fn, autoencoder=self.model))
         
-        self.recon_model = jax.jit(functools.partial(reconstruction_fn, autoencoder=self.model))
+        self.recon_model = jax.jit(partial(reconstruction_fn, autoencoder=self.model))
 
         # Create ema obj
         ema_config = config['ema']
-        self.ema_obj = EMA(self.g_model_state.params, **ema_config)
+        self.ema_obj = EMA(**ema_config)
+        if self.pmap:
+            self.g_model_state = flax.jax_utils.replicate(self.g_model_state)
+            self.d_model_state = flax.jax_utils.replicate(self.d_model_state)
+        
     
     def fit(self, x, cond=None, step=0):
         rng, self.random_rng = jax.random.split(self.random_rng, 2)
@@ -206,7 +218,7 @@ class AutoEncoder():
         self.d_model_state = self.update_model(self.d_model_state, grad)
 
         # Update EMA parameters
-        self.ema_obj.ema_update(self.g_model_state.params, step)
+        self.ema_obj.ema_update(self.g_model_state, step)
 
         split = "train"
         log_list = [g_log, d_log]
@@ -254,21 +266,24 @@ class AutoEncoder():
         rng, self.random_rng = jax.random.split(self.random_rng, 2)
         x_rec = self.recon_model(self.g_model_state.params, x=original_data, rng=rng)
         return x_rec
-        
+    
     def encoder_forward(self, x):
         encoder_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+        if self.pmap:
+            encoder_rng = jax.random.split(encoder_rng, jax.local_device_count())
         e_x = self.encoder(g_params=self.g_model_state.params, x=x, rng=encoder_rng)
         return e_x
-        
+    
     def decoder_forward(self, z):
         d_e_x = self.decoder(g_params=self.g_model_state.params, z=z)
         return d_e_x
     
-    def set_ema_params_to_state(self):
-        self.g_model_state = self.g_model_state.replace(params_ema=self.ema_obj.get_ema_params())
-
     def get_model_state(self) -> TypedDict:
-        self.set_ema_params_to_state()
+        if self.pmap:
+            return [
+                flax.jax_utils.unreplicate(self.g_model_state),
+                flax.jax_utils.unreplicate(self.d_model_state)
+            ]
         return [self.g_model_state, self.d_model_state]
 
         

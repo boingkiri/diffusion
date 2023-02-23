@@ -228,7 +228,6 @@ class DiffusionFramework(DefaultModel):
         return pred_log_var
 
     def predict_x0_from_eps(self, x_t, t, eps):
-        # sqrt_alpha_bar = jnp.take(self.alpha_bar, t)[:, None, None, None]
         sqrt_alpha_bar = jnp.take(self.sqrt_alpha_bar, t)[:, None, None, None]
         sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, t)[:, None, None, None]
         pred_x0 = (x_t - sqrt_one_minus_alpha_bar * eps) / sqrt_alpha_bar
@@ -256,13 +255,13 @@ class DiffusionFramework(DefaultModel):
         return self.p_sample_jit(param, xt, t, normal_key, dropout_key)
     
     def get_model_state(self) -> TypedDict:
-        self.set_ema_params_to_state()
+        # self.set_ema_params_to_state()
         if self.pmap:
             return [flax.jax_utils.unreplicate(self.model_state)]
         return [self.model_state]
     
-    def set_ema_params_to_state(self):
-        self.model_state = self.model_state.replace(params_ema=self.ema_obj.get_ema_params())
+    # def set_ema_params_to_state(self):
+    #     self.model_state = self.model_state.replace(params_ema=self.ema_obj.get_ema_params())
 
     def fit(self, x0, cond=None, step=0):
         # batch_size = x0.shape[0]
@@ -320,4 +319,5 @@ class DiffusionFramework(DefaultModel):
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
-        return jnp.reshape(latent_sample, (-1, *img_size))
+        # return jnp.reshape(latent_sample, (-1, *img_size))
+        return latent_sample
