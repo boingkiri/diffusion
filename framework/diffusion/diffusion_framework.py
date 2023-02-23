@@ -26,11 +26,12 @@ class DiffusionFramework(DefaultModel):
         self.n_timestep = diffusion_framework['n_timestep']
         self.type = diffusion_framework['type']
         self.learn_sigma = diffusion_framework['learn_sigma']
+        self.noise_schedule = diffusion_framework['noise_schedule']
         self.rand_key = rand_key
         self.fs_obj = fs_obj
         self.wandblog = wandblog
-        # self.pmap_axis = "batch"
         self.pmap = config.pmap
+        
         if self.pmap:
             self.pmap_axis = "batch"
 
@@ -45,18 +46,27 @@ class DiffusionFramework(DefaultModel):
         self.model_state = jax_utils.create_train_state(config, 'diffusion', self.model, state_rng, None)
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
         # PMAP
-        self.model_state = flax.jax_utils.replicate(self.model_state)
+        if self.pmap:
+            self.model_state = flax.jax_utils.replicate(self.model_state)
 
         # Create ema obj
         ema_config = config.ema
-        # self.ema_obj = EMA(self.model_state.params_ema, **ema_config, pmap=self.pmap)
         self.ema_obj = EMA(**ema_config, pmap=self.pmap)
 
         beta = diffusion_framework['beta']
         loss = diffusion_framework['loss']
 
         # DDPM perturbing configuration
-        self.beta = jnp.linspace(beta[0], beta[1], self.n_timestep)
+
+        if self.noise_schedule == "linear":
+            self.beta = jnp.linspace(beta[0], beta[1], self.n_timestep)
+        elif self.noise_schedule == "cosine":
+            s = 0.008
+            cos_func = lambda t : jnp.cos((t / self.n_timestep + s) / (1 + s) * jnp.pi / 2) ** 2
+            beta = []
+            for i in range(self.n_timestep):
+                beta.append(min(1 - cos_func(i + 1) / cos_func(i), 0.999))
+            self.beta = jnp.asarray(beta)
         self.alpha = 1. - self.beta
         self.alpha_bar = jnp.cumprod(self.alpha, axis=0)
         self.sqrt_alpha = jnp.sqrt(self.alpha)
@@ -146,7 +156,7 @@ class DiffusionFramework(DefaultModel):
                 self.skip_timestep = diffusion_framework['skip_timestep']
             except:
                 self.skip_timestep = 1
-            def p_sample_jit(params, perturbed_data, time, next_time, dropout_key):
+            def p_sample_jit(params, perturbed_data, time, next_time, rng_key):
                 time = jnp.array(time)
                 time = jnp.repeat(time, perturbed_data.shape[0])
 
@@ -155,7 +165,7 @@ class DiffusionFramework(DefaultModel):
                 next_time = jnp.repeat(next_time, perturbed_data.shape[0])
 
                 pred_noise = self.model.apply(
-                    {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': dropout_key})
+                    {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': rng_key})
                 
                 # Take current time alpha  
                 pred_x0 = self.predict_x0_from_eps(x_t=perturbed_data, t=time, eps=pred_noise)
@@ -172,7 +182,6 @@ class DiffusionFramework(DefaultModel):
             NotImplementedError("Diffusion framework only accept 'DDPM' or 'DDIM' for now.")
 
         self.loss_fn = jax.jit(loss_fn)
-        # self.grad_fn = jax.jit(jax.value_and_grad(self.loss_fn, has_aux=True))
         self.grad_fn = jax.pmap(jax.value_and_grad(self.loss_fn, has_aux=True), axis_name=self.pmap_axis)
         self.update_fn = jax.pmap(update)
         self.p_sample_jit = jax.pmap(p_sample_jit)
@@ -205,7 +214,8 @@ class DiffusionFramework(DefaultModel):
             logvar2 - logvar1 + 
             jnp.exp(logvar1 - logvar2) + 
             ((mean1 - mean2) ** 2) * jnp.exp(-logvar2))
-        return jnp.lax.pmean(kl) / jnp.log(2.0)
+        return jnp.mean(kl) / jnp.log(2.0)
+        # return jax.lax.pmean()
     
     def get_learned_logvar(self, pred_sigma, time):
         min_log_var = jnp.take(self.logvar_lower_bound, time)[:, None, None, None]
@@ -270,40 +280,29 @@ class DiffusionFramework(DefaultModel):
         self.model_state = new_state
 
         # Update EMA parameters
-        # self.model_state, _ = self.ema_obj.ema_update(self.model_state, step)
         self.model_state, _ = self.ema_obj.ema_update(self.model_state, step)
-        # self.ema_update_pmap(self.model_state.params, step)
 
         return_dict = {}
         return_dict.update(loss_dict)
         self.wandblog.update_log(return_dict)
         return return_dict
     
-    # @partial(jax.pmap, static_broadcasted_argnums=(0, 2, 3))
-    def sampling_pmap(self, param, num_image, img_size=(32, 32, 3), original_data=None):
-        # self.set_ema_params_to_state()
+    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
         if self.pmap:
             latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         else:
             latent_sampling_tuple = (num_image, *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        # if original_data is None:
-        #     latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
-        # else:
-        #     t = jnp.array([self.n_timestep - 1] * num_image)
-        #     perturbed_data = self.q_sample(original_data, t)[0]
-        #     latent_sample = perturbed_data
         latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
 
-        # pbar = tqdm(reversed(range(0, self.n_timestep, self.skip_timestep)))
         if self.type == "ddpm":
             pbar = tqdm(reversed(range(0, self.n_timestep, self.skip_timestep)))
-            # pbar = reversed(range(0, self.n_timestep, self.skip_timestep))
             for t in pbar:
                 rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
-                rng_key = jax.random.split(rng_key, jax.local_device_count())
-                t = jnp.asarray([t] * jax.local_device_count())
-                latent_sample = self.p_sample_jit(param, latent_sample, t, rng_key)
+                if self.pmap:
+                    rng_key = jax.random.split(rng_key, jax.local_device_count())
+                    t = jnp.asarray([t] * jax.local_device_count())
+                latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, rng_key)
         elif self.type == "ddim":
             seq = jnp.linspace(0, jnp.sqrt(self.n_timestep - 1), self.n_timestep // self.skip_timestep) ** 2
             seq = [int(s) for s in list(seq)]
@@ -311,14 +310,14 @@ class DiffusionFramework(DefaultModel):
             next_pbar = reversed([-1] + seq[:-1])
             pbar = tqdm(pbar)
             for t, next_t in zip(pbar, next_pbar):
-                normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
-                latent_sample = self.p_sample_jit(param, latent_sample, t, next_t, normal_key, dropout_key)
+                rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+                if self.pmap:
+                    rng_key = jax.random.split(rng_key, jax.local_device_count())
+                    t = jnp.asarray([t] * jax.local_device_count())
+                    next_t = jnp.asarray([next_t] * jax.local_device_count())
+                latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, next_t, rng_key)
 
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
-        return latent_sample
-
-    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
-        latent_samples = self.sampling_pmap(self.model_state.params_ema, num_image, img_size, original_data)
-        return jnp.reshape(latent_samples, (-1, *img_size))
+        return jnp.reshape(latent_sample, (-1, *img_size))
