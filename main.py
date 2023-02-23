@@ -1,9 +1,11 @@
 # from diffusion.framework.unifying_framework import UnifyingFramework
 from framework.unifying_framework import UnifyingFramework
 
+import jax
 from jax import random
-import wandb
 
+
+import wandb
 import hydra
 from omegaconf import OmegaConf, DictConfig
 
@@ -16,6 +18,8 @@ def start(config: DictConfig):
     print(OmegaConf.to_yaml(config))
     print("------------------------------------------------------")
     diffusion_framework = UnifyingFramework(model_type, config, rng)
+
+    # if jax.devices
 
     if config.do_training:
         if config.type == "ldm":

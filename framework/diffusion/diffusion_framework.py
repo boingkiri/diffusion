@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 
+import flax
 from flax.training import train_state
 
 from model.unet import UNet
@@ -16,6 +17,7 @@ from typing import TypedDict
 from tqdm import tqdm
 
 from omegaconf import DictConfig
+from functools import partial
 
 class DiffusionFramework(DefaultModel):
     def __init__(self, config: DictConfig, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
@@ -24,9 +26,14 @@ class DiffusionFramework(DefaultModel):
         self.n_timestep = diffusion_framework['n_timestep']
         self.type = diffusion_framework['type']
         self.learn_sigma = diffusion_framework['learn_sigma']
+        self.noise_schedule = diffusion_framework['noise_schedule']
         self.rand_key = rand_key
         self.fs_obj = fs_obj
         self.wandblog = wandblog
+        self.pmap = config.pmap
+        
+        if self.pmap:
+            self.pmap_axis = "batch"
 
         # Create UNet and its state
         model_config = {**config.model.diffusion}
@@ -36,18 +43,31 @@ class DiffusionFramework(DefaultModel):
         elif model_type == "dit":
             self.model = DiT(**model_config)
         state_rng, self.rand_key = jax.random.split(self.rand_key, 2)
-        self.model_state = jax_utils.create_train_state(config, 'diffusion', self.model, state_rng)
+        self.model_state = jax_utils.create_train_state(config, 'diffusion', self.model, state_rng, None)
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
+        # PMAP
+        if self.pmap:
+            self.model_state = flax.jax_utils.replicate(self.model_state)
 
         # Create ema obj
         ema_config = config.ema
-        self.ema_obj = EMA(self.model_state.params_ema, **ema_config)
+        self.ema_obj = EMA(**ema_config, pmap=self.pmap)
 
         beta = diffusion_framework['beta']
         loss = diffusion_framework['loss']
 
         # DDPM perturbing configuration
-        self.beta = jnp.linspace(beta[0], beta[1], self.n_timestep)
+
+        if self.noise_schedule == "linear":
+            self.beta = jnp.linspace(beta[0], beta[1], self.n_timestep)
+        elif self.noise_schedule == "cosine":
+            s = 0.008
+            def alpha_bar(t):
+                return jnp.cos((t / self.n_timestep + s) / (1 + s) * jnp.pi / 2) ** 2
+            beta = []
+            for i in range(self.n_timestep):
+                beta.append(min(1 - alpha_bar(i + 1) / alpha_bar(i), 0.999))
+            self.beta = jnp.asarray(beta)
         self.alpha = 1. - self.beta
         self.alpha_bar = jnp.cumprod(self.alpha, axis=0)
         self.sqrt_alpha = jnp.sqrt(self.alpha)
@@ -65,43 +85,58 @@ class DiffusionFramework(DefaultModel):
         # DDPM loss configuration
         self.loss = loss
 
-        def loss_fn(params, perturbed_data, time, real_noise, dropout_key):
+        @jax.jit
+        def loss_fn(params, data, rng_key):
+            rng_key, perturbing_key, time_key = jax.random.split(rng_key, 3)
+            real_noise = jax.random.normal(perturbing_key, data.shape)
+            time = jax.random.randint(time_key, (data.shape[0], ), 0, self.n_timestep)
+            perturbed_data, real_noise = self.q_sample(data, time, eps=real_noise)
+            # Apply pmap
             pred_noise = self.model.apply(
-                {'params': params}, x=perturbed_data, t=time, train=True, rngs={'dropout': dropout_key})
+                {'params': params}, x=perturbed_data, t=time, train=True, rngs={'dropout': rng_key})
             loss_dict = {}
 
-            if not self.learn_sigma:
-                if self.loss == "l2":
-                    loss = self._l2_loss(real_noise, pred_noise)
-                elif self.loss == "l1":
-                    loss = self._l1_loss(real_noise, pred_noise)
-            else:
+            if self.learn_sigma:
                 pred_noise, pred_logvar = jnp.split(pred_noise, 2, axis=-1)
-                if self.loss == "vlb":
-                    loss = self._vlb_loss(
-                        perturbed_data, real_noise, 
-                        pred_noise, pred_logvar, time, stop_gradient=False)
-                elif self.loss == "hybrid": # For improved DDPM
-                    simple_loss = self._l2_loss(real_noise, pred_noise)
-                    vlb_loss = self._vlb_loss(
-                        perturbed_data, real_noise, 
-                        pred_noise, pred_logvar, time, stop_gradient=True) / 1000.0
-                    loss = simple_loss + vlb_loss
-                    loss_dict['vlb_loss'] = vlb_loss
-                    loss_dict['pred_logvar'] = jnp.mean(pred_logvar)
+            
+            if self.loss == "l2":
+                loss = self._l2_loss(real_noise, pred_noise)
+            elif self.loss == "l1":
+                loss = self._l1_loss(real_noise, pred_noise)
+            elif self.loss == "vlb":
+                loss = self._vlb_loss(
+                    perturbed_data, real_noise, 
+                    pred_noise, pred_logvar, time, stop_gradient=False)
+            elif self.loss == "hybrid": # For improved DDPM
+                simple_loss = self._l2_loss(real_noise, pred_noise)
+                vlb_loss = self._vlb_loss(
+                    perturbed_data, real_noise, 
+                    pred_noise, pred_logvar, time, stop_gradient=True) / 1000.0
+                loss = simple_loss + vlb_loss
+                loss_dict['vlb_loss'] = vlb_loss
+                loss_dict['pred_logvar'] = jnp.mean(pred_logvar)
+            loss_dict['total_loss'] = loss
             return loss, loss_dict
         
-        def update_grad(state:train_state.TrainState, grad):
-            return state.apply_gradients(grads=grad)
+        def update(state:train_state.TrainState, x0, rng):
+            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, x0, rng)
+            if self.pmap:
+                grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
+            new_state = state.apply_gradients(grads=grad)
+            for loss_key in loss_dict:
+                # loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])
+                loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
+            return new_state, loss_dict
         
         if self.type == "ddpm":
             self.skip_timestep = 1
-            def p_sample_jit(params, perturbed_data, time, dropout_key, normal_key):
+            def p_sample_jit(params, perturbed_data, time, rng_key):
                 time = jnp.array(time)
                 time = jnp.repeat(time, perturbed_data.shape[0])
 
+                rng_key, normal_key = jax.random.split(rng_key)
                 pred_noise = self.model.apply(
-                    {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': dropout_key})
+                    {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': rng_key})
 
                 if self.learn_sigma:
                     pred_noise, pred_logvar = jnp.split(pred_noise, 2, axis=-1)
@@ -119,14 +154,13 @@ class DiffusionFramework(DefaultModel):
                 var = beta[:, None, None, None] if not self.learn_sigma else jnp.exp(self.get_learned_logvar(pred_logvar, time))
                 eps = jax.random.normal(normal_key, perturbed_data.shape)
                 return_val = jnp.where(time[0] == 0, mean, mean + (var ** 0.5) * eps)
-
                 return return_val
         elif self.type == "ddim":
             try:
                 self.skip_timestep = diffusion_framework['skip_timestep']
             except:
                 self.skip_timestep = 1
-            def p_sample_jit(params, perturbed_data, time, next_time, dropout_key, normal_key):
+            def p_sample_jit(params, perturbed_data, time, next_time, rng_key):
                 time = jnp.array(time)
                 time = jnp.repeat(time, perturbed_data.shape[0])
 
@@ -135,7 +169,7 @@ class DiffusionFramework(DefaultModel):
                 next_time = jnp.repeat(next_time, perturbed_data.shape[0])
 
                 pred_noise = self.model.apply(
-                    {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': dropout_key})
+                    {'params': params}, x=perturbed_data, t=time, train=False, rngs={'dropout': rng_key})
                 
                 # Take current time alpha  
                 pred_x0 = self.predict_x0_from_eps(x_t=perturbed_data, t=time, eps=pred_noise)
@@ -150,17 +184,17 @@ class DiffusionFramework(DefaultModel):
         
         else:
             NotImplementedError("Diffusion framework only accept 'DDPM' or 'DDIM' for now.")
-        
+
         self.loss_fn = jax.jit(loss_fn)
-        self.grad_fn = jax.jit(jax.value_and_grad(self.loss_fn, has_aux=True))
-        self.update_grad = jax.jit(update_grad)
-        self.p_sample_jit = jax.jit(p_sample_jit)
+        self.grad_fn = jax.pmap(jax.value_and_grad(self.loss_fn, has_aux=True), axis_name=self.pmap_axis)
+        self.update_fn = jax.pmap(update, axis_name=self.pmap_axis)
+        self.p_sample_jit = jax.pmap(p_sample_jit)
 
     def _l2_loss(self, real, pred):
         return jnp.mean((real - pred) ** 2)
 
     def _l1_loss(self, real, pred):
-        return jnp.mean(jnp.absolute(real - pred))
+        return jnp.mean((real - pred) ** 2)
     
     def _vlb_loss(self, real_perturbed_data, real_epsilon, pred_epsilon, pred_logvar, time, stop_gradient=False):
         # Get real mean from real_perturbed_data
@@ -184,6 +218,7 @@ class DiffusionFramework(DefaultModel):
             jnp.exp(logvar1 - logvar2) + 
             ((mean1 - mean2) ** 2) * jnp.exp(-logvar2))
         return jnp.mean(kl) / jnp.log(2.0)
+        # return jax.lax.pmean()
     
     def get_learned_logvar(self, pred_sigma, time):
         min_log_var = jnp.take(self.logvar_lower_bound, time)[:, None, None, None]
@@ -193,17 +228,17 @@ class DiffusionFramework(DefaultModel):
         return pred_log_var
 
     def predict_x0_from_eps(self, x_t, t, eps):
-        sqrt_alpha_bar = jnp.take(self.alpha_bar, t)[:, None, None, None]
+        sqrt_alpha_bar = jnp.take(self.sqrt_alpha_bar, t)[:, None, None, None]
         sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, t)[:, None, None, None]
         pred_x0 = (x_t - sqrt_one_minus_alpha_bar * eps) / sqrt_alpha_bar
         return pred_x0
 
     def q_xt_x0(self, x0, t):
-        mean_coeff = jnp.take(self.sqrt_alpha_bar, t)
-        mean = mean_coeff[:, None, None, None] * x0
+        mean_coeff = self.sqrt_alpha_bar[t][:, None, None, None]
+        mean = mean_coeff * x0
 
-        std = jnp.take(self.sqrt_one_minus_alpha_bar, t)
-        std = std[:, None, None, None]
+        std = self.sqrt_one_minus_alpha_bar[t][:, None, None, None]
+        std = std
         return mean, std
     
     def q_sample(self, x0, t, eps=None):
@@ -220,66 +255,69 @@ class DiffusionFramework(DefaultModel):
         return self.p_sample_jit(param, xt, t, normal_key, dropout_key)
     
     def get_model_state(self) -> TypedDict:
-        self.set_ema_params_to_state()
+        # self.set_ema_params_to_state()
+        if self.pmap:
+            return [flax.jax_utils.unreplicate(self.model_state)]
         return [self.model_state]
     
-    def set_ema_params_to_state(self):
-        self.model_state = self.model_state.replace(params_ema=self.ema_obj.get_ema_params())
+    # def set_ema_params_to_state(self):
+    #     self.model_state = self.model_state.replace(params_ema=self.ema_obj.get_ema_params())
 
     def fit(self, x0, cond=None, step=0):
-        batch_size = x0.shape[0]
-        key, int_key, normal_key, dropout_key = jax.random.split(self.rand_key, 4)
+        # batch_size = x0.shape[0]
+        key, dropout_key = jax.random.split(self.rand_key, 2)
         self.rand_key = key
 
-        noise = jax.random.normal(normal_key, x0.shape)
-        t = jax.random.randint(int_key, (batch_size, ), 0, self.n_timestep)
-        xt, noise = self.q_sample(x0, t, eps=noise)
-        
-        (loss, loss_dict), grad = self.grad_fn(self.model_state.params, xt, t, noise, dropout_key)
-        new_state = self.update_grad(self.model_state, grad)
+        # Apply pmap
+        dropout_key = jax.random.split(dropout_key, jax.local_device_count())
+        dropout_key = jnp.asarray(dropout_key)
+        new_state, loss_dict = self.update_fn(self.model_state, x0, dropout_key)
+
+        for loss_key in loss_dict:
+            loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])
 
         self.model_state = new_state
 
         # Update EMA parameters
-        self.ema_obj.ema_update(self.model_state.params, step)
+        self.model_state, _ = self.ema_obj.ema_update(self.model_state, step)
 
-        return_dict = {
-            "diffusion_loss": loss
-        }
+        return_dict = {}
         return_dict.update(loss_dict)
         self.wandblog.update_log(return_dict)
         return return_dict
     
     def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
-        # self.set_ema_params_to_state()
-        latent_sampling_tuple = (num_image, *img_size)
-        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        if original_data is None:
-            latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
+        if self.pmap:
+            latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         else:
-            t = jnp.array([self.n_timestep - 1] * num_image)
-            perturbed_data = self.q_sample(original_data, t)[0]
-            latent_sample = perturbed_data
+            latent_sampling_tuple = (num_image, *img_size)
+        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
 
-        # pbar = tqdm(reversed(range(0, self.n_timestep, self.skip_timestep)))
         if self.type == "ddpm":
             pbar = tqdm(reversed(range(0, self.n_timestep, self.skip_timestep)))
             for t in pbar:
-                normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
-                latent_sample = self.p_sample_jit(self.ema_obj.get_ema_params(), latent_sample, t, normal_key, dropout_key)
+                rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+                if self.pmap:
+                    rng_key = jax.random.split(rng_key, jax.local_device_count())
+                    t = jnp.asarray([t] * jax.local_device_count())
+                latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, rng_key)
         elif self.type == "ddim":
             seq = jnp.linspace(0, jnp.sqrt(self.n_timestep - 1), self.n_timestep // self.skip_timestep) ** 2
             seq = [int(s) for s in list(seq)]
             pbar = reversed(seq)
-            # pbar = tqdm(reversed(list(range(0, self.n_timestep, self.skip_timestep)) + [self.n_timestep - 1]))
             next_pbar = reversed([-1] + seq[:-1])
             pbar = tqdm(pbar)
             for t, next_t in zip(pbar, next_pbar):
-                normal_key, dropout_key, self.rand_key = jax.random.split(self.rand_key, 3)
-                latent_sample = self.p_sample_jit(self.ema_obj.get_ema_params(), latent_sample, t, next_t, normal_key, dropout_key)
+                rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+                if self.pmap:
+                    rng_key = jax.random.split(rng_key, jax.local_device_count())
+                    t = jnp.asarray([t] * jax.local_device_count())
+                    next_t = jnp.asarray([next_t] * jax.local_device_count())
+                latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, next_t, rng_key)
 
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        # return jnp.reshape(latent_sample, (-1, *img_size))
         return latent_sample
-    

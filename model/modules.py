@@ -28,7 +28,6 @@ class TimeEmbed(nn.Module):
     def __call__(self, t):
         t = TimeEmbedding(self.n_channels)(t)
         t = nn.Dense(self.hidden_size)(t)
-        # t = nn.swish(t)
         t = getattr(nn, self.activation_type)(t)
         t = nn.Dense(self.hidden_size)(t)
         return t
@@ -195,8 +194,7 @@ class Upsample(nn.Module):
     def __call__(self, x):
         B, H, W, C = x.shape
         scale = 2
-        x = jax.image.resize(
-            x, 
+        x = jax.image.resize(x, 
             shape=(B, H * scale, W * scale, C),
             method="nearest")
         x = nn.Conv(self.n_channels, (3, 3))(x)

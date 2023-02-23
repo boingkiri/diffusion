@@ -9,6 +9,8 @@ from flax.training import checkpoints
 from omegaconf import DictConfig
 from typing import Any
 
+from functools import partial
+
 class TrainState(train_state.TrainState):
   params_ema: Any = None
 
@@ -42,7 +44,9 @@ def get_learning_rate_schedule(config: DictConfig, model_type):
     learning_rate = optax.constant_schedule(learning_rate)
   return learning_rate
 
-def create_train_state(config: DictConfig, model_type, model, rng, aux_data=None):
+# @partial(jax.pmap, static_broadcasted_argnums=(0, 1, 2, 4))
+# def create_train_state(config: DictConfig, model_type, model, rng, aux_data=None):
+def create_train_state(config: DictConfig, model_type, model, rng, aux_data):
   """
   Creates initial 'TrainState'
   """
