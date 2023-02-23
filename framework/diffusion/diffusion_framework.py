@@ -119,9 +119,12 @@ class DiffusionFramework(DefaultModel):
         
         def update(state:train_state.TrainState, x0, rng):
             (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, x0, rng)
+            if self.pmap:
+                grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
             new_state = state.apply_gradients(grads=grad)
             for loss_key in loss_dict:
-                loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])
+                # loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])
+                loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
             return new_state, loss_dict
         
         if self.type == "ddpm":
@@ -183,7 +186,7 @@ class DiffusionFramework(DefaultModel):
 
         self.loss_fn = jax.jit(loss_fn)
         self.grad_fn = jax.pmap(jax.value_and_grad(self.loss_fn, has_aux=True), axis_name=self.pmap_axis)
-        self.update_fn = jax.pmap(update)
+        self.update_fn = jax.pmap(update, axis_name=self.pmap_axis)
         self.p_sample_jit = jax.pmap(p_sample_jit)
         # self.ema_obj.ema_update(self.model_state.params, step)
 
