@@ -191,7 +191,10 @@ class DiffusionFramework(DefaultModel):
         self.p_sample_jit = jax.pmap(p_sample_jit)
 
     def _l2_loss(self, real, pred):
-        return jnp.mean((real - pred) ** 2)
+        # return jnp.mean((real - pred) ** 2)
+        # return jax.lax.psum((real - pred) ** 2)
+        mean = jax.lax.pmean((real - pred) ** 2, axis_name=self.pmap_axis)
+        return jnp.mean(mean)
 
     def _l1_loss(self, real, pred):
         return jnp.mean((real - pred) ** 2)
