@@ -154,14 +154,18 @@ class DiffusionFramework(DefaultModel):
                 # sqrt_alpha = sqrt_alpha[:, None, None, None]
                 # mean = (perturbed_data - eps_coef * pred_noise) / sqrt_alpha
                 pred_x0 = self.predict_x0_from_eps(x_t=perturbed_data, t=time, eps=pred_noise)
+                pred_x0 = jnp.clip(pred_x0, -1, 1)
                 coef1 = jnp.take(self.posterior_mean_coef1, time)[:, None, None, None]
                 coef2 = jnp.take(self.posterior_mean_coef2, time)[:, None, None, None]
                 mean = coef1 * pred_x0 + coef2 * perturbed_data
 
                 # Var
-                var = beta[:, None, None, None] if not self.learn_sigma else jnp.exp(self.get_learned_logvar(pred_logvar, time))
+                # var = beta[:, None, None, None] if not self.learn_sigma else jnp.exp(self.get_learned_logvar(pred_logvar, time))
+                sigma = beta[:, None, None, None] ** 0.5 if not self.learn_sigma \
+                        else jnp.exp(0.5 * self.get_learned_logvar(pred_logvar, time))
                 eps = jax.random.normal(normal_key, perturbed_data.shape)
-                return_val = jnp.where(time[0] == 0, mean, mean + (var ** 0.5) * eps)
+                # return_val = jnp.where(time[0] == 0, mean, mean + (var ** 0.5) * eps)
+                return_val = jnp.where(time[0] == 0, mean, mean + sigma * eps)
                 return return_val
         elif self.type == "ddim":
             try:
@@ -249,9 +253,7 @@ class DiffusionFramework(DefaultModel):
     def q_xt_x0(self, x0, t):
         mean_coeff = self.sqrt_alpha_bar[t][:, None, None, None]
         mean = mean_coeff * x0
-
         std = self.sqrt_one_minus_alpha_bar[t][:, None, None, None]
-        std = std
         return mean, std
     
     def q_sample(self, x0, t, eps=None):
