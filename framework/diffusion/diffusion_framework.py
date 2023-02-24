@@ -206,8 +206,11 @@ class DiffusionFramework(DefaultModel):
     def _l2_loss(self, real, pred):
         # return jnp.mean((real - pred) ** 2)
         # return jax.lax.psum((real - pred) ** 2)
-        mean = jax.lax.pmean((real - pred) ** 2, axis_name=self.pmap_axis)
-        return jnp.mean(mean)
+        # mean = jax.lax.pmean((real - pred) ** 2, axis_name=self.pmap_axis)
+        loss_sum = jax.lax.psum((real - pred) ** 2, axis_name=self.pmap_axis)
+        loss_sum = jnp.sum(loss_sum)
+        mean = loss_sum / (real.size * jax.local_device_count())
+        return mean
 
     def _l1_loss(self, real, pred):
         return jnp.mean((real - pred) ** 2)
