@@ -62,26 +62,30 @@ class DiffusionFramework(DefaultModel):
             self.beta = jnp.linspace(beta[0], beta[1], self.n_timestep)
         elif self.noise_schedule == "cosine":
             s = 0.008
-            def alpha_bar(t):
-                return jnp.cos((t / self.n_timestep + s) / (1 + s) * jnp.pi / 2) ** 2
-            beta = []
-            for i in range(self.n_timestep):
-                beta.append(min(1 - alpha_bar(i + 1) / alpha_bar(i), 0.999))
-            self.beta = jnp.asarray(beta)
+            max_beta = 0.999
+            ts = jnp.linspace(0, 1, self.n_timestep + 1)
+            alphas_bar = jnp.cos((ts + s) / (1 + s) * jnp.pi /2) ** 2
+            alphas_bar = alphas_bar/alphas_bar[0]
+            self.beta = 1 - (alphas_bar[1:] / alphas_bar[:-1])
+            self.beta = jnp.clip(self.beta, 0, max_beta)
+
         self.alpha = 1. - self.beta
         self.alpha_bar = jnp.cumprod(self.alpha, axis=0)
+        self.alpha_bar_prev = jnp.cumprod(jnp.append(1., self.alpha[:-1]), axis=0)
+        self.alpha_bar_next = jnp.cumprod(jnp.append(self.alpha[1:], 0.0), axis=0)
+
         self.sqrt_alpha = jnp.sqrt(self.alpha)
         self.sqrt_alpha_bar = jnp.sqrt(self.alpha_bar)
         self.sqrt_one_minus_alpha_bar = jnp.sqrt(1 - self.alpha_bar)
-        self.alpha_bar_prev = jnp.cumprod(jnp.append(1., self.alpha[:-1]), axis=0)
-        self.alpha_bar_next = jnp.cumprod(jnp.append(self.alpha[1:], 0.0), axis=0)
+
         self.posterior_variance = self.beta * (1. - self.alpha_bar_prev) / (1. - self.alpha_bar)
         self.posterior_log_variance_clipped = jnp.log(jnp.append(self.posterior_variance[1], self.posterior_variance[1:]))
-        self.logvar_upper_bound = jnp.log(self.beta)
-        self.logvar_lower_bound = self.posterior_log_variance_clipped
         self.posterior_mean_coef1 = self.beta * jnp.sqrt(self.alpha_bar_prev) / (1. - self.alpha_bar)
         self.posterior_mean_coef2 = self.sqrt_alpha * (1. - self.alpha_bar_prev) / (1. - self.alpha_bar)
-        
+
+        self.logvar_upper_bound = jnp.log(self.beta)
+        self.logvar_lower_bound = self.posterior_log_variance_clipped
+
         # DDPM loss configuration
         self.loss = loss
 
@@ -142,13 +146,17 @@ class DiffusionFramework(DefaultModel):
                     pred_noise, pred_logvar = jnp.split(pred_noise, 2, axis=-1)
                 
                 # Mean
-                beta = jnp.take(self.beta, time)
-                sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)
-                eps_coef = beta / sqrt_one_minus_alpha_bar
-                eps_coef = eps_coef[:, None, None, None]
-                sqrt_alpha = jnp.take(self.sqrt_alpha, time)
-                sqrt_alpha = sqrt_alpha[:, None, None, None]
-                mean = (perturbed_data - eps_coef * pred_noise) / sqrt_alpha
+                # beta = jnp.take(self.beta, time)
+                # sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)
+                # eps_coef = beta / sqrt_one_minus_alpha_bar
+                # eps_coef = eps_coef[:, None, None, None]
+                # sqrt_alpha = jnp.take(self.sqrt_alpha, time)
+                # sqrt_alpha = sqrt_alpha[:, None, None, None]
+                # mean = (perturbed_data - eps_coef * pred_noise) / sqrt_alpha
+                pred_x0 = self.predict_x0_from_eps(x_t=perturbed_data, t=time, eps=pred_noise)
+                coef1 = jnp.take(self.posterior_mean_coef1, time)[:, None, None, None]
+                coef2 = jnp.take(self.posterior_mean_coef2, time)[:, None, None, None]
+                mean = coef1 * pred_x0 + coef2 * perturbed_data
 
                 # Var
                 var = beta[:, None, None, None] if not self.learn_sigma else jnp.exp(self.get_learned_logvar(pred_logvar, time))
@@ -189,6 +197,7 @@ class DiffusionFramework(DefaultModel):
         self.grad_fn = jax.pmap(jax.value_and_grad(self.loss_fn, has_aux=True), axis_name=self.pmap_axis)
         self.update_fn = jax.pmap(update, axis_name=self.pmap_axis)
         self.p_sample_jit = jax.pmap(p_sample_jit)
+        # self.p_sample_jit = p_sample_jit
 
     def _l2_loss(self, real, pred):
         return jnp.mean((real - pred) ** 2)
@@ -224,7 +233,8 @@ class DiffusionFramework(DefaultModel):
         min_log_var = jnp.take(self.logvar_lower_bound, time)[:, None, None, None]
         max_log_var = jnp.take(self.logvar_upper_bound, time)[:, None, None, None]
         frac = (pred_sigma + 1) / 2 # The model var_values is [-1, 1] for [min_log_var, max_log_var]
-        pred_log_var = min_log_var * frac + max_log_var * (1. - frac)
+        # pred_log_var = min_log_var * frac + max_log_var * (1. - frac)
+        pred_log_var = max_log_var * frac + min_log_var * (1. - frac)
         return pred_log_var
 
     def predict_x0_from_eps(self, x_t, t, eps):
@@ -302,6 +312,7 @@ class DiffusionFramework(DefaultModel):
                     rng_key = jax.random.split(rng_key, jax.local_device_count())
                     t = jnp.asarray([t] * jax.local_device_count())
                 latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, rng_key)
+                # latent_sample = self.p_sample_jit(self.model_state.params, latent_sample, t, rng_key)
         elif self.type == "ddim":
             seq = jnp.linspace(0, jnp.sqrt(self.n_timestep - 1), self.n_timestep // self.skip_timestep) ** 2
             seq = [int(s) for s in list(seq)]
