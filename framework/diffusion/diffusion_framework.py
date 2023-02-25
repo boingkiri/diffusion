@@ -161,6 +161,7 @@ class DiffusionFramework(DefaultModel):
 
                 # Var
                 # var = beta[:, None, None, None] if not self.learn_sigma else jnp.exp(self.get_learned_logvar(pred_logvar, time))
+                beta = jnp.take(self.beta, time)
                 sigma = beta[:, None, None, None] ** 0.5 if not self.learn_sigma \
                         else jnp.exp(0.5 * self.get_learned_logvar(pred_logvar, time))
                 eps = jax.random.normal(normal_key, perturbed_data.shape)
