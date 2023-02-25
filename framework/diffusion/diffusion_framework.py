@@ -146,13 +146,6 @@ class DiffusionFramework(DefaultModel):
                     pred_noise, pred_logvar = jnp.split(pred_noise, 2, axis=-1)
                 
                 # Mean
-                # beta = jnp.take(self.beta, time)
-                # sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)
-                # eps_coef = beta / sqrt_one_minus_alpha_bar
-                # eps_coef = eps_coef[:, None, None, None]
-                # sqrt_alpha = jnp.take(self.sqrt_alpha, time)
-                # sqrt_alpha = sqrt_alpha[:, None, None, None]
-                # mean = (perturbed_data - eps_coef * pred_noise) / sqrt_alpha
                 pred_x0 = self.predict_x0_from_eps(x_t=perturbed_data, t=time, eps=pred_noise)
                 pred_x0 = jnp.clip(pred_x0, -1, 1)
                 coef1 = jnp.take(self.posterior_mean_coef1, time)[:, None, None, None]
@@ -160,11 +153,9 @@ class DiffusionFramework(DefaultModel):
                 mean = coef1 * pred_x0 + coef2 * perturbed_data
 
                 # Var
-                # var = beta[:, None, None, None] if not self.learn_sigma else jnp.exp(self.get_learned_logvar(pred_logvar, time))
                 sigma = beta[:, None, None, None] ** 0.5 if not self.learn_sigma \
                         else jnp.exp(0.5 * self.get_learned_logvar(pred_logvar, time))
                 eps = jax.random.normal(normal_key, perturbed_data.shape)
-                # return_val = jnp.where(time[0] == 0, mean, mean + (var ** 0.5) * eps)
                 return_val = jnp.where(time[0] == 0, mean, mean + sigma * eps)
                 return return_val
         elif self.type == "ddim":
@@ -197,7 +188,7 @@ class DiffusionFramework(DefaultModel):
         else:
             NotImplementedError("Diffusion framework only accept 'DDPM' or 'DDIM' for now.")
 
-        self.loss_fn = jax.jit(loss_fn)
+        self.loss_fn = loss_fn
         self.grad_fn = jax.pmap(jax.value_and_grad(self.loss_fn, has_aux=True), axis_name=self.pmap_axis)
         self.update_fn = jax.pmap(update, axis_name=self.pmap_axis)
         self.p_sample_jit = jax.pmap(p_sample_jit)
@@ -278,8 +269,6 @@ class DiffusionFramework(DefaultModel):
             return [flax.jax_utils.unreplicate(self.model_state)]
         return [self.model_state]
     
-    # def set_ema_params_to_state(self):
-    #     self.model_state = self.model_state.replace(params_ema=self.ema_obj.get_ema_params())
 
     def fit(self, x0, cond=None, step=0):
         # batch_size = x0.shape[0]
@@ -320,7 +309,6 @@ class DiffusionFramework(DefaultModel):
                     rng_key = jax.random.split(rng_key, jax.local_device_count())
                     t = jnp.asarray([t] * jax.local_device_count())
                 latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, rng_key)
-                # latent_sample = self.p_sample_jit(self.model_state.params, latent_sample, t, rng_key)
         elif self.type == "ddim":
             seq = jnp.linspace(0, jnp.sqrt(self.n_timestep - 1), self.n_timestep // self.skip_timestep) ** 2
             seq = [int(s) for s in list(seq)]
@@ -338,5 +326,4 @@ class DiffusionFramework(DefaultModel):
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
-        # return jnp.reshape(latent_sample, (-1, *img_size))
         return latent_sample
