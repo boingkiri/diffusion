@@ -1,23 +1,21 @@
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
+import math
 
 class TimeEmbedding(nn.Module):
     emb_dim: int
+    dtype: jnp.dtype = jnp.float32
 
     @nn.compact
     def __call__(self, time):
-        inv_freq = 1.0 / (
-            10000
-            ** (jnp.arange(0, self.emb_dim, 2, dtype=float) / self.emb_dim)
-        )
-        time = jnp.expand_dims(time, -1)
-        pos_enc_a = jnp.sin(jnp.repeat(time, self.emb_dim // 2, axis=-1) * inv_freq)
-        pos_enc_b = jnp.cos(jnp.repeat(time, self.emb_dim // 2, axis=-1) * inv_freq)
-        pos_enc = jnp.concatenate([pos_enc_a, pos_enc_b], axis=-1)
-        return pos_enc
-
-        # return emb
+        assert len(time.shape) == 1
+        half_dim = self.emb_dim // 2
+        emb = math.log(10000) / (half_dim - 1)
+        emb = jnp.exp(jnp.arange(half_dim, dtype=self.dtype) * -emb)
+        emb = time.astype(self.dtype)[:, None] * emb[None, :]
+        emb = jnp.concatenate([jnp.sin(emb), jnp.cos(emb)], axis=-1)
+        return emb
 
 class TimeEmbed(nn.Module):
     n_channels: int
