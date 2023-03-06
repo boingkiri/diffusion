@@ -146,11 +146,18 @@ class DiffusionFramework(DefaultModel):
                     pred_noise, pred_logvar = jnp.split(pred_noise, 2, axis=-1)
                 
                 # Mean
-                pred_x0 = self.predict_x0_from_eps(x_t=perturbed_data, t=time, eps=pred_noise)
-                pred_x0 = jnp.clip(pred_x0, -1, 1)
-                coef1 = jnp.take(self.posterior_mean_coef1, time)[:, None, None, None]
-                coef2 = jnp.take(self.posterior_mean_coef2, time)[:, None, None, None]
-                mean = coef1 * pred_x0 + coef2 * perturbed_data
+                # pred_x0 = self.predict_x0_from_eps(x_t=perturbed_data, t=time, eps=pred_noise)
+                # pred_x0 = jnp.clip(pred_x0, -1, 1)
+                # coef1 = jnp.take(self.posterior_mean_coef1, time)[:, None, None, None]
+                # coef2 = jnp.take(self.posterior_mean_coef2, time)[:, None, None, None]
+                # mean = coef1 * pred_x0 + coef2 * perturbed_data
+                beta = jnp.take(self.beta, time)
+                sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)
+                eps_coef = beta / sqrt_one_minus_alpha_bar
+                eps_coef = eps_coef[:, None, None, None]
+                sqrt_alpha = jnp.take(self.sqrt_alpha, time)
+                sqrt_alpha = sqrt_alpha[:, None, None, None]
+                mean = (perturbed_data - eps_coef * pred_noise) / sqrt_alpha
 
                 # Var
                 # var = beta[:, None, None, None] if not self.learn_sigma else jnp.exp(self.get_learned_logvar(pred_logvar, time))
