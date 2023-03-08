@@ -1,3 +1,5 @@
+type: "unetpp"
+
 image_channels: 3
 n_channels: 128
 label_dim:  0

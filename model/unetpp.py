@@ -5,6 +5,8 @@ from typing import Tuple, Union, List, Any
 
 from model.modules import *
 
+from model.unet import UNet
+
 
 class CustomConv2d(nn.Module):
     in_channels: int
@@ -70,9 +72,6 @@ class CustomConv2d(nn.Module):
             if self.up:
                 padding = [[f_pad + 1] * 2] * 2 # TODO: need to be fix, may be.
                 # Conv transpose
-                # x = jax.lax.conv_general_dilated(x, jnp.tile((f * 4), [1, 1, 1, self.in_channels]), window_strides=(2, 2),
-                #                              padding=padding, lhs_dilation=None, rhs_dilation=None, dimension_numbers=self.dim_spec,
-                                            #  feature_group_count=self.in_channels)
                 x = jax.lax.conv_general_dilated(x, jnp.tile((f * 4), [1, 1, 1, self.in_channels]), window_strides=(1, 1),
                                              padding=padding, lhs_dilation=(2, 2), rhs_dilation=None, dimension_numbers=self.dim_spec,
                                              feature_group_count=self.in_channels)
@@ -191,7 +190,7 @@ class UNetpp(nn.Module):
     is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False) # (False, True, True, True) # (False, False, True, True)
     n_blocks: int = 3
     n_heads: int = 1
-    n_groups: int = 8
+    n_groups: int = 32
     dropout_rate: float = 0.1
     label_dropout_rate: float = 0.0
 
@@ -324,8 +323,8 @@ class EDMPrecond(nn.Module):
     
     @nn.compact
     def __call__(self, x, sigma, train):
-        c_skip = self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)
-        c_out = sigma * self.sigma_data / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
+        c_skip = (self.sigma_data ** 2) / (sigma ** 2 + self.sigma_data ** 2)
+        c_out = (sigma * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
         c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
         c_noise = jnp.log(sigma) / 4
 
@@ -333,6 +332,9 @@ class EDMPrecond(nn.Module):
         # Should add more cases. (ex, DhariwalUNet (ADM)) 
         if self.model_type == "UNetpp":
             net = UNetpp(**self.model_kwargs)
+        elif self.model_type == "UNet":
+            net = UNet(**self.model_kwargs)
+        
         F_x = net(c_in * x, c_noise.flatten(), train)
         D_x = c_skip * x + c_out * F_x
         return D_x

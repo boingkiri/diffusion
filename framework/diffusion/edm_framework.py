@@ -6,6 +6,7 @@ from flax.training import train_state
 
 # from model.unetpp import UNetpp
 from model.unetpp import EDMPrecond
+from model.unet import UNet
 from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
@@ -35,8 +36,9 @@ class EDMFramework(DefaultModel):
 
         # Create UNet and its state
         model_config = {**config.model.diffusion}
-        # model_type = model_config.pop("type")
-        self.model = EDMPrecond(model_config, model_config['image_channels'])
+        model_type = model_config.pop("type")
+        self.model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
+        # self.model = UNet(**model_config)
         state_rng, self.rand_key = jax.random.split(self.rand_key, 2)
         # self.model_state = jax_utils.create_train_state(config, 'diffusion', self.model, state_rng, None)
         self.model_state = self.init_model_state(config)
@@ -68,14 +70,14 @@ class EDMFramework(DefaultModel):
             rng_key, sigma_key, dropout_key = jax.random.split(rng_key, 3)
             rnd_normal = jax.random.normal(sigma_key, (y.shape[0], 1, 1, 1))
             sigma = jnp.exp(rnd_normal * p_std + p_mean)
-            weight = (sigma ** 2 + sigma_data ** 2) / (sigma * sigma_data) ** 2
+            weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
             # TODO: Implement augmented pipe 
             n = jax.random.normal(rng_key, y.shape) * sigma
             
             # Network will predict D_yn (denoised dataset rather than epsilon) directly.
             D_yn = self.model.apply(
                 {'params': params}, x=(y + n), sigma=sigma, train=True, rngs={'dropout': dropout_key})
-            loss = weight * ((D_yn  - y) ** 2)
+            loss = weight * ((D_yn - y) ** 2)
             loss = jnp.mean(loss)
 
             loss_dict = {}
@@ -107,7 +109,6 @@ class EDMFramework(DefaultModel):
 
             # Apply 2nd order correction.
             def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
-                
                 denoised = self.model.apply(
                     {'params': params}, x=x_next, sigma=t_next, train=False, rngs={'dropout': rng_key})
                 d_prime = (x_next - denoised) / t_next
@@ -134,7 +135,6 @@ class EDMFramework(DefaultModel):
         self.rand_key, param_rng, dropout_rng = jax.random.split(self.rand_key, 3)
         rng_dict = {"params": param_rng, 'dropout': dropout_rng}
         input_format = jnp.ones([1, *config.dataset.data_size])
-        # params = self.model.init(rng_dict, x=input_format, t=jnp.ones([1,]), train=False)['params']
         params = self.model.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), train=False)['params']
 
         return jax_utils.create_train_state(config, 'diffusion', self.model.apply, params)
