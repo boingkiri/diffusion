@@ -5,10 +5,16 @@ loss: "l2"
 noise_schedule: linear # cosine, linear
 learn_sigma: False
 
-# Sigma
+# Sigma : Assume that the process is performing VP
 sigma_min: 0.002
 sigma_max: 80
 rho: 7
+
+deterministic_sampling: False
+S_churn: 30
+S_min: 0.01
+S_max: 1
+S_noise: 1.007
 
 train:
   learning_rate: 1.0e-3

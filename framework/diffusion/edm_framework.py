@@ -46,10 +46,10 @@ class EDMFramework(DefaultModel):
         self.sigma_min = diffusion_framework['sigma_min']
         self.sigma_max = diffusion_framework['sigma_max']
         self.rho = diffusion_framework['rho']
-        self.S_churn = 0
-        self.S_min = 0
-        self.S_max = float('inf')
-        self.S_noise = 1
+        self.S_churn = 0 if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_churn']
+        self.S_min = 0 if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_min']
+        self.S_max = float('inf') if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_max']
+        self.S_noise = 1 if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_noise']
 
         # PMAP
         if self.pmap:
@@ -93,8 +93,6 @@ class EDMFramework(DefaultModel):
             return new_state, loss_dict
         
         def p_sample_jit(params, x_cur, rng_key, gamma, t_cur, t_next):
-            
-
             # Increase noise temporarily.
             t_hat = t_cur + gamma * t_cur
             rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
