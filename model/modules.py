@@ -83,10 +83,11 @@ class TimeEmbed(nn.Module):
         t = nn.Dense(self.hidden_size, kernel_init=nn.initializers.xavier_uniform())(t)
         return t
     
+
 class ResidualBlock(nn.Module):
     out_channels: int
-    n_groups: int = 32
-    # n_groups: int = 8
+    # n_groups: int = 32
+    n_groups: int = 8
     dropout_rate: float = 0.1
 
     @nn.compact
@@ -113,47 +114,10 @@ class ResidualBlock(nn.Module):
             short = x
         return h + short
 
-class AttentionDense(nn.Module):
-    # This block is not containing skip connection.
+class AttentionBlock(nn.Module):
     n_channels: int
     n_heads: int = 1
-    n_groups: int = 32
-    dropout_rate: float = 0.
-    
-    @nn.compact
-    def __call__(self, x): # x: b x y c
-        scale = self.n_channels ** -0.5
-
-        batch_size, num_patch, n_channels = x.shape
-        head_channels = n_channels // self.n_heads
-
-        # Projection
-        qkv = nn.Dense(self.n_heads * head_channels * 3, use_bias=False)(x) # qkv: b x y h*c*3
-        qkv = qkv.reshape(batch_size, -1, self.n_heads, 3 * head_channels) # b (x y) h c*3
-
-        # Split as query, key, value
-        q, k, v = jnp.split(qkv, 3, axis=-1) # q,k,v = b (x y) h c
-
-        # Scale dot product 
-        atten = jnp.einsum('bihd,bjhd->bijh', q, k) * scale
-
-        # Softmax
-        atten = nn.softmax(atten, axis=2)
-
-        # Multiply by value
-        res = jnp.einsum('bijh,bjhd->bihd', atten, v)
-        res = res.reshape(batch_size, num_patch, self.n_heads * head_channels)
-        res = nn.Dense(self.n_channels)(res)
-
-        return res
-
-
-class AttentionConv(nn.Module):
-    # This block is not containing skip connection.
-    n_channels: int
-    n_heads: int = 1
-    n_groups: int = 32
-    dropout_rate: float = 0.
+    n_groups: int = 8
     
     @nn.compact
     def __call__(self, x): # x: b x y c
@@ -162,6 +126,8 @@ class AttentionConv(nn.Module):
         batch_size, height, width, n_channels = x.shape
         head_channels = n_channels // self.n_heads
         # Projection
+        x_skip = x
+        x = nn.GroupNorm(self.n_groups)(x)
         qkv = nn.Conv(self.n_heads * head_channels * 3, (1, 1), use_bias=False)(x) # qkv: b x y h*c*3
         qkv = qkv.reshape(batch_size, -1, self.n_heads, 3 * head_channels) # b (x y) h c*3
 
@@ -176,38 +142,24 @@ class AttentionConv(nn.Module):
 
         # Multiply by value
         res = jnp.einsum('bijh,bjhd->bihd', atten, v)
+
+        # res = res.reshape(batch_size, -1, self.n_heads * self.n_channels)
         res = res.reshape(batch_size, height, width, self.n_heads * head_channels)
+        # res = nn.Dense(n_channels)(res)
         res = nn.Conv(self.n_channels, (1, 1))(res)
-
-        return res
-
-
-class AttentionBlock(nn.Module):
-    n_channels: int
-    n_heads: int = 1
-    n_groups: int = 32
-    attention_type: str = "conv"
-    
-    @nn.compact
-    def __call__(self, x): # x: b x y c
-        # Projection
-        x_skip = x
-        x = nn.GroupNorm(self.n_groups)(x)
-        if self.attention_type == "conv":
-            res = AttentionConv(self.n_channels, self.n_heads, self.n_groups)(x)
-        elif self.attention_type == "dense":
-            res = AttentionDense(self.n_channels, self.n_heads, self.n_groups)(x)
 
         # skip connection
         res += x_skip
 
         return res
 
+
 class UnetDown(nn.Module):
     out_channels: int
     has_atten: bool
     dropout_rate: float
     n_groups: int
+    
     @nn.compact
     def __call__(self, x, t, train):
         x = ResidualBlock(self.out_channels, dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
@@ -220,6 +172,7 @@ class UnetUp(nn.Module):
     has_atten: bool
     dropout_rate: float
     n_groups: int
+    
     @nn.compact
     def __call__(self, x, t, train):
         x = ResidualBlock(self.out_channels, dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
@@ -231,6 +184,7 @@ class UnetMiddle(nn.Module):
     n_channels: int
     dropout_rate: float
     n_groups: int
+
     @nn.compact
     def __call__(self, x, t, train):
         x = ResidualBlock(self.n_channels, dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
@@ -241,11 +195,13 @@ class UnetMiddle(nn.Module):
 
 class Upsample(nn.Module):
     n_channels: int
+
     @nn.compact
     def __call__(self, x):
         B, H, W, C = x.shape
         scale = 2
-        x = jax.image.resize(x, 
+        x = jax.image.resize(
+            x, 
             shape=(B, H * scale, W * scale, C),
             method="nearest")
         x = nn.Conv(self.n_channels, (3, 3))(x)
@@ -253,6 +209,7 @@ class Upsample(nn.Module):
 
 class Downsample(nn.Module):
     n_channels: int
+
     @nn.compact
     def __call__(self, x):
         # B, H, W, C = x.shape
