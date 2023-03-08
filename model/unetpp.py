@@ -330,9 +330,9 @@ class EDMPrecond(nn.Module):
 
         # Predict F_x. There is only UNetpp case for now. 
         # Should add more cases. (ex, DhariwalUNet (ADM)) 
-        if self.model_type == "UNetpp":
+        if self.model_type == "unetpp":
             net = UNetpp(**self.model_kwargs)
-        elif self.model_type == "UNet":
+        elif self.model_type == "unet":
             net = UNet(**self.model_kwargs)
         
         F_x = net(c_in * x, c_noise.flatten(), train)

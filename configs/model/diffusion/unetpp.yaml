@@ -1,4 +1,4 @@
-type: "UNetpp"
+type: "unetpp"
 
 image_channels: 3
 n_channels: 128
