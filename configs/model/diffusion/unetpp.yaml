@@ -9,7 +9,7 @@ ch_mults: [1, 2, 2, 2]
 is_atten: [False, True, False, False]
 n_blocks: 4
 n_heads: 1
-n_groups: 8
+n_groups: 32
 dropout_rate: 0.1
 label_dropout_rate: 0.0
 
