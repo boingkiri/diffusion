@@ -178,8 +178,7 @@ class EDMFramework(DefaultModel):
         latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
 
         step_indices = jnp.arange(self.n_timestep)
-        t_steps = self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho)) ** self.rho
-        # t_steps = jnp.concatenate([t_steps, jnp.zeros_like(t_steps[0])])
+        t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
         t_steps = jnp.append(t_steps, jnp.zeros_like(t_steps[0]))
         pbar = tqdm(zip(t_steps[:-1], t_steps[1:]))
         for t_cur, t_next in pbar:
@@ -191,9 +190,7 @@ class EDMFramework(DefaultModel):
                 rng_key = jax.random.split(rng_key, jax.local_device_count())
                 t_cur = jnp.asarray([t_cur] * jax.local_device_count())
                 t_next = jnp.asarray([t_next] * jax.local_device_count())
-                # total_timestep = jnp.asarray([self.n_timestep] * jax.local_device_count())
                 gamma = jnp.asarray([gamma] * jax.local_device_count())
-            
             latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
 
         if original_data is not None:
