@@ -1,0 +1,18 @@
+image_channels: 3
+n_channels: 128
+label_dim:  0
+augment_dim: 0
+
+ch_mults: [1, 2, 2, 2]
+is_atten: [False, True, False, False]
+n_blocks: 4
+n_heads: 1
+n_groups: 8
+dropout_rate: 0.1
+label_dropout_rate: 0.0
+
+embedding_type: positional
+encoder_type : standard
+decoder_type : standard
+resample_filter: [1, 1]
+learn_sigma: False

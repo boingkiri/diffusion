@@ -1,5 +1,6 @@
 # from framework.DDPM.ddpm import DDPM
-from framework.diffusion.diffusion_framework import DiffusionFramework
+from framework.diffusion.ddpm_framework import DDPMFramework
+from framework.diffusion.edm_framework import EDMFramework
 from framework.LDM import LDM
 
 import jax
@@ -24,7 +25,7 @@ class UnifyingFramework():
     def __init__(self, model_type, config: DictConfig, random_rng) -> None:
         self.config = config # TODO: This code is ugly. It should not need to reuse config obj
         self.current_model_type = model_type.lower()
-        self.diffusion_model_type = ['ddpm', 'ddim'] 
+        self.diffusion_model_type = ['ddpm', 'ddim', 'edm'] 
         self.random_rng = random_rng
         self.dataset_name = config.dataset.name
         self.do_fid_during_training = config.fid_during_training
@@ -46,8 +47,12 @@ class UnifyingFramework():
 
     def set_model(self, config: DictConfig):
         if self.current_model_type in self.diffusion_model_type:
-            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = DiffusionFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
+            if self.current_model_type in ['ddpm', 'ddim']:
+                diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+                self.framework = DDPMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
+            elif self.current_model_type in ['edm']:
+                diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+                self.framework = EDMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
         elif self.current_model_type == "ldm":
             ldm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
             self.framework = LDM(config, ldm_rng, self.fs_utils, self.wandblog)
@@ -107,7 +112,6 @@ class UnifyingFramework():
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
         
         for x, _ in datasets_bar:
-            # x = jax.device_put(x.numpy())
             log = self.framework.fit(x, step=self.step)
             
             if self.current_model_type == "ldm" and self.train_idx == 1:

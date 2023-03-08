@@ -3,6 +3,59 @@ import jax.numpy as jnp
 import flax.linen as nn
 import math
 
+def create_initializer(init_name: str = None):
+    def get_in_out_features(shape, fan_in, fan_out):
+        if fan_in is None and fan_out is None:
+            if len(shape) == 4:
+                in_feature= shape[0] * shape[1] * shape[2]
+                out_feature= shape[0] * shape[1] * shape[3]
+            else:
+                in_feature, out_feature = shape[-2:]
+        else:
+            in_feature, out_feature = fan_in, fan_out
+        return in_feature, out_feature
+
+    if init_name is None:
+        return None
+    elif init_name == "xavier_uniform":
+        def xavier_uniform(key: jax.random.PRNGKey, shape, dtype=jnp.float32, fan_in=None, fan_out=None):
+            in_feature, out_feature = get_in_out_features(shape, fan_in=fan_in, fan_out=fan_out)
+            rand_shape = jax.random.uniform(key, shape)
+            return_value = jnp.sqrt(6 / (in_feature + out_feature)) * (rand_shape * 2 - 1)
+            return_value = return_value.astype(dtype)
+            return return_value
+        return xavier_uniform
+
+    elif init_name == "xavier_zero":
+        def xavier_zero(key: jax.random.PRNGKey, shape, dtype=jnp.float32, fan_in=None, fan_out=None):
+            in_feature, out_feature = get_in_out_features(shape, fan_in=fan_in, fan_out=fan_out)
+            rand_shape = jax.random.uniform(key, shape)
+            return_value = jnp.sqrt(6 / (in_feature + out_feature)) * (rand_shape * 2 - 1) * 1e-5
+            return_value = return_value.astype(dtype)
+            return return_value
+        return xavier_zero
+
+    elif init_name == "xavier_attn":
+        def xavier_attn(key: jax.random.PRNGKey, shape, dtype=jnp.float32, fan_in=None, fan_out=None):
+            in_feature, out_feature = get_in_out_features(shape, fan_in=fan_in, fan_out=fan_out)
+            rand_shape = jax.random.uniform(key, shape)
+            return_value = jnp.sqrt(6 / (in_feature + out_feature)) * (rand_shape * 2 - 1) * jnp.sqrt(0.2)
+            return_value = return_value.astype(dtype)
+            return return_value
+        return xavier_attn
+
+    elif init_name == "kaiming_normal":
+        def kaiminig_uniform(key: jax.random.PRNGKey, shape, dtype=jnp.float32):
+            in_feature, out_feature = shape[-2:]
+            rand_shape = jax.random.normal(key, shape)
+            return_value = jnp.sqrt(1 / in_feature) * rand_shape
+            return_value = return_value.astype(dtype)
+            return return_value
+        return kaiminig_uniform
+
+    else:
+        NotImplementedError(f"{init_name} initializer is not supported.")
+
 class TimeEmbedding(nn.Module):
     emb_dim: int
     dtype: jnp.dtype = jnp.float32
@@ -25,9 +78,9 @@ class TimeEmbed(nn.Module):
     @nn.compact
     def __call__(self, t):
         t = TimeEmbedding(self.n_channels)(t)
-        t = nn.Dense(self.hidden_size)(t)
+        t = nn.Dense(self.hidden_size, kernel_init=nn.initializers.xavier_uniform())(t)
         t = getattr(nn, self.activation_type)(t)
-        t = nn.Dense(self.hidden_size)(t)
+        t = nn.Dense(self.hidden_size, kernel_init=nn.initializers.xavier_uniform())(t)
         return t
     
 class ResidualBlock(nn.Module):

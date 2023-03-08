@@ -19,9 +19,9 @@ from tqdm import tqdm
 from omegaconf import DictConfig
 from functools import partial
 
-class DiffusionFramework(DefaultModel):
+class DDPMFramework(DefaultModel):
     def __init__(self, config: DictConfig, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
-        super().__init__(config, rand_key)
+        # super().__init__(config, rand_key)
         diffusion_framework = config.framework.diffusion
         self.n_timestep = diffusion_framework['n_timestep']
         self.type = diffusion_framework['type']
@@ -43,8 +43,10 @@ class DiffusionFramework(DefaultModel):
         elif model_type == "dit":
             self.model = DiT(**model_config)
         state_rng, self.rand_key = jax.random.split(self.rand_key, 2)
-        self.model_state = jax_utils.create_train_state(config, 'diffusion', self.model, state_rng, None)
+        # self.model_state = jax_utils.create_train_state(config, 'diffusion', self.model, state_rng, None)
+        self.model_state = self.init_model_state(config)
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
+        
         # PMAP
         if self.pmap:
             self.model_state = flax.jax_utils.replicate(self.model_state)
@@ -270,10 +272,26 @@ class DiffusionFramework(DefaultModel):
         if self.pmap:
             return [flax.jax_utils.unreplicate(self.model_state)]
         return [self.model_state]
+
+    def init_model_state(self, config: DictConfig):
+        rng, param_rng, dropout_rng = jax.random.split(rng, 3)
+        rng_dict = {"params": param_rng, 'dropout': dropout_rng}
+        if config.type == "ldm" and config.framework['train_idx'] == 2:
+            f_value = len(config.model.autoencoder.ch_mults)
+            z_dim = config.model.autoencoder.embed_dim
+            input_format_shape = input_format.shape
+            input_format = jnp.ones(
+                [input_format_shape[0], 
+                input_format_shape[1] // f_value, 
+                input_format_shape[2] // f_value, 
+                z_dim])
+        input_format = jnp.ones([1, *config.dataset.data_size])
+        params = self.model.init(rng_dict, x=input_format, t=jnp.ones([1,]), train=False)['params']
+
+        return jax_utils.create_train_state(config, 'diffusion', self.model.apply, params)
     
 
     def fit(self, x0, cond=None, step=0):
-        # batch_size = x0.shape[0]
         key, dropout_key = jax.random.split(self.rand_key, 2)
         self.rand_key = key
 

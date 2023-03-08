@@ -1,5 +1,5 @@
 # from framework.DDPM.ddpm import DDPM
-from framework.diffusion.diffusion_framework import DiffusionFramework
+from framework.diffusion.ddpm_framework import DDPMFramework
 from framework.autoencoder.autoencoder import AutoEncoder
 
 from utils.log_utils import WandBLog
@@ -8,6 +8,8 @@ from utils.fs_utils import FSUtils
 import jax
 
 from framework.default_diffusion import DefaultModel 
+
+from omegaconf import DictConfig
 
 class LDM(DefaultModel):
     def __init__(self, config, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
@@ -27,7 +29,7 @@ class LDM(DefaultModel):
         if self.get_train_order() == 2:
             ddpm_key, self.random_key = jax.random.split(self.random_key, 2)
             # self.diffusion_model = DDPM(config, ddpm_key, fs_obj, wandblog)
-            self.diffusion_model = DiffusionFramework(config, ddpm_key, fs_obj, wandblog)
+            self.diffusion_model = DDPMFramework(config, ddpm_key, fs_obj, wandblog)
     
     def get_sampling_size(self):
         # Assume we're using CIFAR-10 dataset
@@ -57,6 +59,10 @@ class LDM(DefaultModel):
             return self.diffusion_model.get_model_state()
         else:
             NotImplementedError("LDM has only 2 stages.")
+    
+    def init_model_state(self, config: DictConfig, model_type, model, rng):
+        # return super().init_model_state(config, model_type, model, rng)
+        NotImplementedError("LDM do not use 'init_model_state' directly.")
     
     def get_train_order(self):
         return self.framework_config['train_idx']

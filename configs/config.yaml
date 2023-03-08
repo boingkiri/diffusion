@@ -2,20 +2,22 @@ defaults:
   # - framework: ldm
   - framework: 
     # - diffusion/ddim
-    - diffusion/ddpm
+    # - diffusion/ddpm
     # - diffusion/improved_ddpm
+    - diffusion/edm
   - model: 
     - autoencoder/autoencoder_kl
     - discriminator/discriminator_kl
     # - diffusion/dit_b
-    - diffusion/unet
+    # - diffusion/unet
+    - diffusion/unetpp
   - ema: ema
   - dataset: cifar10
   - exp: exp_setting
 
 # type: ddpm ddpm
-type: ddpm
-exp_name: ddpm_speed_up
+type: edm
+exp_name: edm_speed_up
 do_training: true
 do_sampling: true
 num_sampling: 50000

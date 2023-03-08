@@ -6,23 +6,22 @@ from utils.ema import EMA
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
 
-from functools import partial
-
 import jax
+import jax.numpy as jnp
 import flax.linen as nn
 import flax
 from flax.training import train_state
+
 from typing import TypedDict 
 from omegaconf import DictConfig
 
 import os
+from functools import partial
 
 
 def generator_loss_kl(g_params, d_params, autoencoder: nn.Module, discriminator: nn.Module, x, step, rng):
-    # losses_fn = jax.jit(jax.value_and_grad(nll_and_d_loss, has_aux=True))
     kl_rng, dropout_rng = jax.random.split(rng, 2)
     rng = {'gaussian': kl_rng, "dropout": dropout_rng}
-    # x_rec, posteriors = autoencoder.apply({"params": g_params}, x=x, train=True, rngs=rng)
     x_rec_complete, x_rec, posteriors = autoencoder.apply(
         {"params": g_params}, x=x, train=True, rngs=rng,)
     conv_out_params = g_params['decoder_model']['conv_out']
@@ -48,10 +47,8 @@ def discriminator_loss_kl(d_params, discriminator: nn.Module, x, x_rec, step, po
     return loss, log
 
 def generator_loss_vq(g_params, d_params, autoencoder: nn.Module, discriminator: nn.Module, x, step, rng):
-    # losses_fn = jax.jit(jax.value_and_grad(nll_and_d_loss, has_aux=True))
     kl_rng, dropout_rng = jax.random.split(rng, 2)
     rng = {'gaussian': kl_rng, "dropout": dropout_rng}
-    # x_rec, codebook_diff, ind = autoencoder.apply({"params": g_params}, x=x, train=True, rngs=rng)
     x_rec_complete, x_rec, codebook_diff, ind = autoencoder.apply(
         {"params": g_params}, x=x, train=True, rngs=rng)
     conv_out_params = g_params['decoder_model']['conv_out']
@@ -88,7 +85,6 @@ def encoder_fn(g_params, autoencoder, x, rng):
         retval = z[0]
     else:
         retval = z.sample()
-    # return z
     return retval
 
 def decoder_fn(g_params, autoencoder, z):
@@ -119,12 +115,12 @@ class AutoEncoder():
             self.model = AEVQ(**self.autoencoder_model_config)
 
         # Autoencoder init
-        g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-        self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng, None) # Generator
+        # g_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+        # self.g_model_state = jax_utils.create_train_state(config, 'autoencoder', self.model, g_state_rng, None) # Generator
+        self.g_model_state = self.init_model_state(config, 'autoencoder')
         
         if config['framework']['train_idx'] == 2 and 'pretrained_ae' in config['framework'].keys():
             checkpoint_dir = os.path.join(config['exp']['exp_dir'], config['framework']['pretrained_ae'])
-            # checkpoint_dir = os.path.join(checkpoint_dir, config['exp']['checkpoint_dir'])
             checkpoint_dir = os.path.join(checkpoint_dir, "checkpoints")
             print(f"Checkpoint dir: {checkpoint_dir}")
         else:
@@ -142,9 +138,10 @@ class AutoEncoder():
                 autoencoder=self.model)
 
         # Discriminator init
-        d_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-        aux_data = [self.model, self.g_model_state.params]
-        self.d_model_state = jax_utils.create_train_state(config, 'discriminator', self.discriminator, d_state_rng, aux_data) # Discriminator
+        # d_state_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+        # aux_data = [self.model, self.g_model_state.params]
+        # self.d_model_state = jax_utils.create_train_state(config, 'discriminator', self.discriminator, d_state_rng, aux_data) # Discriminator
+        self.d_model_state = self.init_model_state(config, 'discriminator')
         self.d_model_state = fs_obj.load_model_state('discriminator', self.d_model_state)       
 
         if self.autoencoder_type == "KL":
@@ -236,7 +233,6 @@ class AutoEncoder():
                 f"{split}/d_weight": g_log[f"{split}/d_weight"],
                 f"{split}/disc_factor": g_log[f"{split}/disc_factor"],
                 f"{split}/g_loss": g_log[f"{split}/g_loss"],
-                ####
                 f"{split}/disc_loss": d_log[f"{split}/disc_loss"],
                 f"{split}/logits_real": d_log[f"{split}/logits_real"],
                 f"{split}/logits_fake": d_log[f"{split}/logits_fake"]
@@ -252,7 +248,6 @@ class AutoEncoder():
                 f"{split}/g_loss": g_log[f"{split}/g_loss"],
                 f"{split}/perplexity": g_log[f"{split}/perplexity"], ## NEW!
                 f"{split}/cluster_usage": g_log[f"{split}/cluster_usage"], ## NEW!
-                ####
                 f"{split}/disc_loss": d_log[f"{split}/disc_loss"],
                 f"{split}/logits_real": d_log[f"{split}/logits_real"],
                 f"{split}/logits_fake": d_log[f"{split}/logits_fake"]
@@ -261,6 +256,50 @@ class AutoEncoder():
 
     def sampling(self, num_image, img_size=(32, 32, 3)):
         NotImplementedError("AutoEncoder cannot generate samples by itself. Use LDM framework.")
+    
+    def init_model_state(self, config: DictConfig, model_type):
+        rng, param_rng, dropout_rng, self.random_rng = jax.random.split(self.random_rng, 4)
+        input_format = jnp.ones([1, *config.dataset.data_size])
+        if model_type == "autoencoder":
+            rng, gaussian_rng = jax.random.split(rng, 2)
+            rng_dict = {"params": param_rng, 'dropout': dropout_rng, 'gaussian': gaussian_rng}
+            params = self.model.init(rng_dict, x=input_format, train=False)['params']
+        elif model_type == "discriminator":
+            kl_rng, rng = jax.random.split(rng, 2)
+            input_format3 = jnp.ones([1, 32, 32, 3]) 
+            conv_out_params = self.g_model_state.params['decoder_model']['conv_out']
+            def kl_model_init():
+                reconstructions, posteriors = self.model.apply(
+                    {"params": self.g_model_state.params},
+                    x=input_format,
+                    train=False,
+                    rngs={'gaussian': kl_rng},
+                    method=self.model.forward_before_conv_out
+                )
+                rng_dict = {"params": param_rng, 'dropout': dropout_rng}
+                posteriors_kl = posteriors.kl()
+                return self.discriminator.init(rng_dict, inputs=input_format3, reconstructions=reconstructions, 
+                                posteriors_kl=posteriors_kl, optimizer_idx=0, global_step=0, conv_out_params=conv_out_params)
+            def vq_model_init():
+                reconstructions, quantization_diff, ind = self.model.apply(
+                    {"params": self.g_model_state.params},
+                    x=input_format,
+                    train=False,
+                    rngs={'gaussian': kl_rng},
+                    method=self.model.forward_before_conv_out
+                )
+                rng_dict = {"params": param_rng, 'dropout': dropout_rng}
+                return self.discriminator.init(rng_dict, inputs=input_format3, reconstructions=reconstructions, 
+                                    codebook_loss=quantization_diff, optimizer_idx=0, global_step=0, 
+                                    conv_out_params=conv_out_params, predicted_indices=ind)
+            if config.framework.autoencoder.mode == 'KL':
+                experiment_fn_jit = kl_model_init
+            elif config.framework.autoencoder.mode == 'VQ':
+                experiment_fn_jit = vq_model_init  
+        params = experiment_fn_jit()['params']
+        apply_fn = self.model.apply if model_type == "autoencoder" else self.discriminator.apply
+
+        return jax_utils.create_train_state(config, model_type, apply_fn, params)
 
     def reconstruction(self, original_data):
         rng, self.random_rng = jax.random.split(self.random_rng, 2)
