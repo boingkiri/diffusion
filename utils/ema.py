@@ -13,7 +13,10 @@ class EMA():
         update_every=10,
         update_after_step=100,
         power=2/3,
-        pmap=False):
+        pmap=False,
+        ema_rampup_ratio= None,
+        ema_halflife_number= None
+        ):
 
         # self.ema_params = copy.deepcopy(ema_params)
         self.beta = beta
@@ -22,8 +25,16 @@ class EMA():
         self.power = power
         self.pmap = pmap
 
+        # For EMA
+        self.ema_rampup_ratio = ema_rampup_ratio
+        self.ema_halflife_number = ema_halflife_number
+
         def ema_update_pmap_fn(state, step):
-            current_decay = self.get_current_decay(step)
+            # current_decay = self.get_current_decay(step)
+            current_decay = jax.lax.cond(self.ema_halflife_number is not None, 
+                                         self.get_current_decay_edm, 
+                                         self.get_current_decay_ddpm,
+                                         step)
             ema_updated_params = jax.tree_map(
                 lambda x, y: current_decay * x + (1 - current_decay) * y,
                 state.params_ema, state.params)
@@ -52,22 +63,47 @@ class EMA():
             value = jax.numpy.where(max_value > value, value, max_value)
         return value
 
-    def get_current_decay(self, step):
+    def get_current_decay_ddpm(self, step):
         effective_step = self._clamp(step - self.update_after_step - 1, min_value=0.)
         value = 1 - (1 + effective_step) ** -self.power
         value = self._clamp(value, 0.0, self.beta)
         result_value = jax.numpy.where(effective_step <= 0, 0, value)
         return result_value
-        # return self.beta
+    
+    def get_current_decay_edm(self, step):
+        effective_step = self._clamp(step - self.update_after_step - 1, min_value=0.)
+        value = self.beta ** self.get_power(step)
+        # value = self._clamp(value, 0.0, self.beta)
+        result_value = jax.numpy.where(effective_step <= 0, 0, value)
+        return result_value
+    
+    def get_power(self, step):
+        if self.ema_rampup_ratio is not None and self.ema_halflife_number is not None:
+            batch_size = 512
+            ema_halflife_number = jnp.minimum(self.ema_halflife_number, step * batch_size * self.ema_rampup_ratio) # Naive
+            return batch_size / jnp.maximum(ema_halflife_number, 1e-8)
+        else:
+            return -self.power
 
     # def get_ema_params(self):
     #     return self.ema_params
 
 if __name__=="__main__":
+    import time
     count = 0
-    ema_obj = EMA(None)
+    sample_dict = {
+        "beta": 0.5,
+        "update_every": 1,
+        "update_after_step": 0,
+        "power": 2/3,
+        "ema_rampup_ratio": 0.05,
+        "ema_halflife_number": 500000
+    }
+    ema_obj = EMA(**sample_dict)
     while True:
         print(count)
         print(ema_obj.get_current_decay(count))
+        print(ema_obj.get_power(count))
+        time.sleep(0.1)
         count += 1
     

@@ -15,33 +15,27 @@ def create_initializer(init_name: str = None):
             in_feature, out_feature = fan_in, fan_out
         return in_feature, out_feature
 
+    def xavier_uniform(key: jax.random.PRNGKey, shape, dtype=jnp.float32, fan_in=None, fan_out=None):
+        in_feature, out_feature = get_in_out_features(shape, fan_in=fan_in, fan_out=fan_out)
+        rand_shape = jax.random.uniform(key, shape)
+        return_value = jnp.sqrt(6 / (in_feature + out_feature)) * (rand_shape * 2 - 1)
+        return_value = return_value.astype(dtype)
+        return return_value
+
     if init_name is None:
         return None
+    
     elif init_name == "xavier_uniform":
-        def xavier_uniform(key: jax.random.PRNGKey, shape, dtype=jnp.float32, fan_in=None, fan_out=None):
-            in_feature, out_feature = get_in_out_features(shape, fan_in=fan_in, fan_out=fan_out)
-            rand_shape = jax.random.uniform(key, shape)
-            return_value = jnp.sqrt(6 / (in_feature + out_feature)) * (rand_shape * 2 - 1)
-            return_value = return_value.astype(dtype)
-            return return_value
         return xavier_uniform
 
     elif init_name == "xavier_zero":
         def xavier_zero(key: jax.random.PRNGKey, shape, dtype=jnp.float32, fan_in=None, fan_out=None):
-            in_feature, out_feature = get_in_out_features(shape, fan_in=fan_in, fan_out=fan_out)
-            rand_shape = jax.random.uniform(key, shape)
-            return_value = jnp.sqrt(6 / (in_feature + out_feature)) * (rand_shape * 2 - 1) * 1e-5
-            return_value = return_value.astype(dtype)
-            return return_value
+            return xavier_uniform(key, shape, dtype, fan_in, fan_out) * 1e-5 
         return xavier_zero
 
     elif init_name == "xavier_attn":
         def xavier_attn(key: jax.random.PRNGKey, shape, dtype=jnp.float32, fan_in=None, fan_out=None):
-            in_feature, out_feature = get_in_out_features(shape, fan_in=fan_in, fan_out=fan_out)
-            rand_shape = jax.random.uniform(key, shape)
-            return_value = jnp.sqrt(6 / (in_feature + out_feature)) * (rand_shape * 2 - 1) * jnp.sqrt(0.2)
-            return_value = return_value.astype(dtype)
-            return return_value
+            return xavier_uniform(key, shape, dtype, fan_in, fan_out) * jnp.sqrt(0.2)
         return xavier_attn
 
     elif init_name == "kaiming_normal":

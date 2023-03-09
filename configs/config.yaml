@@ -11,13 +11,14 @@ defaults:
     # - diffusion/dit_b
     # - diffusion/unet
     - diffusion/unetpp
-  - ema: ema
+  # - ema: ema
+  - ema: ema_edm
   - dataset: cifar10
   - exp: exp_setting
 
 # type: ddpm ddpm
 type: edm
-exp_name: edm_speed_up
+exp_name: edm_stochastic_sampling
 do_training: true
 do_sampling: true
 num_sampling: 50000

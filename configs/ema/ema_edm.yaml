@@ -1,0 +1,7 @@
+beta: 0.5
+update_every: 1
+update_after_step: 0
+power: 2/3
+
+ema_rampup_ratio: 0.05
+ema_halflife_number: 500000

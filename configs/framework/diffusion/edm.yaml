@@ -19,7 +19,8 @@ S_noise: 1.007
 train:
   learning_rate: 1.0e-3
   # gradient_clip: 1.0
-  warmup: 5000
+  # warmup: 5000
+  warmup: 19532 # int(10e6 / ${.batch_size})
   batch_size: 512
   total_step: 400000
   sampling_step: 10000

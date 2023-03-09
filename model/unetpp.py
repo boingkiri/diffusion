@@ -126,8 +126,6 @@ class UNetBlock(nn.Module):
         init = create_initializer("xavier_uniform")
         init_zero = create_initializer("xavier_zero")
 
-        # self.num_heads = 0 if not self.attention else self.num_heads if self.num_heads is not None else self.out_channels // self.channels_per_head
-        
         self.norm0 = nn.GroupNorm(epsilon=self.eps)
         self.conv0 = CustomConv2d(
             in_channels=self.in_channels, 
