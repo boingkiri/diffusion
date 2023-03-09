@@ -45,14 +45,13 @@ class EDMFramework(DefaultModel):
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
         
         # Parameters
-        self.sigma_min = diffusion_framework['sigma_min']
-        self.sigma_max = diffusion_framework['sigma_max']
+        self.sigma_min = max(diffusion_framework['sigma_min'], self.model.sigma_min)
+        self.sigma_max = min(diffusion_framework['sigma_max'], self.model.sigma_max)
         self.rho = diffusion_framework['rho']
         self.S_churn = 0 if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_churn']
         self.S_min = 0 if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_min']
         self.S_max = float('inf') if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_max']
         self.S_noise = 1 if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_noise']
-
         # PMAP
         if self.pmap:
             self.model_state = flax.jax_utils.replicate(self.model_state)
@@ -95,9 +94,10 @@ class EDMFramework(DefaultModel):
             return new_state, loss_dict
         
         def p_sample_jit(params, x_cur, rng_key, gamma, t_cur, t_next):
+            rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
+
             # Increase noise temporarily.
             t_hat = t_cur + gamma * t_cur
-            rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
             noise = jax.random.normal(rng_key, x_cur.shape) * self.S_noise
             x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
 
@@ -173,16 +173,17 @@ class EDMFramework(DefaultModel):
         else:
             latent_sampling_tuple = (num_image, *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
 
         step_indices = jnp.arange(self.n_timestep)
         t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
         t_steps = jnp.append(t_steps, jnp.zeros_like(t_steps[0]))
         pbar = tqdm(zip(t_steps[:-1], t_steps[1:]))
+
+        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * t_steps[0]
         for t_cur, t_next in pbar:
             rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
             gamma_val = jnp.minimum(jnp.sqrt(2) - 1, self.S_churn / self.n_timestep)
-            gamma = jnp.where(jnp.all(self.S_min <= t_cur and t_cur <= self.S_max),
+            gamma = jnp.where(self.S_min <= t_cur and t_cur <= self.S_max,
                             gamma_val, 0)
             if self.pmap:
                 rng_key = jax.random.split(rng_key, jax.local_device_count())
