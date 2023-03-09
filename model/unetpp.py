@@ -47,15 +47,13 @@ class CustomConv2d(nn.Module):
     def __call__(self, x):
         w = self.weight if self.weight is not None else None
         b = self.bias if self.bias is not None else None
-        w_pad = self.weight.shape[0] // 2 if 0 not in self.weight.shape else None
-        
-        if self.resample_filter_outer is not None:
-            f = self.resample_filter_outer
-            f_pad = (f.shape[0] - 1) // 2
-        
+        f = self.resample_filter_outer if self.resample_filter_outer is not None else None
+        w_pad = w.shape[0] // 2 if w is not None else None
+        f_pad = (f.shape[0] - 1) // 2 if f is not None else None
+
         if self.fused_resample and self.up and w is not None:
-            padding = [[max(f_pad - w_pad, 0)] * 2] * 2
             # Conv transpose
+            padding = [[max(f_pad - w_pad, 0)] * 2] * 2
             x = jax.lax.conv_general_dilated(x, jnp.tile((f * 4), [1, 1, 1, self.in_channels]), window_strides=(1, 1),
                                              padding=padding, lhs_dilation=(2, 2), rhs_dilation=(1, 1), dimension_numbers=self.dim_spec,
                                              feature_group_count=self.in_channels)
@@ -70,8 +68,8 @@ class CustomConv2d(nn.Module):
                                              padding='VALID', dimension_numbers=self.dim_spec, feature_group_count=self.out_channels)
         else:
             if self.up:
-                padding = [[f_pad + 1] * 2] * 2 # TODO: need to be fix, may be.
                 # Conv transpose
+                padding = [[f_pad + 1] * 2] * 2 # TODO: need to be fix, may be.
                 x = jax.lax.conv_general_dilated(x, jnp.tile((f * 4), [1, 1, 1, self.in_channels]), window_strides=(1, 1),
                                              padding=padding, lhs_dilation=(2, 2), rhs_dilation=None, dimension_numbers=self.dim_spec,
                                              feature_group_count=self.in_channels)
@@ -85,7 +83,6 @@ class CustomConv2d(nn.Module):
                 x = jax.lax.conv_general_dilated(x, w, window_strides=(1, 1), 
                                                  padding=padding, dimension_numbers=self.dim_spec)
         if b is not None:
-            # x = x + b.reshape(1, -1, 1, 1)
             x = x + b.reshape(1, 1, 1, -1)
         return x
 
@@ -128,7 +125,6 @@ class UNetBlock(nn.Module):
     def setup(self):
         init = create_initializer("xavier_uniform")
         init_zero = create_initializer("xavier_zero")
-        init_attn = create_initializer("xavier_attn")
 
         # self.num_heads = 0 if not self.attention else self.num_heads if self.num_heads is not None else self.out_channels // self.channels_per_head
         
@@ -167,7 +163,7 @@ class UNetBlock(nn.Module):
 
         if self.adaptive_scale:
             scale, shift = params.split(2, axis=-1)
-            x = nn.silu(shift + self.norm1(x) * (scale))
+            x = nn.silu(shift + self.norm1(x) * (scale + 1))
         else:
             x = nn.silu(self.norm1(x + params))
         
@@ -188,7 +184,7 @@ class UNetpp(nn.Module):
     
     ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 2, 2)# (1, 2, 4, 4) # (1, 2, 2, 4)
     is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False) # (False, True, True, True) # (False, False, True, True)
-    n_blocks: int = 3
+    n_blocks: int = 4
     n_heads: int = 1
     n_groups: int = 32
     dropout_rate: float = 0.1
@@ -209,7 +205,7 @@ class UNetpp(nn.Module):
         init_attn = create_initializer('xavier_attn')
         block_kwargs = dict(
             emb_channels=emb_channels,
-            num_heads=1,
+            num_heads=self.n_heads,
             dropout_rate=self.dropout_rate,
             skip_scale=jnp.sqrt(0.5),
             eps=1e-6,
