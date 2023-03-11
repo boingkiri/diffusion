@@ -55,6 +55,8 @@ class UNet(nn.Module):
 
         x = nn.GroupNorm(self.n_groups)(x)
         x = nn.swish(x)
-        x = nn.Conv(self.image_channels, (3, 3))(x)
+
+        out_channels = self.image_channels * 2 if self.learn_sigma else self.image_channels
+        x = nn.Conv(out_channels, (3, 3))(x)
 
         return x
