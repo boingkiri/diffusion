@@ -281,7 +281,7 @@ class DDPMFramework(DefaultModel):
         return [self.model_state]
 
     def init_model_state(self, config: DictConfig):
-        rng, param_rng, dropout_rng = jax.random.split(rng, 3)
+        self.rand_key, param_rng, dropout_rng = jax.random.split(self.rand_key, 3)
         rng_dict = {"params": param_rng, 'dropout': dropout_rng}
         if config.type == "ldm" and config.framework['train_idx'] == 2:
             f_value = len(config.model.autoencoder.ch_mults)
