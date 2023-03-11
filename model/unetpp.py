@@ -73,10 +73,14 @@ class CustomConv2d(nn.Module):
                 x = jax.lax.conv_general_dilated(x, jnp.tile((f * 4), [1, 1, 1, self.in_channels]), window_strides=(1, 1),
                                              padding=padding, lhs_dilation=(2, 2), rhs_dilation=None, dimension_numbers=self.dim_spec,
                                              feature_group_count=self.in_channels)
+                # x = jax.lax.conv_general_dilated(x, jnp.tile((f * 4), [1, 1, self.in_channels, self.in_channels]), window_strides=(1, 1),
+                #                              padding=padding, lhs_dilation=(2, 2), rhs_dilation=None, dimension_numbers=self.dim_spec)
             if self.down:
                 padding = [[f_pad] * 2] * 2
                 x = jax.lax.conv_general_dilated(x, jnp.tile(f, [1, 1, 1, self.in_channels]), window_strides=(2, 2), 
                                                  padding=padding, dimension_numbers=self.dim_spec, feature_group_count=self.in_channels)
+                # x = jax.lax.conv_general_dilated(x, jnp.tile((f * 4), [1, 1, self.in_channels, self.in_channels]), window_strides=(2, 2), 
+                #                                  padding=padding, dimension_numbers=self.dim_spec)
 
             if w is not None:
                 padding = [[w_pad] * 2] * 2
@@ -95,15 +99,19 @@ class AttentionModule(nn.Module):
     def __call__(self, x):
         init_attn = create_initializer("xavier_attn")
         init_zero = create_initializer("xavier_zero")
-
+        orig_x = x
         x = nn.GroupNorm(epsilon=self.eps)(x)
         qkv = CustomConv2d(self.out_channels, self.out_channels * 3, kernel_channels=1, init_mode=init_attn)(x)
         qkv = qkv.reshape(x.shape[0] * self.num_heads, x.shape[1] // self.num_heads, -1, 3)
         q, k, v = jnp.split(qkv, 3, axis=-1)
+        k = k / jnp.sqrt(k.shape[-1])
+        
         w = jnp.einsum('bnqc,bnkc->bnqk', q, k)
+        w = nn.softmax(w, axis=2)
+
         a = jnp.einsum('bnqk,bnkc->bnqc', w, v)
         a = a.reshape(*x.shape)
-        x = CustomConv2d(self.out_channels, self.out_channels, kernel_channels=1, init_mode=init_zero)(a) + x
+        x = CustomConv2d(self.out_channels, self.out_channels, kernel_channels=1, init_mode=init_zero)(a) + orig_x
         return x
 
 class UNetBlock(nn.Module):
