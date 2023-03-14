@@ -60,10 +60,12 @@ def create_initializer(init_name: str = None):
         return xavier_attn
 
     elif init_name == "kaiming_uniform":
-        return kaiminig_uniform
+        # return kaiminig_uniform
+        return jax.nn.initializers.variance_scaling(1.0, "fan_avg", "uniform")
 
     elif init_name == "kaiming_zero":
-        return partial(kaiminig_uniform, scale=0)
+        # return partial(kaiminig_uniform, scale=0)
+        return jax.nn.initializers.variance_scaling(1e-10, "fan_avg", "uniform")
 
     else:
         NotImplementedError(f"{init_name} initializer is not supported.")
