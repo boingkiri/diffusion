@@ -3,6 +3,10 @@ import jax.numpy as jnp
 import flax.linen as nn
 import math
 
+from functools import partial
+
+from typing import Sequence, Union, Tuple
+
 def create_initializer(init_name: str = None):
     def get_in_out_features(shape, fan_in, fan_out):
         if fan_in is None and fan_out is None:
@@ -21,6 +25,23 @@ def create_initializer(init_name: str = None):
         return_value = jnp.sqrt(6 / (in_feature + out_feature)) * (rand_shape * 2 - 1)
         return_value = return_value.astype(dtype)
         return return_value
+    
+    def kaiminig_uniform(key: jax.random.PRNGKey, shape, dtype=jnp.float32, fan_in=None, fan_out=None, mode="fan_avg", scale=1.0):
+        in_feature, out_feature = get_in_out_features(shape, fan_in=fan_in, fan_out=fan_out)
+        if mode == "fan_avg":
+            n = (in_feature + out_feature) / 2
+        elif mode == "fan_in":
+            n = in_feature
+        elif mode == "fan_out":
+            n = out_feature
+        else:
+            NotImplementedError("Kaiming uniform can only take 'fan_avg', 'fan_in', and 'fan_out'.")
+        
+        effective_scale = 1e-10 if scale == 0 else scale
+        limit = jnp.sqrt(3 * effective_scale / n)
+        rand_shape = jax.random.uniform(key, shape, minval=-limit, maxval=limit)
+        return_value = rand_shape.astype(dtype)
+        return return_value
 
     if init_name is None:
         return None
@@ -38,17 +59,48 @@ def create_initializer(init_name: str = None):
             return xavier_uniform(key, shape, dtype, fan_in, fan_out) * jnp.sqrt(0.2)
         return xavier_attn
 
-    elif init_name == "kaiming_normal":
-        def kaiminig_uniform(key: jax.random.PRNGKey, shape, dtype=jnp.float32):
-            in_feature, out_feature = shape[-2:]
-            rand_shape = jax.random.normal(key, shape)
-            return_value = jnp.sqrt(1 / in_feature) * rand_shape
-            return_value = return_value.astype(dtype)
-            return return_value
+    elif init_name == "kaiming_uniform":
         return kaiminig_uniform
+
+    elif init_name == "kaiming_zero":
+        return partial(kaiminig_uniform, scale=0)
 
     else:
         NotImplementedError(f"{init_name} initializer is not supported.")
+
+class CustomConv2d(nn.Module):
+    features: int
+    kernel_size: Sequence[int]
+    strides: Union[int, int, Sequence[int]] = 1
+    padding: Union[str, int, Sequence[Union[int, Tuple[int, int]]]] = "SAME"
+    use_bias: bool = True
+    init_scale: float = 1.0
+    
+    @nn.compact
+    def __call__(self, x):
+        init_mode = "kaiming_zero" if self.init_scale == 0 else "kaiming_uniform"
+        init_function = create_initializer(init_mode)
+        x = nn.Conv(features=self.features,
+                    kernel_size=self.kernel_size,
+                    strides=self.strides,
+                    padding=self.padding,
+                    use_bias=self.use_bias,
+                    kernel_init=init_function)(x)
+        return x
+
+class CustomDense(nn.Module):
+    features: int
+    use_bias: bool = True
+    init_scale: float = 1.0
+    
+    @nn.compact
+    def __call__(self, x):
+        init_mode = "kaiming_zero" if self.init_scale == 0 else "kaiming_uniform"
+        init_function = create_initializer(init_mode)
+        x = nn.Dense(features=self.features,
+                    use_bias=self.use_bias,
+                    kernel_init=init_function)(x)
+        return x
 
 class TimeEmbedding(nn.Module):
     emb_dim: int
@@ -72,46 +124,47 @@ class TimeEmbed(nn.Module):
     @nn.compact
     def __call__(self, t):
         t = TimeEmbedding(self.n_channels)(t)
-        t = nn.Dense(self.hidden_size, kernel_init=nn.initializers.xavier_uniform())(t)
+        t = CustomDense(self.hidden_size)(t)
         t = getattr(nn, self.activation_type)(t)
-        t = nn.Dense(self.hidden_size, kernel_init=nn.initializers.xavier_uniform())(t)
+        t = CustomDense(self.hidden_size)(t)
         return t
     
 
 class ResidualBlock(nn.Module):
     out_channels: int
-    # n_groups: int = 32
-    n_groups: int = 8
+    n_groups: int = 32
     dropout_rate: float = 0.1
 
     @nn.compact
     def __call__(self, x, t, train):
         h = nn.GroupNorm(self.n_groups)(x)
         h = nn.swish(h)
-        h = nn.Conv(self.out_channels, (3, 3))(h)
+        h = CustomConv2d(self.out_channels, (3, 3))(h)
 
         # Add time embedding value
         if t is not None:
             t = nn.swish(t)
-            t_emb = nn.Dense(self.out_channels)(t)
+            # t_emb = nn.Dense(self.out_channels)(t)
+            t_emb = CustomDense(self.out_channels)(t)
             h += t_emb[:, None, None, :]
 
         h = nn.GroupNorm(self.n_groups)(h)
         h = nn.swish(h)
         h = nn.Dropout(self.dropout_rate, deterministic=not train)(h)
-        h = nn.Conv(self.out_channels, (3, 3))(h)
+        h = CustomConv2d(self.out_channels, (3, 3), init_scale=0.)(h)
 
         if x.shape != h.shape:
-            short = nn.Conv(self.out_channels, (1, 1))(x)
-            # short = nn.Conv(self.out_channels, (3, 3))(x)
+            short = CustomConv2d(self.out_channels, (3, 3))(x)
         else:
+            # short = nn.Dense(self.out_channels)(x)
+            short = CustomDense(self.out_channels)(x)
             short = x
         return h + short
 
 class AttentionBlock(nn.Module):
     n_channels: int
     n_heads: int = 1
-    n_groups: int = 8
+    n_groups: int = 32
     
     @nn.compact
     def __call__(self, x): # x: b x y c
@@ -122,7 +175,7 @@ class AttentionBlock(nn.Module):
         # Projection
         x_skip = x
         x = nn.GroupNorm(self.n_groups)(x)
-        qkv = nn.Conv(self.n_heads * head_channels * 3, (1, 1), use_bias=False)(x) # qkv: b x y h*c*3
+        qkv = CustomConv2d(self.n_heads * head_channels * 3, (1, 1), use_bias=False)(x) # qkv: b x y h*c*3
         qkv = qkv.reshape(batch_size, -1, self.n_heads, 3 * head_channels) # b (x y) h c*3
 
         # Split as query, key, value
@@ -137,10 +190,8 @@ class AttentionBlock(nn.Module):
         # Multiply by value
         res = jnp.einsum('bijh,bjhd->bihd', atten, v)
 
-        # res = res.reshape(batch_size, -1, self.n_heads * self.n_channels)
         res = res.reshape(batch_size, height, width, self.n_heads * head_channels)
-        # res = nn.Dense(n_channels)(res)
-        res = nn.Conv(self.n_channels, (1, 1))(res)
+        res = CustomConv2d(self.n_channels, (1, 1), init_scale=0.)(res)
 
         # skip connection
         res += x_skip
@@ -198,7 +249,7 @@ class Upsample(nn.Module):
             x, 
             shape=(B, H * scale, W * scale, C),
             method="nearest")
-        x = nn.Conv(self.n_channels, (3, 3))(x)
+        x = CustomConv2d(self.n_channels, (3, 3))(x)
         return x
 
 class Downsample(nn.Module):
@@ -208,8 +259,7 @@ class Downsample(nn.Module):
     def __call__(self, x):
         # B, H, W, C = x.shape
         # x = jnp.reshape(x, (B, H // 2, W // 2, C * 4))
-        # x = nn.Conv(self.n_channels, (3, 3), (1, 1))(x)
-        x = nn.Conv(self.n_channels, (3, 3), strides=2)(x)
+        x = CustomConv2d(self.n_channels, (3, 3), strides=2)(x)
         return x
 
 

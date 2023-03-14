@@ -19,12 +19,14 @@ class UNet(nn.Module):
 
     @nn.compact
     def __call__(self, x, t, train):
-        t = TimeEmbedding(self.n_channels)(t)
-        t = nn.Dense(self.n_channels * 4)(t)
-        t = nn.swish(t)
-        t = nn.Dense(self.n_channels * 4)(t)
+        # t = TimeEmbedding(self.n_channels)(t)
+        # t = nn.Dense(self.n_channels * 4)(t)
+        # t = nn.swish(t)
+        # t = nn.Dense(self.n_channels * 4)(t)
+        t = TimeEmbed(self.n_channels, self.n_channels * 4)(t)
 
-        x = nn.Conv(self.n_channels, (3, 3))(x)
+        # x = nn.Conv(self.n_channels, (3, 3))(x)
+        x = CustomConv2d(self.n_channels, (3, 3))(x)
         # Store Downward output for skip connection
         h = [x]
 
@@ -49,14 +51,13 @@ class UNet(nn.Module):
                 x = UnetUp(out_channels, self.is_atten[i], dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
             if i > 0:
                 out_channels = self.n_channels * self.ch_mults[i - 1]
-                # s = h.pop()
-                # x = jnp.concatenate((x, s), axis=-1)
                 x = Upsample(out_channels)(x)
 
         x = nn.GroupNorm(self.n_groups)(x)
         x = nn.swish(x)
 
         out_channels = self.image_channels * 2 if self.learn_sigma else self.image_channels
-        x = nn.Conv(out_channels, (3, 3))(x)
+        # x = nn.Conv(out_channels, (3, 3))(x)
+        x = CustomConv2d(out_channels, (3, 3))(x)
 
         return x
