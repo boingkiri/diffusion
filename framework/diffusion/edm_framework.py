@@ -11,6 +11,7 @@ from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
 from utils.ema import EMA
+from utils.augment_utils import AugmentPipe
 from framework.default_diffusion import DefaultModel
 
 from typing import TypedDict
@@ -60,8 +61,17 @@ class EDMFramework(DefaultModel):
         ema_config = config.ema
         self.ema_obj = EMA(**ema_config, pmap=self.pmap)
 
+        # Augmentation pipeline
+        augment_rng, self.rand_key = jax.random.split(self.rand_key)
+        self.augment_rate = diffusion_framework.get("augment_rate", None)
+        if self.augment_rate is not None:
+            self.augmentation_pipeline = AugmentPipe(
+                augment_rng, p=self.augment_rate, xflip=1e8, 
+                yflip=1, scale=1, rotate_frac=1, 
+                aniso=1, translate_frac=1)
+
         @jax.jit
-        def loss_fn(params, y, rng_key):
+        def loss_fn(params, rng_key, y, augment_label):
             p_mean = -1.2
             p_std = 1.2
             sigma_data = 0.5
@@ -83,8 +93,8 @@ class EDMFramework(DefaultModel):
             loss_dict['total_loss'] = loss
             return loss, loss_dict
         
-        def update(state:train_state.TrainState, x0, rng):
-            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, x0, rng)
+        def update(state:train_state.TrainState, rng, x0, augment_label):
+            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, rng, x0, augment_label)
             if self.pmap:
                 grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
             new_state = state.apply_gradients(grads=grad)
@@ -103,14 +113,14 @@ class EDMFramework(DefaultModel):
 
             # Euler step
             denoised = self.model.apply(
-                {'params': params}, x=x_hat, sigma=t_hat, train=False, rngs={'dropout': dropout_key})
+                {'params': params}, x=x_hat, sigma=t_hat, augment_labels= None, train=False, rngs={'dropout': dropout_key})
             d_cur = (x_hat - denoised) / t_hat
             x_next = x_hat + (t_next - t_hat) * d_cur
 
             # Apply 2nd order correction.
             def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
                 denoised = self.model.apply(
-                    {'params': params}, x=x_next, sigma=t_next, train=False, rngs={'dropout': rng_key})
+                    {'params': params}, x=x_next, sigma=t_next, augment_labels= None, train=False, rngs={'dropout': rng_key})
                 d_prime = (x_next - denoised) / t_next
                 x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
                 return x_next
@@ -135,7 +145,10 @@ class EDMFramework(DefaultModel):
         self.rand_key, param_rng, dropout_rng = jax.random.split(self.rand_key, 3)
         rng_dict = {"params": param_rng, 'dropout': dropout_rng}
         input_format = jnp.ones([1, *config.dataset.data_size])
-        params = self.model.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), train=False)['params']
+
+        augment_dim = config.model.diffusion.get("augment_dim", None)
+        augment_labels = jnp.ones([1, augment_dim]) if augment_dim is not None else None
+        params = self.model.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), augment_labels=augment_labels, train=False)['params']
 
         return jax_utils.create_train_state(config, 'diffusion', self.model.apply, params)
 
@@ -152,7 +165,10 @@ class EDMFramework(DefaultModel):
         # Apply pmap
         dropout_key = jax.random.split(dropout_key, jax.local_device_count())
         dropout_key = jnp.asarray(dropout_key)
-        new_state, loss_dict = self.update_fn(self.model_state, x0, dropout_key)
+
+        # Augment pipeline
+        x0, labels = self.augmentation_pipeline(x0) if self.augment_rate is not None else x0, None
+        new_state, loss_dict = self.update_fn(self.model_state, dropout_key, x0, labels)
 
         for loss_key in loss_dict:
             loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])

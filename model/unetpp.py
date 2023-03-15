@@ -273,8 +273,12 @@ class UNetpp(nn.Module):
         self.enc = enc_modules
         self.dec = dec_modules
 
-    def __call__(self, x, noise_labels, train):
+    def __call__(self, x, noise_labels, augment_labels, train):
         emb = self.map_noise(noise_labels)
+
+        # Add augment embedding if exists
+        augment_emb = jnp.where(augment_labels is None, jnp.zeros(emb.shape), self.map_augment(augment_labels))
+        emb += augment_emb
 
         # TODO: Add conditional stuffs in here
         emb = nn.silu(self.map_layer0(emb))
@@ -324,7 +328,7 @@ class EDMPrecond(nn.Module):
     model_type : str = "UNetpp"
     
     @nn.compact
-    def __call__(self, x, sigma, train):
+    def __call__(self, x, sigma, augment_labels, train):
         c_skip = (self.sigma_data ** 2) / (sigma ** 2 + self.sigma_data ** 2)
         c_out = (sigma * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
         c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
@@ -337,6 +341,6 @@ class EDMPrecond(nn.Module):
         elif self.model_type == "unet":
             net = UNet(**self.model_kwargs)
         
-        F_x = net(c_in * x, c_noise.flatten(), train)
+        F_x = net(c_in * x, c_noise.flatten(), augment_labels, train)
         D_x = c_skip * x + c_out * F_x
         return D_x
