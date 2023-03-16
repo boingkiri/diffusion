@@ -420,3 +420,17 @@ class AugmentPipe:
     if pmap:
       images = images.reshape(*original_images_format)
     return images, labels
+
+
+if __name__ == "__main__":
+  import common_utils
+  datasets = common_utils.load_dataset_from_tfds(pmap=True)
+  augment_rng = jax.random.PRNGKey(0)
+  augment_rate = 0.12
+  pipeline = AugmentPipe(
+    augment_rng, p=augment_rate, xflip=1e8, 
+    yflip=1, scale=1, rotate_frac=1, 
+    aniso=1, translate_frac=1)
+  for x, _, in datasets:
+    result_images, labels = pipeline(x)
+    breakpoint()
