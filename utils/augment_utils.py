@@ -6,10 +6,6 @@ The code is construted based on Pytorch, so I adjusted some features to adapt to
 
 import jax
 import jax.numpy as jnp
-import numpy as np
-
-import torch
-import torch.nn.functional as F
 
 from functools import partial 
 
@@ -204,23 +200,20 @@ class AugmentPipe:
 
     x_t, y_t = jnp.meshgrid(x, y)
 
-    # x_t_flat = x_t.flatten()
-    # y_t_flat = y_t.flatten()
     x_t_flat = jnp.reshape(x_t, [-1])
     y_t_flat = jnp.reshape(y_t, [-1])
     ones = jnp.ones_like(y_t_flat)
 
     # Grid with ones
     grid = jnp.stack([x_t_flat, y_t_flat, ones])
-
     grid = jnp.expand_dims(grid, axis=0)
-    batch_grid = jnp.tile(grid, jnp.stack([b, 1, 1]))
+    # batch_grid = jnp.tile(grid, jnp.stack([b, 1, 1]))
+    batch_grid = jnp.repeat(grid, b, axis=0)
 
     theta = theta.astype(jnp.float32)
     batch_grid = batch_grid.astype(jnp.float32)
 
     batch_grid = jnp.matmul(theta, batch_grid)
-    # breakpoint()
     batch_grid = jnp.reshape(batch_grid, [b, 2, h, w])
     return batch_grid
 
@@ -235,10 +228,7 @@ class AugmentPipe:
     b = jnp.tile(batch_idx, (1, height, width))
 
     result_value = self.get_pixel_value_vmap(image, x, y)
-    # result_value = result_value.transpose(0, 3, 1, 2)
     return result_value
-    # breakpoint()
-    # return image[b, :, y, x]
 
   @partial(jax.jit, static_argnums=(0,))
   def grid_sampler(self, image, grid):
@@ -342,7 +332,7 @@ class AugmentPipe:
     images = images.flatten()[(((b * C) + c) * H + y) * W + x]
     return images, [tx / (W * self.translate_int_max), ty / (H * self.translate_int_max)]
 
-  @partial(jax.vmap, in_axes=(None, 0))
+  # @partial(jax.vmap, in_axes=(None, 0))
   def __call__(self, images):
     pmap=False
     if len(images.shape) == 5:
@@ -450,9 +440,9 @@ class AugmentPipe:
       mx0, my0, mx1, my1 = jnp.ceil(margin).astype(jnp.int32)
 
       # Pad image and adjust origin.
-      padding = [[0, 0], [0, 0], [my0, my1], [mx0, mx1]]
-      images = jnp.pad(images, padding, mode='reflect')
-      G_inv = translate2d((mx0 - mx1) / 2, (my0 - my1) / 2) @ G_inv
+      # padding = [[0, 0], [0, 0], [my0, my1], [mx0, mx1]]
+      # images = jnp.pad(images, padding, mode='reflect')
+      # G_inv = translate2d((mx0 - mx1) / 2, (my0 - my1) / 2) @ G_inv
 
       # Upsample.
       conv_weight = jnp.tile(constant(Hz[None, None, ::-1]), [images.shape[1], 1, 1])
