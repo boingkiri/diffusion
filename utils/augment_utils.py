@@ -36,19 +36,22 @@ wavelets = {
 _constant_cache = dict()
 
 def constant(value, shape=None):
-  value = jnp.asarray(value)
+  # value = jnp.asarray(value)
+
+  # if shape is not None:
+  #   shape = tuple(shape)
+
+  # key = (value.shape, value.tobytes(), shape)
+  # array_val = _constant_cache.get(key, None)
+  # if array_val is None:
+  #   array_val = jnp.asarray(value.copy())
+  #   if shape is not None:
+  #     array_val= jnp.broadcast_to(array_val, shape)
+  #   _constant_cache[key] = array_val
 
   if shape is not None:
-    shape = tuple(shape)
-
-  key = (value.shape, value.tobytes(), shape)
-  array_val = _constant_cache.get(key, None)
-  if array_val is None:
-    array_val = jnp.asarray(value.copy())
-    if shape is not None:
-      array_val= jnp.broadcast_to(array_val, shape)
-    _constant_cache[key] = array_val
-  return array_val
+    value = jnp.broadcast_to(value, shape)
+  return jnp.asarray(value)
 
 def matrix(*rows):
   assert all(len(row) == len(rows[0]) for row in rows)
@@ -118,6 +121,14 @@ def rotate2d_inv(theta, **kwargs):
   return rotate2d(-theta, **kwargs)
 
 class AugmentPipe:
+  # def __init__(
+  #       self, rng_key, images_shape, p=1, xflip=0, yflip=0, rotate_int=0, translate_int=0,
+  #       translate_int_max=0.125, scale=0, rotate_frac=0, aniso=0,
+  #       translate_frac=0, scale_std=0.2, rotate_frac_max=1,
+  #       aniso_std=0.2, aniso_rotate_prob=0.5, translate_frac_std=0.125,
+  #       brightness=0, contrast=0, lumaflip=0, hue=0, saturation=0, 
+  #       brightness_std=0.2, contrast_std=0.5, hue_max=1, saturation_std=1
+  # ):
   def __init__(
         self, rng_key, p=1, xflip=0, yflip=0, rotate_int=0, translate_int=0,
         translate_int_max=0.125, scale=0, rotate_frac=0, aniso=0,
@@ -128,6 +139,7 @@ class AugmentPipe:
   ):
     super().__init__()
     self.rng_key = rng_key
+    # self.images_shape = images_shape
 
     self.p                  = float(p)                  # Overall multiplier for augmentation probability.
 
@@ -163,12 +175,12 @@ class AugmentPipe:
     def get_pixel_value_primitive(image, p_x, p_y):
       return image[:, p_y, p_x]
     
-    @partial(jax.vmap, in_axes=(None, 0, 0))
+    @partial(jax.vmap, in_axes=(None, 0, 0), out_axes=1)
     @jax.jit
     def get_pixel_value_3rd_fn(images, x, y):
       return get_pixel_value_primitive(images, x, y)
 
-    @partial(jax.vmap, in_axes=(None, 0, 0))
+    @partial(jax.vmap, in_axes=(None, 0, 0), out_axes=1)
     @jax.jit
     def get_pixel_value_2nd_fn(images, x, y):
       return get_pixel_value_3rd_fn(images, x, y)
@@ -223,7 +235,7 @@ class AugmentPipe:
     b = jnp.tile(batch_idx, (1, height, width))
 
     result_value = self.get_pixel_value_vmap(image, x, y)
-    result_value = result_value.transpose(0, 3, 1, 2)
+    # result_value = result_value.transpose(0, 3, 1, 2)
     return result_value
     # breakpoint()
     # return image[b, :, y, x]
@@ -262,14 +274,16 @@ class AugmentPipe:
 
     x0 = x0.astype(jnp.float32)
     x1 = x1.astype(jnp.float32)
-    y0 = x0.astype(jnp.float32)
+    y0 = y0.astype(jnp.float32)
     y1 = y1.astype(jnp.float32)
 
     wa = jnp.expand_dims((x1 - x) * (y1 - y), axis=1)
     wb = jnp.expand_dims((x1 - x) * (y - y0), axis=1)
     wc = jnp.expand_dims((x - x0) * (y1 - y), axis=1)
     wd = jnp.expand_dims((x - x0) * (y - y0), axis=1)
+    
     out = wa * la + wb * lb + wc * lc + wd * ld
+    # breakpoint()
     return out
     
   @partial(jax.jit, static_argnums=(0,))
@@ -282,7 +296,7 @@ class AugmentPipe:
       w, jnp.zeros_like(w)
     )
     images = jnp.where(w == 1, jnp.flip(images, 3), images)
-    return images, [w], key
+    return images, [w]
   
   @partial(jax.jit, static_argnums=(0,))
   def yflip_fn(self, key, images):
@@ -294,7 +308,7 @@ class AugmentPipe:
       w, jnp.zeros_like(w)
     )
     images = jnp.where(w == 1, jnp.flip(images, 2), images)
-    return images, [w], key
+    return images, [w]
   
   @partial(jax.jit, static_argnums=(0,))
   def rotate_int_fn(self, key, images):
@@ -308,7 +322,7 @@ class AugmentPipe:
     images = jnp.where((w == 1) | (w == 2), jnp.flip(images, 3), images)
     images = jnp.where((w == 2) | (w == 3), jnp.flip(images, 2), images)
     images = jnp.where((w == 1) | (w == 3), jnp.transpose(images, (2, 3)), images)
-    return images, [(w == 1) | (w == 2), (w == 2) | (w == 3)], key
+    return images, [(w == 1) | (w == 2), (w == 2) | (w == 3)]
 
   @partial(jax.jit, static_argnums=(0,))
   def translate_int_fn(self, key, images):
@@ -326,16 +340,23 @@ class AugmentPipe:
     x = W - 1 - jnp.abs((W - 1 - (x - tx) % (W * 2 - 2)))
     y = H - 1 - jnp.abs((H - 1 - (y + ty) % (H * 2 - 2)))
     images = images.flatten()[(((b * C) + c) * H + y) * W + x]
-    return images, [tx / (W * self.translate_int_max), ty / (H * self.translate_int_max)], key
+    return images, [tx / (W * self.translate_int_max), ty / (H * self.translate_int_max)]
 
+  @partial(jax.vmap, in_axes=(None, 0))
   def __call__(self, images):
     pmap=False
     if len(images.shape) == 5:
       pmap=True
       original_images_format = images.shape
       images= images.reshape((-1, *images.shape[-3:]))
+
     
+    ### TODO: dirty code - jnp.pad need concretized value, not abstract value.
+    ### Therefore, I put CIFAR10's resolution manually for now. **Need fix**
     B, H, W, C = images.shape
+    # B, H, W, C = self.images_shape
+    # H = 32
+    # W = 32
 
     # images = images.reshape(B, C, H, W)
     images = jnp.transpose(images, (0, 3, 1, 2))
@@ -345,19 +366,23 @@ class AugmentPipe:
 
     ## Pixel blitting
     if self.xflip > 0:
-      images, add_labels, augmentation_key = self.xflip_fn(augmentation_key, images)
+      augmentation_key, tmp_key = jax.random.split(augmentation_key)
+      images, add_labels = self.xflip_fn(tmp_key, images)
       labels += add_labels
     
     if self.yflip > 0:
-      images, add_labels, augmentation_key = self.yflip_fn(augmentation_key, images)
+      augmentation_key, tmp_key = jax.random.split(augmentation_key)
+      images, add_labels = self.yflip_fn(tmp_key, images)
       labels += add_labels
 
     if self.rotate_int > 0:
-      images, add_labels, augmentation_key = self.rotate_int_fn(augmentation_key, images)
+      augmentation_key, tmp_key = jax.random.split(augmentation_key)
+      images, add_labels = self.rotate_int_fn(tmp_key, images)
       labels += add_labels
     
     if self.translate_int > 0:
-      images, add_labels, augmentation_key = self.translate_int_fn(augmentation_key, images)
+      augmentation_key, tmp_key = jax.random.split(augmentation_key)
+      images, add_labels = self.translate_int_fn(tmp_key, images)
       labels += add_labels
 
     # Select parameters for geometric translations
@@ -408,6 +433,7 @@ class AugmentPipe:
     
     # Execute geometric transformations
     if G_inv is not I_3:
+      
       cx = (W - 1) / 2
       cy = (H - 1) / 2
       cp = matrix([-cx, -cy, 1], [cx, -cy, 1], [cx, cy, 1], [-cx, cy, 1]) # [idx, xyz]
@@ -421,10 +447,11 @@ class AugmentPipe:
       margin = margin + constant([Hz_pad * 2 - cx, Hz_pad * 2 - cy] * 2)
       margin = jnp.maximum(margin, constant([0, 0] * 2))
       margin = jnp.minimum(margin, constant([W - 1, H - 1] * 2))
-      mx0, my0, mx1, my1 = jnp.ceil(margin).astype(jnp.int32) # TODO: It looks like the calculation of padding is weird. Fix it. 
+      mx0, my0, mx1, my1 = jnp.ceil(margin).astype(jnp.int32)
 
       # Pad image and adjust origin.
-      images = jnp.pad(images, [[0, 0], [0, 0], [my0, my1], [mx0, mx1]], mode='reflect')
+      padding = [[0, 0], [0, 0], [my0, my1], [mx0, mx1]]
+      images = jnp.pad(images, padding, mode='reflect')
       G_inv = translate2d((mx0 - mx1) / 2, (my0 - my1) / 2) @ G_inv
 
       # Upsample.
@@ -444,13 +471,13 @@ class AugmentPipe:
       # Execute transformation.
       shape = [B, C, (H + Hz_pad * 2) * 2, (W + Hz_pad * 2) * 2]
       G_inv = scale2d(2 / images.shape[3], 2 / images.shape[2]) @ G_inv @ scale2d_inv(2 / shape[3], 2 / shape[2])
-      # grid = self.affine_grid(theta=G_inv[:,:2,:], shape=shape)
-      # images = self.grid_sampler(images, grid)
-      theta = torch.tensor(np.array(G_inv[:,:2,:]))
-      images = torch.tensor(np.array(images))
-      grid = F.affine_grid(theta=theta, size=shape, align_corners=False)
-      images = F.grid_sample(images, grid, mode='bilinear', padding_mode='zeros', align_corners=False)
-      images = jnp.array(images.numpy())
+      grid = self.affine_grid(theta=G_inv[:,:2,:], shape=shape)
+      images = self.grid_sampler(images, grid)
+      # theta = torch.tensor(np.array(G_inv[:,:2,:]))
+      # images = torch.tensor(np.array(images))
+      # grid = F.affine_grid(theta=theta, size=shape, align_corners=False)
+      # images = F.grid_sample(images, grid, mode='bilinear', padding_mode='zeros', align_corners=False)
+      # images = jnp.array(images.numpy())
       # breakpoint()
 
 
