@@ -330,7 +330,7 @@ class AugmentPipe:
 
   def __call__(self, images):
     pmap=False
-    if len(images.shape):
+    if len(images.shape) == 5:
       pmap=True
       original_images_format = images.shape
       images= images.reshape((-1, *images.shape[-3:]))
@@ -523,6 +523,7 @@ class AugmentPipe:
     images = jnp.transpose(images, (0, 2, 3, 1))
     if pmap:
       images = images.reshape(*original_images_format)
+      labels = labels.reshape(original_images_format[0], original_images_format[1], -1)
     # breakpoint()
     return images, labels
 

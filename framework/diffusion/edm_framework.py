@@ -85,7 +85,8 @@ class EDMFramework(DefaultModel):
             
             # Network will predict D_yn (denoised dataset rather than epsilon) directly.
             D_yn = self.model.apply(
-                {'params': params}, x=(y + n), sigma=sigma, train=True, rngs={'dropout': dropout_key})
+                {'params': params}, x=(y + n), sigma=sigma, 
+                augment_labels=augment_label, train=True, rngs={'dropout': dropout_key})
             loss = weight * ((D_yn - y) ** 2)
             loss = jnp.mean(loss)
 
@@ -113,14 +114,16 @@ class EDMFramework(DefaultModel):
 
             # Euler step
             denoised = self.model.apply(
-                {'params': params}, x=x_hat, sigma=t_hat, augment_labels= None, train=False, rngs={'dropout': dropout_key})
+                {'params': params}, x=x_hat, sigma=t_hat, 
+                augment_labels= None, train=False, rngs={'dropout': dropout_key})
             d_cur = (x_hat - denoised) / t_hat
             x_next = x_hat + (t_next - t_hat) * d_cur
 
             # Apply 2nd order correction.
             def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
                 denoised = self.model.apply(
-                    {'params': params}, x=x_next, sigma=t_next, augment_labels= None, train=False, rngs={'dropout': rng_key})
+                    {'params': params}, x=x_next, sigma=t_next, 
+                    augment_labels= None, train=False, rngs={'dropout': rng_key})
                 d_prime = (x_next - denoised) / t_next
                 x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
                 return x_next
@@ -167,7 +170,7 @@ class EDMFramework(DefaultModel):
         dropout_key = jnp.asarray(dropout_key)
 
         # Augment pipeline
-        x0, labels = self.augmentation_pipeline(x0) if self.augment_rate is not None else x0, None
+        x0, labels = self.augmentation_pipeline(x0) if self.augment_rate is not None else (x0, None)
         new_state, loss_dict = self.update_fn(self.model_state, dropout_key, x0, labels)
 
         for loss_key in loss_dict:
