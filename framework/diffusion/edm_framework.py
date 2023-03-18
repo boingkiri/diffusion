@@ -65,13 +65,25 @@ class EDMFramework(DefaultModel):
         augment_rng, self.rand_key = jax.random.split(self.rand_key)
         self.augment_rate = diffusion_framework.get("augment_rate", None)
         if self.augment_rate is not None:
+            ### TODO: image shape of augment pipe is concretized to adapt to CIFAR10.
+            # If you need to use pipeline with other dataset, you have to set the size of dataset manually
+            # ...or I will add some codes to allocate the value to the function automatically.
+            if self.pmap:
+                pipeline_shape = (diffusion_framework.train.batch_size // jax.local_device_count(), 32, 32, 3)
+            else:
+                pipeline_shape = (diffusion_framework.train.batch_size, 32, 32, 3)
+            # self.augmentation_pipeline = AugmentPipe(
+            #     rng_key=augment_rng, images_shape=pipeline_shape ,p=self.augment_rate, xflip=1e8, 
+            #     yflip=1, scale=1, rotate_frac=1, 
+            #     aniso=1, translate_frac=1)
             self.augmentation_pipeline = AugmentPipe(
-                augment_rng, p=self.augment_rate, xflip=1e8, 
+                rng_key=augment_rng ,p=self.augment_rate, xflip=1e8, 
                 yflip=1, scale=1, rotate_frac=1, 
                 aniso=1, translate_frac=1)
 
         @jax.jit
-        def loss_fn(params, rng_key, y, augment_label):
+        # def loss_fn(params, rng_key, y, augment_label):
+        def loss_fn(params, rng_key, y):
             p_mean = -1.2
             p_std = 1.2
             sigma_data = 0.5
@@ -81,11 +93,14 @@ class EDMFramework(DefaultModel):
             sigma = jnp.exp(rnd_normal * p_std + p_mean)
             weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
             # TODO: Implement augmented pipe 
+            # y, augment_label = self.augmentation_pipeline if 
+            y, augment_label = self.augmentation_pipeline(y) if self.augment_rate is not None else (y, None)
             n = jax.random.normal(rng_key, y.shape) * sigma
             
             # Network will predict D_yn (denoised dataset rather than epsilon) directly.
             D_yn = self.model.apply(
-                {'params': params}, x=(y + n), sigma=sigma, train=True, rngs={'dropout': dropout_key})
+                {'params': params}, x=(y + n), sigma=sigma, 
+                augment_labels=augment_label, train=True, rngs={'dropout': dropout_key})
             loss = weight * ((D_yn - y) ** 2)
             loss = jnp.mean(loss)
 
@@ -93,8 +108,10 @@ class EDMFramework(DefaultModel):
             loss_dict['total_loss'] = loss
             return loss, loss_dict
         
-        def update(state:train_state.TrainState, rng, x0, augment_label):
-            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, rng, x0, augment_label)
+        def update(state:train_state.TrainState, rng, x0):
+        # def update(state:train_state.TrainState, rng, x0, augment_label):
+            # (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, rng, x0, augment_label)
+            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, rng, x0)
             if self.pmap:
                 grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
             new_state = state.apply_gradients(grads=grad)
@@ -113,14 +130,16 @@ class EDMFramework(DefaultModel):
 
             # Euler step
             denoised = self.model.apply(
-                {'params': params}, x=x_hat, sigma=t_hat, augment_labels= None, train=False, rngs={'dropout': dropout_key})
+                {'params': params}, x=x_hat, sigma=t_hat, 
+                augment_labels= None, train=False, rngs={'dropout': dropout_key})
             d_cur = (x_hat - denoised) / t_hat
             x_next = x_hat + (t_next - t_hat) * d_cur
 
             # Apply 2nd order correction.
             def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
                 denoised = self.model.apply(
-                    {'params': params}, x=x_next, sigma=t_next, augment_labels= None, train=False, rngs={'dropout': rng_key})
+                    {'params': params}, x=x_next, sigma=t_next, 
+                    augment_labels= None, train=False, rngs={'dropout': rng_key})
                 d_prime = (x_next - denoised) / t_next
                 x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
                 return x_next
@@ -157,7 +176,6 @@ class EDMFramework(DefaultModel):
             return [flax.jax_utils.unreplicate(self.model_state)]
         return [self.model_state]
     
-
     def fit(self, x0, cond=None, step=0):
         key, dropout_key = jax.random.split(self.rand_key, 2)
         self.rand_key = key
@@ -167,8 +185,9 @@ class EDMFramework(DefaultModel):
         dropout_key = jnp.asarray(dropout_key)
 
         # Augment pipeline
-        x0, labels = self.augmentation_pipeline(x0) if self.augment_rate is not None else x0, None
-        new_state, loss_dict = self.update_fn(self.model_state, dropout_key, x0, labels)
+        # x0, labels = self.augmentation_pipeline(x0) if self.augment_rate is not None else (x0, None)
+        # new_state, loss_dict = self.update_fn(self.model_state, dropout_key, x0, labels)
+        new_state, loss_dict = self.update_fn(self.model_state, dropout_key, x0)
 
         for loss_key in loss_dict:
             loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])

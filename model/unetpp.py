@@ -277,8 +277,10 @@ class UNetpp(nn.Module):
         emb = self.map_noise(noise_labels)
 
         # Add augment embedding if exists
-        augment_emb = jnp.where(augment_labels is None, jnp.zeros(emb.shape), self.map_augment(augment_labels))
-        emb += augment_emb
+        if augment_labels is not None:
+            emb += self.map_augment(augment_labels)
+        # augment_emb = jnp.where(augment_labels is None, jnp.zeros(emb.shape), self.map_augment(augment_labels))
+        # emb += augment_emb
 
         # TODO: Add conditional stuffs in here
         emb = nn.silu(self.map_layer0(emb))
