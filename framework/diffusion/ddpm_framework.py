@@ -169,6 +169,7 @@ class DDPMFramework(DefaultModel):
                 eps = jax.random.normal(normal_key, perturbed_data.shape)
                 return_val = jnp.where(time[0] == 0, mean, mean + sigma * eps)
                 return return_val
+
         elif self.type == "ddim":
             try:
                 self.skip_timestep = diffusion_framework['skip_timestep']
@@ -206,16 +207,10 @@ class DDPMFramework(DefaultModel):
         # self.p_sample_jit = p_sample_jit
 
     def _l2_loss(self, real, pred):
-        # return jnp.mean((real - pred) ** 2)
-        # return jax.lax.psum((real - pred) ** 2)
-        # mean = jax.lax.pmean((real - pred) ** 2, axis_name=self.pmap_axis)
-        loss_sum = jax.lax.psum((real - pred) ** 2, axis_name=self.pmap_axis)
-        loss_sum = jnp.sum(loss_sum)
-        mean = loss_sum / (real.size * jax.local_device_count())
-        return mean
+        return jnp.mean((real - pred) ** 2)
 
     def _l1_loss(self, real, pred):
-        return jnp.mean((real - pred) ** 2)
+        return jnp.mean(jnp.abs(real - pred))
     
     def _vlb_loss(self, real_perturbed_data, real_epsilon, pred_epsilon, pred_logvar, time, stop_gradient=False):
         # Get real mean from real_perturbed_data
