@@ -7,6 +7,8 @@ from functools import partial
 
 from typing import Sequence, Union, Tuple
 
+from einops import rearrange
+
 def create_initializer(init_name: str = None):
     def get_in_out_features(shape, fan_in, fan_out):
         if fan_in is None and fan_out is None:
@@ -146,7 +148,6 @@ class ResidualBlock(nn.Module):
         # Add time embedding value
         if t is not None:
             t = nn.swish(t)
-            # t_emb = nn.Dense(self.out_channels)(t)
             t_emb = CustomDense(self.out_channels)(t)
             h += t_emb[:, None, None, :]
 
@@ -158,8 +159,7 @@ class ResidualBlock(nn.Module):
         if x.shape != h.shape:
             short = CustomConv2d(self.out_channels, (3, 3))(x)
         else:
-            # short = nn.Dense(self.out_channels)(x)
-            short = CustomDense(self.out_channels)(x)
+            # short = CustomDense(self.out_channels)(x)
             short = x
         return h + short
 
@@ -170,29 +170,33 @@ class AttentionBlock(nn.Module):
     
     @nn.compact
     def __call__(self, x): # x: b x y c
-        scale = self.n_channels ** -0.5
+        # scale = self.n_channels ** -0.5
 
         batch_size, height, width, n_channels = x.shape
         head_channels = n_channels // self.n_heads
+        scale = head_channels ** -0.5
         # Projection
         x_skip = x
         x = nn.GroupNorm(self.n_groups)(x)
         qkv = CustomConv2d(self.n_heads * head_channels * 3, (1, 1), use_bias=False)(x) # qkv: b x y h*c*3
-        qkv = qkv.reshape(batch_size, -1, self.n_heads, 3 * head_channels) # b (x y) h c*3
+        qkv = rearrange(qkv, "b y x (h c) -> b (y x) h c", h=self.n_heads)
 
         # Split as query, key, value
         q, k, v = jnp.split(qkv, 3, axis=-1) # q,k,v = b (x y) h c
 
+        q = q * scale
+
         # Scale dot product 
-        atten = jnp.einsum('bihd,bjhd->bijh', q, k) * scale
+        atten = jnp.einsum('b i h d, b j h d -> b i j h', q, k)
 
         # Softmax
         atten = nn.softmax(atten, axis=2)
 
         # Multiply by value
-        res = jnp.einsum('bijh,bjhd->bihd', atten, v)
+        res = jnp.einsum('b i j h, b j h d -> b i h d', atten, v)
+        # res = jnp.einsum('b i j h, b i h d -> b j h d', atten, v)
 
-        res = res.reshape(batch_size, height, width, self.n_heads * head_channels)
+        res = rearrange(res, "b (y x) h c-> b y x (h c)", x=width, y=height)
         res = CustomConv2d(self.n_channels, (1, 1), init_scale=0.)(res)
 
         # skip connection
