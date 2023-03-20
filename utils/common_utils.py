@@ -1,6 +1,5 @@
 import os
-import yaml
-import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import requests
 
 import flax
@@ -41,7 +40,9 @@ def normalize_to_minus_one_to_one(image):
 def unnormalize_minus_one_to_one(images):
     return (images + 1) * 0.5 
 
-def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, pmap=False):
+def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_steps=1):
+  assert n_jitted_steps >= 1
+
   AUTOTUNE = tf.data.experimental.AUTOTUNE
   def normalize_channel_scale(image, label):
     image = tf.cast(image, tf.float32)
@@ -55,34 +56,20 @@ def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, pmap=False):
     return image, label
 
   ds = tfds.load(dataset_name, as_supervised=True)
+  # ds = tfds.builder(dataset_name)
   train_ds, _ = ds['train'], ds['test']
 
-  # if pmap:
-    # batch_size = batch_size * jax.local_device_count()
+  device_count = jax.local_device_count()
+  batch_dims= [device_count, n_jitted_steps, batch_size // device_count]
 
-  augmented_train_ds = (
-    train_ds
-    .shuffle(1000)
-    .repeat()
-    .map(augmentation, num_parallel_calls=AUTOTUNE)
-    .batch(batch_size)
-    .prefetch(AUTOTUNE)
-  )
-
-  # return augmented_train_ds
-  if pmap:
-    def reshape(xs):
-      local_device_count = jax.local_device_count()
-      def _reshape(x):
-          x = x.numpy()
-          return x.reshape((local_device_count, -1) + x.shape[1:])
-      return jax.tree_map(_reshape, xs)
-      # return jax.tree_map(lambda x: x.numpy(), xs)
-    
-  else:
-    def reshape(xs):
-      return jax.tree_map(lambda x: x.numpy(), xs)
-  it = map(reshape, augmented_train_ds)
+  train_ds = train_ds.shuffle(1000)
+  train_ds = train_ds.repeat()
+  train_ds = train_ds.map(augmentation, num_parallel_calls=AUTOTUNE)
+  for dim in reversed(batch_dims):
+    train_ds = train_ds.batch(dim)
+  augmented_train_ds = train_ds.prefetch(AUTOTUNE)
+  # it = tfds.as_numpy(augmented_train_ds)
+  it = map(lambda data: jax.tree_map(lambda x: x._numpy(), data), augmented_train_ds)
   it = flax.jax_utils.prefetch_to_device(it, 2)
 
   return it

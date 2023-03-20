@@ -29,18 +29,13 @@ class EDMFramework(DefaultModel):
         self.rand_key = rand_key
         self.fs_obj = fs_obj
         self.wandblog = wandblog
-        self.pmap = config.pmap
         
-        if self.pmap:
-            self.pmap_axis = "batch"
+        self.pmap_axis = "batch"
 
         # Create UNet and its state
         model_config = {**config.model.diffusion}
         model_type = model_config.pop("type")
         self.model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
-        # self.model = UNet(**model_config)
-        state_rng, self.rand_key = jax.random.split(self.rand_key, 2)
-        # self.model_state = jax_utils.create_train_state(config, 'diffusion', self.model, state_rng, None)
         self.model_state = self.init_model_state(config)
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
         
@@ -52,13 +47,13 @@ class EDMFramework(DefaultModel):
         self.S_min = 0 if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_min']
         self.S_max = float('inf') if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_max']
         self.S_noise = 1 if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_noise']
-        # PMAP
-        if self.pmap:
-            self.model_state = flax.jax_utils.replicate(self.model_state)
+
+        # Replicate model state to use multiple compuatation units 
+        self.model_state = flax.jax_utils.replicate(self.model_state)
 
         # Create ema obj
         ema_config = config.ema
-        self.ema_obj = EMA(**ema_config, pmap=self.pmap)
+        self.ema_obj = EMA(**ema_config)
 
         @jax.jit
         def loss_fn(params, y, rng_key):
@@ -83,15 +78,17 @@ class EDMFramework(DefaultModel):
             loss_dict['total_loss'] = loss
             return loss, loss_dict
         
-        def update(state:train_state.TrainState, x0, rng):
+        def update(carry_state, x0):
+            (rng, state) = carry_state
+            rng, new_rng = jax.random.split(rng)
             (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, x0, rng)
-            if self.pmap:
-                grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
+
+            grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
             new_state = state.apply_gradients(grads=grad)
             for loss_key in loss_dict:
-                # loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
-            return new_state, loss_dict
+            new_carry_state = (new_rng, new_state)
+            return new_carry_state, loss_dict
         
         def p_sample_jit(params, x_cur, rng_key, gamma, t_cur, t_next):
             rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
@@ -120,9 +117,7 @@ class EDMFramework(DefaultModel):
                                     x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2)
             return x_result
 
-        self.loss_fn = loss_fn
-        self.grad_fn = jax.pmap(jax.value_and_grad(self.loss_fn, has_aux=True), axis_name=self.pmap_axis)
-        self.update_fn = jax.pmap(update, axis_name=self.pmap_axis)
+        self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis, donate_argnums=1)
         self.p_sample_jit = jax.pmap(p_sample_jit)
 
     
@@ -140,9 +135,7 @@ class EDMFramework(DefaultModel):
         return jax_utils.create_train_state(config, 'diffusion', self.model.apply, params)
 
     def get_model_state(self):
-        if self.pmap:
-            return [flax.jax_utils.unreplicate(self.model_state)]
-        return [self.model_state]
+        return [flax.jax_utils.unreplicate(self.model_state)]
     
 
     def fit(self, x0, cond=None, step=0):
@@ -152,8 +145,10 @@ class EDMFramework(DefaultModel):
         # Apply pmap
         dropout_key = jax.random.split(dropout_key, jax.local_device_count())
         dropout_key = jnp.asarray(dropout_key)
-        new_state, loss_dict = self.update_fn(self.model_state, x0, dropout_key)
+        new_carry, loss_dict_stack = self.update_fn((dropout_key, self.model_state), x0)
+        (_, new_state) = new_carry
 
+        loss_dict = flax.jax_utils.unreplicate(loss_dict_stack)
         for loss_key in loss_dict:
             loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])
 
@@ -168,10 +163,7 @@ class EDMFramework(DefaultModel):
         return return_dict
     
     def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
-        if self.pmap:
-            latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
-        else:
-            latent_sampling_tuple = (num_image, *img_size)
+        latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
         step_indices = jnp.arange(self.n_timestep)
@@ -185,11 +177,11 @@ class EDMFramework(DefaultModel):
             gamma_val = jnp.minimum(jnp.sqrt(2) - 1, self.S_churn / self.n_timestep)
             gamma = jnp.where(self.S_min <= t_cur and t_cur <= self.S_max,
                             gamma_val, 0)
-            if self.pmap:
-                rng_key = jax.random.split(rng_key, jax.local_device_count())
-                t_cur = jnp.asarray([t_cur] * jax.local_device_count())
-                t_next = jnp.asarray([t_next] * jax.local_device_count())
-                gamma = jnp.asarray([gamma] * jax.local_device_count())
+
+            rng_key = jax.random.split(rng_key, jax.local_device_count())
+            t_cur = jnp.asarray([t_cur] * jax.local_device_count())
+            t_next = jnp.asarray([t_next] * jax.local_device_count())
+            gamma = jnp.asarray([gamma] * jax.local_device_count())
             latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
 
         if original_data is not None:

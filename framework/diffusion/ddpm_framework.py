@@ -30,10 +30,8 @@ class DDPMFramework(DefaultModel):
         self.rand_key = rand_key
         self.fs_obj = fs_obj
         self.wandblog = wandblog
-        self.pmap = config.pmap
-        
-        if self.pmap:
-            self.pmap_axis = "batch"
+
+        self.pmap_axis = "batch"
 
         # Create UNet and its state
         model_config = {**config.model.diffusion}
@@ -48,12 +46,11 @@ class DDPMFramework(DefaultModel):
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
         
         # PMAP
-        if self.pmap:
-            self.model_state = flax.jax_utils.replicate(self.model_state)
+        self.model_state = flax.jax_utils.replicate(self.model_state)
 
         # Create ema obj
         ema_config = config.ema
-        self.ema_obj = EMA(**ema_config, pmap=self.pmap)
+        self.ema_obj = EMA(**ema_config)
 
         beta = diffusion_framework['beta']
         loss = diffusion_framework['loss']
@@ -126,8 +123,8 @@ class DDPMFramework(DefaultModel):
         
         def update(state:train_state.TrainState, x0, rng):
             (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, x0, rng)
-            if self.pmap:
-                grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
+
+            grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
             new_state = state.apply_gradients(grads=grad)
             for loss_key in loss_dict:
                 # loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])
@@ -206,16 +203,10 @@ class DDPMFramework(DefaultModel):
         # self.p_sample_jit = p_sample_jit
 
     def _l2_loss(self, real, pred):
-        # return jnp.mean((real - pred) ** 2)
-        # return jax.lax.psum((real - pred) ** 2)
-        # mean = jax.lax.pmean((real - pred) ** 2, axis_name=self.pmap_axis)
-        loss_sum = jax.lax.psum((real - pred) ** 2, axis_name=self.pmap_axis)
-        loss_sum = jnp.sum(loss_sum)
-        mean = loss_sum / (real.size * jax.local_device_count())
-        return mean
+        return jnp.mean((real - pred) ** 2)
 
     def _l1_loss(self, real, pred):
-        return jnp.mean((real - pred) ** 2)
+        return jnp.mean(jnp.abs(real - pred))
     
     def _vlb_loss(self, real_perturbed_data, real_epsilon, pred_epsilon, pred_logvar, time, stop_gradient=False):
         # Get real mean from real_perturbed_data
@@ -239,7 +230,6 @@ class DDPMFramework(DefaultModel):
             jnp.exp(logvar1 - logvar2) + 
             ((mean1 - mean2) ** 2) * jnp.exp(-logvar2))
         return jnp.mean(kl) / jnp.log(2.0)
-        # return jax.lax.pmean()
     
     def get_learned_logvar(self, pred_sigma, time):
         min_log_var = jnp.take(self.logvar_lower_bound, time)[:, None, None, None]
@@ -276,9 +266,7 @@ class DDPMFramework(DefaultModel):
     
     def get_model_state(self) -> TypedDict:
         # self.set_ema_params_to_state()
-        if self.pmap:
-            return [flax.jax_utils.unreplicate(self.model_state)]
-        return [self.model_state]
+        return [flax.jax_utils.unreplicate(self.model_state)]
 
     def init_model_state(self, config: DictConfig):
         self.rand_key, param_rng, dropout_rng = jax.random.split(self.rand_key, 3)
@@ -321,10 +309,8 @@ class DDPMFramework(DefaultModel):
         return return_dict
     
     def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
-        if self.pmap:
-            latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
-        else:
-            latent_sampling_tuple = (num_image, *img_size)
+        latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
+
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
         latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple)
 
@@ -332,9 +318,8 @@ class DDPMFramework(DefaultModel):
             pbar = tqdm(reversed(range(0, self.n_timestep, self.skip_timestep)))
             for t in pbar:
                 rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
-                if self.pmap:
-                    rng_key = jax.random.split(rng_key, jax.local_device_count())
-                    t = jnp.asarray([t] * jax.local_device_count())
+                rng_key = jax.random.split(rng_key, jax.local_device_count())
+                t = jnp.asarray([t] * jax.local_device_count())
                 latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, rng_key)
         elif self.type == "ddim":
             seq = jnp.linspace(0, jnp.sqrt(self.n_timestep - 1), self.n_timestep // self.skip_timestep) ** 2
@@ -344,10 +329,9 @@ class DDPMFramework(DefaultModel):
             pbar = tqdm(pbar)
             for t, next_t in zip(pbar, next_pbar):
                 rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
-                if self.pmap:
-                    rng_key = jax.random.split(rng_key, jax.local_device_count())
-                    t = jnp.asarray([t] * jax.local_device_count())
-                    next_t = jnp.asarray([next_t] * jax.local_device_count())
+                rng_key = jax.random.split(rng_key, jax.local_device_count())
+                t = jnp.asarray([t] * jax.local_device_count())
+                next_t = jnp.asarray([next_t] * jax.local_device_count())
                 latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, t, next_t, rng_key)
 
         if original_data is not None:

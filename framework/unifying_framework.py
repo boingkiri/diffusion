@@ -29,7 +29,7 @@ class UnifyingFramework():
         self.random_rng = random_rng
         self.dataset_name = config.dataset.name
         self.do_fid_during_training = config.fid_during_training
-        self.pmap = config.pmap
+        self.n_jitted_steps = config.get("n_jitted_steps", 1)
         self.set_train_step_process(config)
     
     def set_train_step_process(self, config: DictConfig):
@@ -105,8 +105,8 @@ class UnifyingFramework():
                 prefix=discriminator_prefix)
 
     def train(self):
-        datasets = common_utils.load_dataset_from_tfds(pmap=self.pmap)
-        datasets_bar = tqdm(datasets, total=self.total_step-self.step)
+        datasets = common_utils.load_dataset_from_tfds(n_jitted_steps=self.n_jitted_steps)
+        datasets_bar = tqdm(datasets, total=self.total_step-self.step, initial=self.step)
         in_process_dir = self.config.exp.in_process_dir
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
@@ -125,7 +125,7 @@ class UnifyingFramework():
             ))
 
             if self.step % 1000 == 0:
-                batch_data = x[:8] if not self.pmap else x[0, :8]
+                batch_data = x[0, 0, :8] # (device_idx, n_jitted_steps, batch_size)
                 sample = self.sampling(8, original_data=batch_data)
                 xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_path = self.fs_utils.save_comparison(xset, self.step, in_process_dir)
@@ -133,7 +133,7 @@ class UnifyingFramework():
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
 
-            if self.step % 50000 == 0:
+            if self.step % 50000 == 0 and self.step != 0:
                 model_state = self.framework.get_model_state()
                 self.save_model_state(model_state)
 
@@ -150,7 +150,8 @@ class UnifyingFramework():
             if self.step >= self.total_step:
                 if not self.next_step():
                     break
-            self.step += 1
+            self.step += self.n_jitted_steps
+            datasets_bar.update(self.n_jitted_steps)
 
     def sampling_and_save(self, total_num, img_size=None):
         if img_size is None:
@@ -164,7 +165,7 @@ class UnifyingFramework():
     
     def reconstruction(self, total_num):
         img_size = common_utils.get_dataset_size(self.dataset_name)
-        datasets = common_utils.load_dataset_from_tfds(pmap=self.pmap)
+        datasets = common_utils.load_dataset_from_tfds(n_jitted_step=self.n_jitted_steps)
         datasets_bar = tqdm(datasets, total=total_num)
         current_num = 0
         for x, _ in datasets_bar:
