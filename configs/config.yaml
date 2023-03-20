@@ -18,14 +18,14 @@ defaults:
 
 # type: ddpm ddpm
 type: edm
-exp_name: edm_stochastic_sampling
+exp_name: edm_retraining
 do_training: true
 do_sampling: true
 num_sampling: 50000
 sampling_batch: 256
 rand_seed: 42
 fid_during_training: true # True when calculating fid during training, otherwise, false.
-pmap: True
+n_jitted_steps: 10
 
 framework:
   train_idx: 2
