@@ -112,10 +112,14 @@ class EDMFramework(DefaultModel):
             noise = jax.random.normal(rng_key, x_cur.shape) * self.S_noise
             x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
 
+            # Augment label
+            augment_dim = config.model.diffusion.get("augment_dim", None)
+            augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
+
             # Euler step
             denoised = self.model.apply(
                 {'params': params}, x=x_hat, sigma=t_hat, 
-                train=False, augment_labels= None, rngs={'dropout': dropout_key})
+                train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
             d_cur = (x_hat - denoised) / t_hat
             x_next = x_hat + (t_next - t_hat) * d_cur
 
@@ -123,7 +127,7 @@ class EDMFramework(DefaultModel):
             def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
                 denoised = self.model.apply(
                     {'params': params}, x=x_next, sigma=t_next, 
-                    train=False, augment_labels= None, rngs={'dropout': rng_key})
+                    train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
                 d_prime = (x_next - denoised) / t_next
                 x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
                 return x_next
@@ -148,7 +152,7 @@ class EDMFramework(DefaultModel):
         input_format = jnp.ones([1, *config.dataset.data_size])
 
         augment_dim = config.model.diffusion.get("augment_dim", None)
-        augment_labels = jnp.ones([1, augment_dim]) if augment_dim is not None else None
+        augment_labels = jnp.zeros([1, augment_dim]) if augment_dim is not None else None
         params = self.model.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), train=False, augment_labels=augment_labels)['params']
 
         return jax_utils.create_train_state(config, 'diffusion', self.model.apply, params)

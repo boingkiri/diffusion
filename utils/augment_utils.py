@@ -335,7 +335,7 @@ class AugmentPipe:
   # @partial(jax.vmap, in_axes=(None, 0))
   def __call__(self, images):
     pmap=False
-    if len(images.shape) == 5:
+    if len(images.shape) != 4:
       pmap=True
       original_images_format = images.shape
       images= images.reshape((-1, *images.shape[-3:]))
@@ -463,13 +463,6 @@ class AugmentPipe:
       G_inv = scale2d(2 / images.shape[3], 2 / images.shape[2]) @ G_inv @ scale2d_inv(2 / shape[3], 2 / shape[2])
       grid = self.affine_grid(theta=G_inv[:,:2,:], shape=shape)
       images = self.grid_sampler(images, grid)
-      # theta = torch.tensor(np.array(G_inv[:,:2,:]))
-      # images = torch.tensor(np.array(images))
-      # grid = F.affine_grid(theta=theta, size=shape, align_corners=False)
-      # images = F.grid_sample(images, grid, mode='bilinear', padding_mode='zeros', align_corners=False)
-      # images = jnp.array(images.numpy())
-      # breakpoint()
-
 
       # Downsample and crop.
       conv_weight = jnp.tile(constant(Hz[None, None, :]), [images.shape[1], 1, 1])
@@ -540,7 +533,8 @@ class AugmentPipe:
     images = jnp.transpose(images, (0, 2, 3, 1))
     if pmap:
       images = images.reshape(*original_images_format)
-      labels = labels.reshape(original_images_format[0], original_images_format[1], -1)
+      # labels = labels.reshape(original_images_format[0], original_images_format[1], -1)
+      labels = labels.reshape(*original_images_format[:-3], -1)
     # breakpoint()
     return images, labels
 

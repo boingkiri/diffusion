@@ -19,14 +19,20 @@ class UNet(nn.Module):
     learn_sigma: bool = False
 
     @nn.compact
-    def __call__(self, x, t, train, augment_label=None):
+    def __call__(self, x, t, train, augment_labels=None):
         t = TimeEmbedding(self.n_channels)(t)
         
-        # t = TimeEmbed(self.n_channels, self.n_channels * 4)(t)
-        if augment_label is not None:
+        # t = jnp.where(
+        #     augment_labels is not None,
+        #     t + nn.Dense(self.n_channels, use_bias=False)(augment_labels),
+        #     t
+        # )
+        if augment_labels is not None:
             # t += CustomDense(self.n_channels * 4, init_scale=0.)(augment_label)
-            t += nn.Dense(self.n_channels * 4)(augment_label)
+            t = t + nn.Dense(self.n_channels, use_bias=False)(augment_labels)
+        # breakpoint()
         t = nn.Dense(self.n_channels * 4)(t)
+        # breakpoint()
         t = nn.swish(t)
         t = nn.Dense(self.n_channels * 4)(t)
 
@@ -44,7 +50,6 @@ class UNet(nn.Module):
             if i < n_resolution - 1:
                 out_channels = self.n_channels * self.ch_mults[i+1]
                 x = Downsample(out_channels)(x)
-                # h.append(x)
         
         x = UnetMiddle(out_channels, dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
 
