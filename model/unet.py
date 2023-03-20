@@ -58,6 +58,6 @@ class UNet(nn.Module):
 
         out_channels = self.image_channels * 2 if self.learn_sigma else self.image_channels
         # x = nn.Conv(out_channels, (3, 3))(x)
-        x = CustomConv2d(out_channels, (3, 3))(x)
+        x = CustomConv2d(out_channels, (3, 3), init_scale=0.)(x)
 
         return x

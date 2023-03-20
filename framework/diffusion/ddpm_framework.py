@@ -166,6 +166,7 @@ class DDPMFramework(DefaultModel):
                 eps = jax.random.normal(normal_key, perturbed_data.shape)
                 return_val = jnp.where(time[0] == 0, mean, mean + sigma * eps)
                 return return_val
+
         elif self.type == "ddim":
             try:
                 self.skip_timestep = diffusion_framework['skip_timestep']
