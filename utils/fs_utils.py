@@ -77,7 +77,7 @@ class FSUtils():
                 num = int(num)
                 if num > max_num:
                     max_num = num
-        return max_num + 1
+        return max_num
     
     def save_comparison(self, images, steps, savepath):
         # Make in process dir first
