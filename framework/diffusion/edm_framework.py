@@ -60,24 +60,12 @@ class EDMFramework(DefaultModel):
         augment_rng, self.rand_key = jax.random.split(self.rand_key)
         self.augment_rate = diffusion_framework.get("augment_rate", None)
         if self.augment_rate is not None:
-            ### TODO: image shape of augment pipe is concretized to adapt to CIFAR10.
-            # If you need to use pipeline with other dataset, you have to set the size of dataset manually
-            # ...or I will add some codes to allocate the value to the function automatically.
-            if self.pmap:
-                pipeline_shape = (diffusion_framework.train.batch_size // jax.local_device_count(), 32, 32, 3)
-            else:
-                pipeline_shape = (diffusion_framework.train.batch_size, 32, 32, 3)
-            # self.augmentation_pipeline = AugmentPipe(
-            #     rng_key=augment_rng, images_shape=pipeline_shape ,p=self.augment_rate, xflip=1e8, 
-            #     yflip=1, scale=1, rotate_frac=1, 
-            #     aniso=1, translate_frac=1)
             self.augmentation_pipeline = AugmentPipe(
                 rng_key=augment_rng ,p=self.augment_rate, xflip=1e8, 
                 yflip=1, scale=1, rotate_frac=1, 
                 aniso=1, translate_frac=1)
 
         @jax.jit
-        # def loss_fn(params, rng_key, y, augment_label):
         def loss_fn(params, rng_key, y):
             p_mean = -1.2
             p_std = 1.2
