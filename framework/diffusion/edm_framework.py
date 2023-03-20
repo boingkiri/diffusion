@@ -174,16 +174,8 @@ class EDMFramework(DefaultModel):
         # Apply pmap
         dropout_key = jax.random.split(dropout_key, jax.local_device_count())
         dropout_key = jnp.asarray(dropout_key)
-<<<<<<< HEAD
         new_carry, loss_dict_stack = self.update_fn((dropout_key, self.model_state), x0)
         (_, new_state) = new_carry
-=======
-
-        # Augment pipeline
-        # x0, labels = self.augmentation_pipeline(x0) if self.augment_rate is not None else (x0, None)
-        # new_state, loss_dict = self.update_fn(self.model_state, dropout_key, x0, labels)
-        new_state, loss_dict = self.update_fn(self.model_state, dropout_key, x0)
->>>>>>> c3edd19601fe41220df97a9afd026aa44e34d765
 
         loss_dict = flax.jax_utils.unreplicate(loss_dict_stack)
         for loss_key in loss_dict:
