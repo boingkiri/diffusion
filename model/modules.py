@@ -117,7 +117,7 @@ class TimeEmbedding(nn.Module):
         emb = math.log(10000) / (half_dim - 1)
         emb = jnp.exp(jnp.arange(half_dim, dtype=self.dtype) * -emb)
         emb = time.astype(self.dtype)[:, None] * emb[None, :]
-        emb = jnp.concatenate([jnp.sin(emb), jnp.cos(emb)], axis=-1)
+        emb = jnp.concatenate([jnp.sin(emb), jnp.cos(emb)], axis=1)
         return emb
 
 class TimeEmbed(nn.Module):
