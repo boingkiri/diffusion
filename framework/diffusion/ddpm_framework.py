@@ -121,15 +121,25 @@ class DDPMFramework(DefaultModel):
             loss_dict['total_loss'] = loss
             return loss, loss_dict
         
-        def update(state:train_state.TrainState, x0, rng):
+        # def update(state:train_state.TrainState, x0, rng):
+        #     (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, x0, rng)
+
+        #     grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
+        #     new_state = state.apply_gradients(grads=grad)
+        #     for loss_key in loss_dict:
+        #         loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
+        #     return new_state, loss_dict
+        def update(carry_state, x0):
+            (rng, state) = carry_state
+            rng, new_rng = jax.random.split(rng)
             (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, x0, rng)
 
             grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
             new_state = state.apply_gradients(grads=grad)
             for loss_key in loss_dict:
-                # loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
-            return new_state, loss_dict
+            new_carry_state = (new_rng, new_state)
+            return new_carry_state, loss_dict
         
         if self.type == "ddpm":
             self.skip_timestep = 1
@@ -197,11 +207,8 @@ class DDPMFramework(DefaultModel):
         else:
             NotImplementedError("Diffusion framework only accept 'DDPM' or 'DDIM' for now.")
 
-        self.loss_fn = loss_fn
-        self.grad_fn = jax.pmap(jax.value_and_grad(self.loss_fn, has_aux=True), axis_name=self.pmap_axis)
-        self.update_fn = jax.pmap(update, axis_name=self.pmap_axis)
+        self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis, donate_argnums=1)
         self.p_sample_jit = jax.pmap(p_sample_jit)
-        # self.p_sample_jit = p_sample_jit
 
     def _l2_loss(self, real, pred):
         return jnp.mean((real - pred) ** 2)
@@ -294,8 +301,10 @@ class DDPMFramework(DefaultModel):
         # Apply pmap
         dropout_key = jax.random.split(dropout_key, jax.local_device_count())
         dropout_key = jnp.asarray(dropout_key)
-        new_state, loss_dict = self.update_fn(self.model_state, x0, dropout_key)
+        new_carry, loss_dict_stack = self.update_fn((dropout_key, self.model_state), x0)
+        (_, new_state) = new_carry
 
+        loss_dict = flax.jax_utils.unreplicate(loss_dict_stack)
         for loss_key in loss_dict:
             loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])
 
