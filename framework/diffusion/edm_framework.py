@@ -66,7 +66,7 @@ class EDMFramework(DefaultModel):
                 aniso=1, translate_frac=1)
 
         @jax.jit
-        def loss_fn(params, rng_key, y):
+        def loss_fn(params, y, rng_key):
             p_mean = -1.2
             p_std = 1.2
             sigma_data = 0.5
@@ -100,6 +100,7 @@ class EDMFramework(DefaultModel):
             new_state = state.apply_gradients(grads=grad)
             for loss_key in loss_dict:
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
+            new_state = self.ema_obj.ema_update(new_state)[0]
             new_carry_state = (new_rng, new_state)
             return new_carry_state, loss_dict
         
@@ -132,7 +133,7 @@ class EDMFramework(DefaultModel):
                                     x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2)
             return x_result
 
-        self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis, donate_argnums=1)
+        self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
         self.p_sample_jit = jax.pmap(p_sample_jit)
 
     
@@ -172,7 +173,7 @@ class EDMFramework(DefaultModel):
         self.model_state = new_state
 
         # Update EMA parameters
-        self.model_state, _ = self.ema_obj.ema_update(self.model_state, step)
+        # self.model_state, _ = self.ema_obj.ema_update(self.model_state)
 
         return_dict = {}
         return_dict.update(loss_dict)
