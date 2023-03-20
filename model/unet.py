@@ -9,6 +9,7 @@ from model.modules import *
 class UNet(nn.Module):
     image_channels: int = 3
     n_channels: int = 128
+    augment_dim: int = 9
     ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 2, 2)# (1, 2, 4, 4) # (1, 2, 2, 4)
     is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False) # (False, True, True, True) # (False, False, True, True)
     n_blocks: int = 2
@@ -18,15 +19,19 @@ class UNet(nn.Module):
     learn_sigma: bool = False
 
     @nn.compact
-    def __call__(self, x, t, train):
-        # t = TimeEmbedding(self.n_channels)(t)
-        # t = nn.Dense(self.n_channels * 4)(t)
-        # t = nn.swish(t)
-        # t = nn.Dense(self.n_channels * 4)(t)
-        t = TimeEmbed(self.n_channels, self.n_channels * 4)(t)
+    def __call__(self, x, t, train, augment_label=None):
+        t = TimeEmbedding(self.n_channels)(t)
+        
+        # t = TimeEmbed(self.n_channels, self.n_channels * 4)(t)
+        if augment_label is not None:
+            # t += CustomDense(self.n_channels * 4, init_scale=0.)(augment_label)
+            t += nn.Dense(self.n_channels * 4)(augment_label)
+        t = nn.Dense(self.n_channels * 4)(t)
+        t = nn.swish(t)
+        t = nn.Dense(self.n_channels * 4)(t)
 
-        # x = nn.Conv(self.n_channels, (3, 3))(x)
-        x = CustomConv2d(self.n_channels, (3, 3))(x)
+        x = nn.Conv(self.n_channels, (3, 3))(x)
+        # x = CustomConv2d(self.n_channels, (3, 3))(x)
         # Store Downward output for skip connection
         h = [x]
 
@@ -57,7 +62,7 @@ class UNet(nn.Module):
         x = nn.swish(x)
 
         out_channels = self.image_channels * 2 if self.learn_sigma else self.image_channels
-        # x = nn.Conv(out_channels, (3, 3))(x)
-        x = CustomConv2d(out_channels, (3, 3))(x)
+        x = nn.Conv(out_channels, (3, 3))(x)
+        # x = CustomConv2d(out_channels, (3, 3), init_scale=0.)(x)
 
         return x

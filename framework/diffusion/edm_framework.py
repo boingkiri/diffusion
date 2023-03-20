@@ -100,7 +100,7 @@ class EDMFramework(DefaultModel):
             # Network will predict D_yn (denoised dataset rather than epsilon) directly.
             D_yn = self.model.apply(
                 {'params': params}, x=(y + n), sigma=sigma, 
-                augment_labels=augment_label, train=True, rngs={'dropout': dropout_key})
+                train=True, augment_labels=augment_label, rngs={'dropout': dropout_key})
             loss = weight * ((D_yn - y) ** 2)
             loss = jnp.mean(loss)
 
@@ -131,7 +131,7 @@ class EDMFramework(DefaultModel):
             # Euler step
             denoised = self.model.apply(
                 {'params': params}, x=x_hat, sigma=t_hat, 
-                augment_labels= None, train=False, rngs={'dropout': dropout_key})
+                train=False, augment_labels= None, rngs={'dropout': dropout_key})
             d_cur = (x_hat - denoised) / t_hat
             x_next = x_hat + (t_next - t_hat) * d_cur
 
@@ -139,7 +139,7 @@ class EDMFramework(DefaultModel):
             def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
                 denoised = self.model.apply(
                     {'params': params}, x=x_next, sigma=t_next, 
-                    augment_labels= None, train=False, rngs={'dropout': rng_key})
+                    train=False, augment_labels= None, rngs={'dropout': rng_key})
                 d_prime = (x_next - denoised) / t_next
                 x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
                 return x_next
@@ -167,7 +167,7 @@ class EDMFramework(DefaultModel):
 
         augment_dim = config.model.diffusion.get("augment_dim", None)
         augment_labels = jnp.ones([1, augment_dim]) if augment_dim is not None else None
-        params = self.model.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), augment_labels=augment_labels, train=False)['params']
+        params = self.model.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), train=False, augment_labels=augment_labels)['params']
 
         return jax_utils.create_train_state(config, 'diffusion', self.model.apply, params)
 
