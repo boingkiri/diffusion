@@ -100,7 +100,7 @@ class EDMFramework(DefaultModel):
             new_state = state.apply_gradients(grads=grad)
             for loss_key in loss_dict:
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
-            new_state = self.ema_obj.ema_update(new_state)[0]
+            new_state = self.ema_obj.ema_update(new_state)
             new_carry_state = (new_rng, new_state)
             return new_carry_state, loss_dict
         

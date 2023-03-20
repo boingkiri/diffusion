@@ -121,14 +121,7 @@ class DDPMFramework(DefaultModel):
             loss_dict['total_loss'] = loss
             return loss, loss_dict
         
-        # def update(state:train_state.TrainState, x0, rng):
-        #     (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, x0, rng)
 
-        #     grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
-        #     new_state = state.apply_gradients(grads=grad)
-        #     for loss_key in loss_dict:
-        #         loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
-        #     return new_state, loss_dict
         def update(carry_state, x0):
             (rng, state) = carry_state
             rng, new_rng = jax.random.split(rng)
@@ -138,6 +131,7 @@ class DDPMFramework(DefaultModel):
             new_state = state.apply_gradients(grads=grad)
             for loss_key in loss_dict:
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
+            new_state = self.ema_obj.ema_update(new_state)
             new_carry_state = (new_rng, new_state)
             return new_carry_state, loss_dict
         
@@ -311,7 +305,7 @@ class DDPMFramework(DefaultModel):
         self.model_state = new_state
 
         # Update EMA parameters
-        self.model_state, _ = self.ema_obj.ema_update(self.model_state, step)
+        # self.model_state, _ = self.ema_obj.ema_update(self.model_state, step)
 
         return_dict = {}
         return_dict.update(loss_dict)
