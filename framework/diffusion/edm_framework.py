@@ -22,7 +22,7 @@ from functools import partial
 
 class EDMFramework(DefaultModel):
     def __init__(self, config: DictConfig, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
-        diffusion_framework = config.framework.diffusion
+        diffusion_framework: DictConfig = config.framework.diffusion
         self.n_timestep = diffusion_framework['n_timestep']
         self.type = diffusion_framework['type']
         self.learn_sigma = diffusion_framework['learn_sigma']
@@ -61,7 +61,7 @@ class EDMFramework(DefaultModel):
         self.augment_rate = diffusion_framework.get("augment_rate", None)
         if self.augment_rate is not None:
             self.augmentation_pipeline = AugmentPipe(
-                rng_key=augment_rng ,p=self.augment_rate, xflip=1e8, 
+                rng_key=augment_rng, p=self.augment_rate, xflip=1e8, 
                 yflip=1, scale=1, rotate_frac=1, 
                 aniso=1, translate_frac=1)
 

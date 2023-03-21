@@ -40,7 +40,7 @@ def normalize_to_minus_one_to_one(image):
 def unnormalize_minus_one_to_one(images):
     return (images + 1) * 0.5 
 
-def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_steps=1):
+def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_steps=1, x_flip=True):
   assert n_jitted_steps >= 1
 
   AUTOTUNE = tf.data.experimental.AUTOTUNE
@@ -52,7 +52,9 @@ def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_step
   
   def augmentation(image, label):
     image, label = normalize_channel_scale(image, label)
-    image = tf.image.random_flip_left_right(image)
+    if x_flip is True:
+      breakpoint()
+      image = tf.image.random_flip_left_right(image)
     return image, label
 
   ds = tfds.load(dataset_name, as_supervised=True)
