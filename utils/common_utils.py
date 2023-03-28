@@ -53,12 +53,10 @@ def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_step
   def augmentation(image, label):
     image, label = normalize_channel_scale(image, label)
     if x_flip is True:
-      breakpoint()
       image = tf.image.random_flip_left_right(image)
     return image, label
 
   ds = tfds.load(dataset_name, as_supervised=True)
-  # ds = tfds.builder(dataset_name)
   train_ds, _ = ds['train'], ds['test']
 
   device_count = jax.local_device_count()

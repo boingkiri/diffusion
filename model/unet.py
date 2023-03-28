@@ -51,12 +51,13 @@ class UNet(nn.Module):
             if i < n_resolution - 1:
                 out_channels = self.n_channels * self.ch_mults[i+1]
                 x = Downsample(out_channels)(x)
+                h.append(x)
         
         x = UnetMiddle(out_channels, dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
 
         for i in reversed(range(n_resolution)):
             out_channels = self.n_channels * self.ch_mults[i]
-            for _ in range(self.n_blocks):
+            for _ in range(self.n_blocks + 1):
                 s = h.pop()
                 x = jnp.concatenate((x, s), axis=-1)
                 x = UnetUp(out_channels, self.is_atten[i], dropout_rate=self.dropout_rate, n_groups=self.n_groups)(x, t, train)
