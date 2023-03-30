@@ -43,7 +43,7 @@ class CustomConv2d(nn.Module):
         self.resample_filter_outer = f if self.up or self.down else None
         self.dim_spec = ('NHWC', 'HWIO', 'NHWC')
 
-    @nn.compact
+    # @nn.compact
     def __call__(self, x):
         w = self.weight if self.weight is not None else None
         b = self.bias if self.bias is not None else None
@@ -86,6 +86,7 @@ class CustomConv2d(nn.Module):
                 padding = [[w_pad] * 2] * 2
                 x = jax.lax.conv_general_dilated(x, w, window_strides=(1, 1), 
                                                  padding=padding, dimension_numbers=self.dim_spec)
+        
         if b is not None:
             x = x + b.reshape(1, 1, 1, -1)
         return x
@@ -102,12 +103,15 @@ class AttentionModule(nn.Module):
         orig_x = x
         x = nn.GroupNorm(epsilon=self.eps)(x)
         qkv = CustomConv2d(self.out_channels, self.out_channels * 3, kernel_channels=1, init_mode=init_attn)(x)
-        qkv = qkv.reshape(x.shape[0] * self.num_heads, x.shape[1] // self.num_heads, -1, 3)
-        q, k, v = jnp.split(qkv, 3, axis=-1)
+        # qkv = qkv.reshape(x.shape[0] * self.num_heads, x.shape[1] // self.num_heads, -1, 3)
+        qkv = qkv.reshape(x.shape[0] * self.num_heads, 3, -1, x.shape[-1] // self.num_heads)
+        # q, k, v = jnp.split(qkv, 3, axis=-1)
+        q, k, v = jnp.split(qkv, 3, axis=1)
         k = k / jnp.sqrt(k.shape[-1])
         
         w = jnp.einsum('bnqc,bnkc->bnqk', q, k)
-        w = nn.softmax(w, axis=2)
+        # w = nn.softmax(w, axis=2)
+        w = nn.softmax(w, axis=-1)
 
         a = jnp.einsum('bnqk,bnkc->bnqc', w, v)
         a = a.reshape(*x.shape)
@@ -237,15 +241,16 @@ class UNetpp(nn.Module):
                 cin = cout
                 cout = self.n_channels
                 enc_modules[f'conv_{level}'] = CustomConv2d(in_channels=cin, out_channels=cout, kernel_channels=3, init_mode=init)
+                skips.append(cout)
             else:
                 enc_modules[f'down_{level}'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
+                skips.append(cout)
                 if self.encoder_type == 'skip':
                     enc_modules[f'aux_down_{level}'] = CustomConv2d(in_channels=caux, out_channels=caux, kernel_channels=0, down=True, resample_filter=self.resample_filter)
                     enc_modules[f'aux_skip_{level}'] = CustomConv2d(in_channels=caux, out_channels=cout, kernel_channels=1, init_mode=init)
                 if self.encoder_type == "residual":
                     enc_modules[f'aux_residual_{level}'] = CustomConv2d(in_channels=caux, out_channels=cout, kernel_channdls=3, down=True, resample_filter=self.resample_filter, fused_resample=True, init_mode=init)
                     caux=cout
-            skips.append(cout)
             for idx in range(self.n_blocks):
                 cin = cout
                 cout = self.n_channels * mult
@@ -260,6 +265,7 @@ class UNetpp(nn.Module):
                 dec_modules[f"{level}_in1"] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
             else:
                 dec_modules[f"{level}_up"] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
+            
             for idx in range(self.n_blocks + 1):
                 cin = cout + skips.pop()
                 cout = self.n_channels * mult
@@ -327,7 +333,7 @@ class EDMPrecond(nn.Module):
     sigma_min : float = 0.0
     sigma_max : float = float('inf')
     sigma_data : float = 0.5
-    model_type : str = "UNetpp"
+    model_type : str = "unetpp"
     
     @nn.compact
     def __call__(self, x, sigma, augment_labels, train):
