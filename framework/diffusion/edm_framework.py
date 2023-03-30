@@ -22,7 +22,7 @@ from functools import partial
 
 class EDMFramework(DefaultModel):
     def __init__(self, config: DictConfig, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
-        diffusion_framework = config.framework.diffusion
+        diffusion_framework: DictConfig = config.framework.diffusion
         self.n_timestep = diffusion_framework['n_timestep']
         self.type = diffusion_framework['type']
         self.learn_sigma = diffusion_framework['learn_sigma']
@@ -61,7 +61,7 @@ class EDMFramework(DefaultModel):
         self.augment_rate = diffusion_framework.get("augment_rate", None)
         if self.augment_rate is not None:
             self.augmentation_pipeline = AugmentPipe(
-                rng_key=augment_rng ,p=self.augment_rate, xflip=1e8, 
+                rng_key=augment_rng, p=self.augment_rate, xflip=1e8, 
                 yflip=1, scale=1, rotate_frac=1, 
                 aniso=1, translate_frac=1)
 
@@ -83,7 +83,7 @@ class EDMFramework(DefaultModel):
             # Network will predict D_yn (denoised dataset rather than epsilon) directly.
             D_yn = self.model.apply(
                 {'params': params}, x=(y + n), sigma=sigma, 
-                augment_labels=augment_label, train=True, rngs={'dropout': dropout_key})
+                train=True, augment_labels=augment_label, rngs={'dropout': dropout_key})
             loss = weight * ((D_yn - y) ** 2)
             loss = jnp.mean(loss)
 
@@ -100,7 +100,7 @@ class EDMFramework(DefaultModel):
             new_state = state.apply_gradients(grads=grad)
             for loss_key in loss_dict:
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
-            new_state = self.ema_obj.ema_update(new_state)[0]
+            new_state = self.ema_obj.ema_update(new_state)
             new_carry_state = (new_rng, new_state)
             return new_carry_state, loss_dict
         
@@ -112,10 +112,14 @@ class EDMFramework(DefaultModel):
             noise = jax.random.normal(rng_key, x_cur.shape) * self.S_noise
             x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
 
+            # Augment label
+            augment_dim = config.model.diffusion.get("augment_dim", None)
+            augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
+
             # Euler step
             denoised = self.model.apply(
                 {'params': params}, x=x_hat, sigma=t_hat, 
-                augment_labels= None, train=False, rngs={'dropout': dropout_key})
+                train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
             d_cur = (x_hat - denoised) / t_hat
             x_next = x_hat + (t_next - t_hat) * d_cur
 
@@ -123,7 +127,7 @@ class EDMFramework(DefaultModel):
             def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
                 denoised = self.model.apply(
                     {'params': params}, x=x_next, sigma=t_next, 
-                    augment_labels= None, train=False, rngs={'dropout': rng_key})
+                    train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
                 d_prime = (x_next - denoised) / t_next
                 x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
                 return x_next
@@ -148,8 +152,8 @@ class EDMFramework(DefaultModel):
         input_format = jnp.ones([1, *config.dataset.data_size])
 
         augment_dim = config.model.diffusion.get("augment_dim", None)
-        augment_labels = jnp.ones([1, augment_dim]) if augment_dim is not None else None
-        params = self.model.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), augment_labels=augment_labels, train=False)['params']
+        augment_labels = jnp.zeros([1, augment_dim]) if augment_dim is not None else None
+        params = self.model.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), train=False, augment_labels=augment_labels)['params']
 
         return jax_utils.create_train_state(config, 'diffusion', self.model.apply, params)
 

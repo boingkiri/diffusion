@@ -157,7 +157,8 @@ class ResidualBlock(nn.Module):
         h = CustomConv2d(self.out_channels, (3, 3), init_scale=0.)(h)
 
         if x.shape != h.shape:
-            short = CustomConv2d(self.out_channels, (3, 3))(x)
+            # short = CustomConv2d(self.out_channels, (3, 3))(x)
+            short = CustomConv2d(self.out_channels, (1, 1))(x)
         else:
             # short = CustomDense(self.out_channels)(x)
             short = x
@@ -203,6 +204,44 @@ class AttentionBlock(nn.Module):
         res += x_skip
 
         return res
+# class AttentionBlock(nn.Module):
+#     n_channels: int
+#     n_heads: int = 1
+#     n_groups: int = 8
+    
+#     @nn.compact
+#     def __call__(self, x): # x: b x y c
+#         scale = self.n_channels ** -0.5
+
+#         batch_size, height, width, n_channels = x.shape
+#         head_channels = n_channels // self.n_heads
+#         # Projection
+#         x_skip = x
+#         x = nn.GroupNorm(self.n_groups)(x)
+#         qkv = nn.Conv(self.n_heads * head_channels * 3, (1, 1), use_bias=False)(x) # qkv: b x y h*c*3
+#         qkv = qkv.reshape(batch_size, -1, self.n_heads, 3 * head_channels) # b (x y) h c*3
+
+#         # Split as query, key, value
+#         q, k, v = jnp.split(qkv, 3, axis=-1) # q,k,v = b (x y) h c
+
+#         # Scale dot product 
+#         atten = jnp.einsum('bihd,bjhd->bijh', q, k) * scale
+
+#         # Softmax
+#         atten = nn.softmax(atten, axis=2)
+
+#         # Multiply by value
+#         res = jnp.einsum('bijh,bjhd->bihd', atten, v)
+
+#         # res = res.reshape(batch_size, -1, self.n_heads * self.n_channels)
+#         res = res.reshape(batch_size, height, width, self.n_heads * head_channels)
+#         # res = nn.Dense(n_channels)(res)
+#         res = nn.Conv(self.n_channels, (1, 1))(res)
+
+#         # skip connection
+#         res += x_skip
+
+#         return res
 
 
 class UnetDown(nn.Module):

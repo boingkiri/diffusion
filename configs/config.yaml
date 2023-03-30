@@ -2,23 +2,23 @@ defaults:
   # - framework: ldm
   - framework: 
     # - diffusion/ddim
-    # - diffusion/ddpm
+    - diffusion/ddpm
     # - diffusion/improved_ddpm
-    - diffusion/edm
+    # - diffusion/edm
   - model: 
     - autoencoder/autoencoder_kl
     - discriminator/discriminator_kl
     # - diffusion/dit_b
-    # - diffusion/unet
-    - diffusion/unetpp
-  # - ema: ema
-  - ema: ema_edm
+    - diffusion/unet
+    # - diffusion/unetpp
+  - ema: ema
+  # - ema: ema_edm
   - dataset: cifar10
   - exp: exp_setting
 
 # type: ddpm ddpm
-type: edm
-exp_name: edm_retraining
+type: ddpm
+exp_name: ddpm_pred_x0_with_original_unet
 do_training: true
 do_sampling: true
 num_sampling: 50000

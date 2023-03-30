@@ -121,14 +121,7 @@ class DDPMFramework(DefaultModel):
             loss_dict['total_loss'] = loss
             return loss, loss_dict
         
-        # def update(state:train_state.TrainState, x0, rng):
-        #     (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, x0, rng)
 
-        #     grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
-        #     new_state = state.apply_gradients(grads=grad)
-        #     for loss_key in loss_dict:
-        #         loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
-        #     return new_state, loss_dict
         def update(carry_state, x0):
             (rng, state) = carry_state
             rng, new_rng = jax.random.split(rng)
@@ -138,6 +131,7 @@ class DDPMFramework(DefaultModel):
             new_state = state.apply_gradients(grads=grad)
             for loss_key in loss_dict:
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
+            new_state = self.ema_obj.ema_update(new_state)
             new_carry_state = (new_rng, new_state)
             return new_carry_state, loss_dict
         
@@ -155,18 +149,18 @@ class DDPMFramework(DefaultModel):
                     pred_noise, pred_logvar = jnp.split(pred_noise, 2, axis=-1)
                 
                 # Mean
-                # pred_x0 = self.predict_x0_from_eps(x_t=perturbed_data, t=time, eps=pred_noise)
-                # pred_x0 = jnp.clip(pred_x0, -1, 1)
-                # coef1 = jnp.take(self.posterior_mean_coef1, time)[:, None, None, None]
-                # coef2 = jnp.take(self.posterior_mean_coef2, time)[:, None, None, None]
-                # mean = coef1 * pred_x0 + coef2 * perturbed_data
-                beta = jnp.take(self.beta, time)
-                sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)
-                eps_coef = beta / sqrt_one_minus_alpha_bar
-                eps_coef = eps_coef[:, None, None, None]
-                sqrt_alpha = jnp.take(self.sqrt_alpha, time)
-                sqrt_alpha = sqrt_alpha[:, None, None, None]
-                mean = (perturbed_data - eps_coef * pred_noise) / sqrt_alpha
+                pred_x0 = self.predict_x0_from_eps(x_t=perturbed_data, t=time, eps=pred_noise)
+                pred_x0 = jnp.clip(pred_x0, -1, 1)
+                coef1 = jnp.take(self.posterior_mean_coef1, time)[:, None, None, None]
+                coef2 = jnp.take(self.posterior_mean_coef2, time)[:, None, None, None]
+                mean = coef1 * pred_x0 + coef2 * perturbed_data
+                # beta = jnp.take(self.beta, time)
+                # sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)
+                # eps_coef = beta / sqrt_one_minus_alpha_bar
+                # eps_coef = eps_coef[:, None, None, None]
+                # sqrt_alpha = jnp.take(self.sqrt_alpha, time)
+                # sqrt_alpha = sqrt_alpha[:, None, None, None]
+                # mean = (perturbed_data - eps_coef * pred_noise) / sqrt_alpha
 
                 # Var
                 # var = beta[:, None, None, None] if not self.learn_sigma else jnp.exp(self.get_learned_logvar(pred_logvar, time))
@@ -309,9 +303,6 @@ class DDPMFramework(DefaultModel):
             loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])
 
         self.model_state = new_state
-
-        # Update EMA parameters
-        self.model_state, _ = self.ema_obj.ema_update(self.model_state, step)
 
         return_dict = {}
         return_dict.update(loss_dict)

@@ -39,20 +39,12 @@ class EMA():
                 lambda x, y: current_decay * x + (1 - current_decay) * y,
                 state.params_ema, state.params)
             state = state.replace(params_ema = ema_updated_params)
-            return state, current_decay
+            return state
         
         # self.ema_update_pmap = jax.pmap(ema_update_pmap_fn, in_axes=(0, None))
         self.ema_update_pmap = jax.jit(ema_update_pmap_fn)
 
     def ema_update(self, state: TrainState):
-        # step = state.step
-        # new_state = jnp.where(step <= self.update_after_step or self % self.update_every != 0,
-        #           state,
-        #           self.ema_update_pmap(state, step))
-        # if step <= self.update_after_step:
-        #     return state
-        # if step % self.update_every != 0:
-        #     return state
         new_state = self.ema_update_pmap(state)
         # self.ema_params = ema_updated_state
         return new_state
