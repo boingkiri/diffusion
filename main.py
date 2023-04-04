@@ -30,6 +30,8 @@ def start(config: DictConfig):
             wandb.init(project="my-ddim-WIP", config={**config})
         elif config.type == "edm":
             wandb.init(project="my-edm-WIP", config={**config})
+        elif config.type == "cm":
+            wandb.init(project="my-cm-WIP", config={**config})
 
         print("Training selected")
         diffusion_framework.train()
