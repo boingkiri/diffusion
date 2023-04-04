@@ -1,0 +1,25 @@
+defaults:
+  - framework: 
+    - diffusion/ddim
+  - model: 
+    - diffusion/unet
+  - ema: ema
+  - dataset: cifar10
+  - exp: exp_setting
+
+# type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
+type: ddim
+exp_name: ddpm_pred_x0_with_original_unet
+do_training: true
+do_sampling: true
+num_sampling: 50000
+sampling_batch: 256
+rand_seed: 42
+fid_during_training: true # True when calculating fid during training, otherwise, false.
+n_jitted_steps: 10
+
+hydra:  
+  output_subdir: null  
+  run:  
+    dir: .
+

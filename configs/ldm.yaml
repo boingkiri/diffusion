@@ -1,27 +1,16 @@
 defaults:
-  # - framework: ldm
-  - framework: 
-    # - diffusion/ddim
-    # - diffusion/ddpm
-    # - diffusion/improved_ddpm
-    # - diffusion/edm
-    - diffusion/cm
+  - framework: ldm
   - model: 
     - autoencoder/autoencoder_kl
     - discriminator/discriminator_kl
-    # - diffusion/dit_b
-    # - diffusion/unet
-    # - diffusion/unetpp
-    - diffusion/unetpp_cm
-  # - ema: ema_edm
+    - diffusion/unet
   - ema: ema
   - dataset: cifar10
   - exp: exp_setting
 
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
-# type: edm
-type: ${framework.diffusion.type}
-exp_name: cm_distillation
+type: ldm
+exp_name: ddpm_pred_x0_with_original_unet
 do_training: true
 do_sampling: true
 num_sampling: 50000
