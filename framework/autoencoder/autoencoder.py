@@ -2,7 +2,7 @@ from model.autoencoder import AutoEncoderKL as AEKL
 from model.autoencoder import AutoEncoderVQ as AEVQ
 from framework.autoencoder.discriminator import LPIPSwithDiscriminator_KL, LPIPSwithDiscriminator_VQ
 from utils import jax_utils
-from utils.ema import EMA
+from utils.ema.ema_ddpm import DDPMEMA
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
 
@@ -184,7 +184,7 @@ class AutoEncoder():
 
         # Create ema obj
         ema_config = config['ema']
-        self.ema_obj = EMA(**ema_config)
+        self.ema_obj = DDPMEMA(**ema_config)
         if self.pmap:
             self.g_model_state = flax.jax_utils.replicate(self.g_model_state)
             self.d_model_state = flax.jax_utils.replicate(self.d_model_state)

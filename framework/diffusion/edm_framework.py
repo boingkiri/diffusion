@@ -10,7 +10,7 @@ from model.unet import UNet
 from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
-from utils.ema import EMA
+from utils.ema.ema_ddpm import DDPMEMA
 from utils.augment_utils import AugmentPipe
 from framework.default_diffusion import DefaultModel
 
@@ -54,7 +54,7 @@ class EDMFramework(DefaultModel):
 
         # Create ema obj
         ema_config = config.ema
-        self.ema_obj = EMA(**ema_config)
+        self.ema_obj = DDPMEMA(**ema_config)
 
         # Augmentation pipeline
         augment_rng, self.rand_key = jax.random.split(self.rand_key)

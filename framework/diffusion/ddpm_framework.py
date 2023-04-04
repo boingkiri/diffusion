@@ -9,7 +9,7 @@ from model.DiT import DiT
 from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
-from utils.ema import EMA
+from utils.ema.ema_ddpm import DDPMEMA
 from framework.default_diffusion import DefaultModel
 # from framework.diffusion import losses
 
@@ -50,7 +50,7 @@ class DDPMFramework(DefaultModel):
 
         # Create ema obj
         ema_config = config.ema
-        self.ema_obj = EMA(**ema_config)
+        self.ema_obj = DDPMEMA(**ema_config)
 
         beta = diffusion_framework['beta']
         loss = diffusion_framework['loss']
