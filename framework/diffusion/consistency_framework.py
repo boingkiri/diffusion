@@ -103,7 +103,7 @@ class CMFramework(DefaultModel):
 
         # Distillation and Training loss function are different.
         # self.perceptual_loss = lpips.LPIPS(net='vgg')
-        self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16')
+        self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16', replicate=False)
         if self.is_distillation:
             @jax.jit
             def loss_fn(params, target_model, y, rng_key):
@@ -121,18 +121,21 @@ class CMFramework(DefaultModel):
                 # Calculate heun 2nd method
                 target_xn = heun_2nd_method(self.teacher_model_state["params_ema"], perturbed_x, solver_key, gamma, idx+1)
 
+                augment_dim = config.model.diffusion.get("augment_dim", None)
+                augment_labels = jnp.zeros((*perturbed_x.shape[:-3], augment_dim)) if augment_dim is not None else None
+
                 # Get consistency function values
                 online_consistency = self.model.apply(
                     {'params': params}, x=perturbed_x, 
-                    sigma=next_sigma, train=True, augment_labels=None, rngs={'dropout': dropout_key})
+                    sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
                 
                 target_consistency = self.model.apply(
                     {'params': target_model}, x=target_xn, 
-                    sigma=sigma, train=False, augment_labels=None, rngs={'dropout': dropout_key})
+                    sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
 
                 if diffusion_framework.loss == "lpips":
-                    # loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
-                    loss = jnp.mean(self.perceptual_loss.forward(online_consistency, target_consistency))
+                    loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
+                    # loss = jnp.mean(self.perceptual_loss.forward(online_consistency, target_consistency))
                 elif diffusion_framework.loss == "l2":
                     loss = jnp.mean((online_consistency - target_consistency) ** 2)
                 elif diffusion_framework.loss == "l1":
