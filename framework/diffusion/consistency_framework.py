@@ -4,9 +4,6 @@ import jax.numpy as jnp
 import flax
 from flax.training import checkpoints
 
-# from model.unetpp import UNetpp
-# from model.unetpp import EDMPrecond, CMPrecond
-# from model.unet import UNet
 from model.unetpp import CMPrecond
 from utils import jax_utils
 from utils.fs_utils import FSUtils
@@ -14,7 +11,7 @@ from utils.log_utils import WandBLog
 from utils.ema.ema_cm import CMEMA
 from utils.augment_utils import AugmentPipe
 from framework.default_diffusion import DefaultModel
-import lpips_jax
+import lpips
 
 from tqdm import tqdm
 
@@ -40,18 +37,25 @@ class CMFramework(DefaultModel):
         model_config = {**config.model.diffusion}
         model_type = model_config.pop("type")
         # self.model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
-        self.model = CMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
+        self.model = CMPrecond(model_config, 
+                               image_channels=model_config['image_channels'], 
+                               model_type=model_type, 
+                               sigma_min=diffusion_framework['sigma_min'],
+                               sigma_max=diffusion_framework['sigma_max'])
         self.model_state = self.init_model_state(config)
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
         
         # Parameters
-        self.sigma_min = max(diffusion_framework['sigma_min'], self.model.sigma_min)
-        self.sigma_max = min(diffusion_framework['sigma_max'], self.model.sigma_max)
+        # self.sigma_min = max(diffusion_framework['sigma_min'], self.model.sigma_min)
+        # self.sigma_max = min(diffusion_framework['sigma_max'], self.model.sigma_max)
+        self.sigma_min = diffusion_framework['sigma_min']
+        self.sigma_max = diffusion_framework['sigma_max']
+        
         self.rho = diffusion_framework['rho']
-        self.S_churn = 0 if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_churn']
-        self.S_min = 0 if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_min']
-        self.S_max = float('inf') if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_max']
-        self.S_noise = 1 if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_noise']
+        self.S_churn = 0 
+        self.S_min = 0 
+        self.S_max = float('inf') 
+        self.S_noise = 1 
 
         # Distillation or Training
         self.is_distillation = diffusion_framework.is_distillation
@@ -97,7 +101,7 @@ class CMFramework(DefaultModel):
                 aniso=1, translate_frac=1)
 
         # Distillation and Training loss function are different.
-        self.perceptual_loss = lpips_jax.LPIPSEvaluator(replicate=False, net='vgg16')
+        self.perceptual_loss = lpips.LPIPS(net='vgg')
         if self.is_distillation:
             @jax.jit
             def loss_fn(params, target_model, y, rng_key):
@@ -114,7 +118,6 @@ class CMFramework(DefaultModel):
 
                 # Calculate heun 2nd method
                 target_xn = heun_2nd_method(self.teacher_model_state["params_ema"], perturbed_x, solver_key, gamma, idx+1)
-                # target_xn = heun_2nd_method(self.teacher_model_state["params_ema"], perturbed_x, solver_key, gamma, idx)
 
                 # Get consistency function values
                 online_consistency = self.model.apply(
@@ -123,10 +126,11 @@ class CMFramework(DefaultModel):
                 
                 target_consistency = self.model.apply(
                     {'params': target_model}, x=target_xn, 
-                    sigma=sigma, train=True, augment_labels=None, rngs={'dropout': dropout_key})
+                    sigma=sigma, train=False, augment_labels=None, rngs={'dropout': dropout_key})
 
                 if diffusion_framework.loss == "lpips":
-                    loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
+                    # loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
+                    loss = jnp.mean(self.perceptual_loss.forward(online_consistency, target_consistency))
                 elif diffusion_framework.loss == "l2":
                     loss = jnp.mean((online_consistency - target_consistency) ** 2)
                 elif diffusion_framework.loss == "l1":
@@ -185,6 +189,7 @@ class CMFramework(DefaultModel):
             new_state = state.apply_gradients(grads=grad)
             for loss_key in loss_dict:
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
+
             # Update EMA for training (update target model)
             ema_updated_params = jax.tree_map(
                 lambda x, y: self.target_model_ema_decay * x + (1 - self.target_model_ema_decay) * y,
@@ -201,10 +206,6 @@ class CMFramework(DefaultModel):
             rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
 
             t_cur = self.t_steps[step]
-            # t_next = jnp.where(
-            #     step == self.n_timestep - 1, 
-            #     jnp.zeros_like(t_cur), 
-            #     self.t_steps[step + 1])
             t_next = jnp.where(
                 step == 0, 
                 jnp.zeros_like(t_cur), 
@@ -313,10 +314,7 @@ class CMFramework(DefaultModel):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
-        # steps = jnp.arange(self.n_timestep)
-        # t_steps = jnp.append(self.t_steps, jnp.zeros_like(self.t_steps[0]))
         t_steps = jnp.append(jnp.zeros_like(self.t_steps[0]), self.t_steps)
-        # pbar = tqdm(zip(t_steps[:-1], t_steps[1:]))
 
         latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * t_steps[-1]
         rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
