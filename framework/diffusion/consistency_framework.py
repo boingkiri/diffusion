@@ -134,6 +134,9 @@ class CMFramework(DefaultModel):
                     sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
 
                 if diffusion_framework.loss == "lpips":
+                    output_shape = (y.shape[0], 224, 224, y.shape[-1])
+                    online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
+                    target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
                     loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
                     # loss = jnp.mean(self.perceptual_loss.forward(online_consistency, target_consistency))
                 elif diffusion_framework.loss == "l2":
