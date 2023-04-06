@@ -5,7 +5,7 @@ flax
 optax
 # git+https://github.com/matthias-wright/flaxmodels.git
 lpips_jax
-lpips
+# lpips
 wandb
 hydra-core
 einops

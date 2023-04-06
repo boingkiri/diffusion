@@ -1,6 +1,6 @@
 type: "cm"
 n_timestep: 18
-loss: "l2" # l2, l1, lpips
+loss: lpips # l2, l1, lpips
 # noise_schedule: linear # cosine, linear
 learn_sigma: False
 

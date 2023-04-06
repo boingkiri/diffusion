@@ -11,7 +11,8 @@ from utils.log_utils import WandBLog
 from utils.ema.ema_cm import CMEMA
 from utils.augment_utils import AugmentPipe
 from framework.default_diffusion import DefaultModel
-import lpips
+# import lpips
+import lpips_jax
 
 from tqdm import tqdm
 
@@ -101,7 +102,8 @@ class CMFramework(DefaultModel):
                 aniso=1, translate_frac=1)
 
         # Distillation and Training loss function are different.
-        self.perceptual_loss = lpips.LPIPS(net='vgg')
+        # self.perceptual_loss = lpips.LPIPS(net='vgg')
+        self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16')
         if self.is_distillation:
             @jax.jit
             def loss_fn(params, target_model, y, rng_key):
