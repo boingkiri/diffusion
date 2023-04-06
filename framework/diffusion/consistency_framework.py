@@ -126,7 +126,7 @@ class CMFramework(DefaultModel):
                     sigma=sigma, train=True, augment_labels=None, rngs={'dropout': dropout_key})
 
                 if diffusion_framework.loss == "lpips":
-                    loss = self.perceptual_loss(online_consistency, target_consistency)
+                    loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
                 elif diffusion_framework.loss == "l2":
                     loss = jnp.mean((online_consistency - target_consistency) ** 2)
                 elif diffusion_framework.loss == "l1":
