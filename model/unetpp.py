@@ -69,7 +69,8 @@ class CustomConv2d(nn.Module):
         else:
             if self.up:
                 # Conv transpose
-                padding = [[f_pad + 1] * 2] * 2 # TODO: need to be fix, may be.
+                # padding = [[f_pad + 1] * 2] * 2 # TODO: need to be fix, may be.
+                padding = [[(f.shape[0] - 1) - f_pad] * 2] * 2
                 x = jax.lax.conv_general_dilated(x, jnp.tile((f * 4), [1, 1, 1, self.in_channels]), window_strides=(1, 1),
                                              padding=padding, lhs_dilation=(2, 2), rhs_dilation=None, dimension_numbers=self.dim_spec,
                                              feature_group_count=self.in_channels)
@@ -105,7 +106,6 @@ class AttentionModule(nn.Module):
         qkv = CustomConv2d(self.out_channels, self.out_channels * 3, kernel_channels=1, init_mode=init_attn)(x)
         # qkv = qkv.reshape(x.shape[0] * self.num_heads, x.shape[1] // self.num_heads, -1, 3)
         qkv = qkv.reshape(x.shape[0] * self.num_heads, 3, -1, x.shape[-1] // self.num_heads)
-        # q, k, v = jnp.split(qkv, 3, axis=-1)
         q, k, v = jnp.split(qkv, 3, axis=1)
         k = k / jnp.sqrt(k.shape[-1])
         
@@ -206,7 +206,6 @@ class UNetpp(nn.Module):
     resample_filter: Union[Tuple[int, ...], List[int]] = (1, 1)
     learn_sigma: bool = False
 
-    # @nn.compact
     def setup(self):
         emb_channels = self.n_channels * 4
         noise_channels = self.n_channels * 1 # This can be changed
