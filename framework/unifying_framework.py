@@ -26,7 +26,7 @@ class UnifyingFramework():
     def __init__(self, model_type, config: DictConfig, random_rng) -> None:
         self.config = config # TODO: This code is ugly. It should not need to reuse config obj
         self.current_model_type = model_type.lower()
-        self.diffusion_model_type = ['ddpm', 'ddim', 'edm'] 
+        self.diffusion_model_type = ['ddpm', 'ddim', 'edm', 'cm'] 
         self.random_rng = random_rng
         self.dataset_name = config.dataset.name
         self.do_fid_during_training = config.fid_during_training
@@ -120,6 +120,7 @@ class UnifyingFramework():
         in_process_dir = self.config.exp.in_process_dir
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
+        best_fid = self.fs_utils.get_best_fid()
         
         for x, _ in datasets_bar:
             log = self.framework.fit(x, step=self.step)
@@ -151,9 +152,10 @@ class UnifyingFramework():
                 if self.do_fid_during_training and \
                     not (self.current_model_type == "ldm" and self.train_idx == 1):
                     fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
-                    if self.fs_utils.get_best_fid() >= fid_score:
+                    if best_fid >= fid_score:
                         best_checkpoint_dir = self.config.exp.best_dir
                         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, self.checkpoint_prefix)
+                        best_fid = fid_score
                     self.wandblog.update_log({"FID score": fid_score})
                     self.wandblog.flush(step=self.step)
 

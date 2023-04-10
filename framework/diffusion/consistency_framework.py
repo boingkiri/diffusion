@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import flax
 from flax.training import checkpoints
 
-from model.unetpp import CMPrecond
+from model.unetpp import CMPrecond, EDMPrecond
 from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
@@ -47,8 +47,6 @@ class CMFramework(DefaultModel):
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
         
         # Parameters
-        # self.sigma_min = max(diffusion_framework['sigma_min'], self.model.sigma_min)
-        # self.sigma_max = min(diffusion_framework['sigma_max'], self.model.sigma_max)
         self.sigma_min = diffusion_framework['sigma_min']
         self.sigma_max = diffusion_framework['sigma_max']
         
