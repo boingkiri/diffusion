@@ -1,6 +1,7 @@
 # from framework.DDPM.ddpm import DDPM
 from framework.diffusion.ddpm_framework import DDPMFramework
 from framework.diffusion.edm_framework import EDMFramework
+from framework.diffusion.consistency_framework import CMFramework
 from framework.LDM import LDM
 
 import jax
@@ -25,7 +26,7 @@ class UnifyingFramework():
     def __init__(self, model_type, config: DictConfig, random_rng) -> None:
         self.config = config # TODO: This code is ugly. It should not need to reuse config obj
         self.current_model_type = model_type.lower()
-        self.diffusion_model_type = ['ddpm', 'ddim', 'edm'] 
+        self.diffusion_model_type = ['ddpm', 'ddim', 'edm', 'cm'] 
         self.random_rng = random_rng
         self.dataset_name = config.dataset.name
         self.do_fid_during_training = config.fid_during_training
@@ -47,23 +48,27 @@ class UnifyingFramework():
         self.fs_utils.verify_and_create_workspace()
 
     def set_model(self, config: DictConfig):
-        if self.current_model_type in self.diffusion_model_type:
-            if self.current_model_type in ['ddpm', 'ddim']:
-                diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-                self.framework = DDPMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
-            elif self.current_model_type in ['edm']:
-                diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-                self.framework = EDMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
+        if self.current_model_type in ['ddpm', 'ddim']:
+            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+            self.framework = DDPMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
+        elif self.current_model_type in ['edm']:
+            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+            self.framework = EDMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
+        elif self.current_model_type in ['cm']:
+            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+            self.framework = CMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
         elif self.current_model_type == "ldm":
             ldm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
             self.framework = LDM(config, ldm_rng, self.fs_utils, self.wandblog)
+        else:
+            NotImplementedError("Model Type cannot be identified. Please check model name.")
         
     def set_step(self, config: DictConfig):
-        if self.current_model_type in self.diffusion_model_type:
-            self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
-            self.total_step = config['framework']['diffusion']['train']['total_step']
-            self.checkpoint_prefix = config.exp.diffusion_prefix
-        elif self.current_model_type == "ldm":
+        # if self.current_model_type in self.diffusion_model_type:
+        #     self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
+        #     self.total_step = config['framework']['diffusion']['train']['total_step']
+        #     self.checkpoint_prefix = config.exp.diffusion_prefix
+        if self.current_model_type == "ldm":
             self.train_idx = config['framework']['train_idx']
             if self.train_idx == 1: # AE
                 self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='autoencoder')
@@ -73,6 +78,10 @@ class UnifyingFramework():
                 self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
                 self.total_step = config['framework']['diffusion']['train']['total_step']
                 self.checkpoint_prefix = config.exp.diffusion_prefix
+        else:
+            self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
+            self.total_step = config['framework']['diffusion']['train']['total_step']
+            self.checkpoint_prefix = config.exp.diffusion_prefix
 
     def sampling(self, num_img, original_data=None):
         sample = self.framework.sampling(num_img, original_data=original_data)
@@ -111,6 +120,7 @@ class UnifyingFramework():
         in_process_dir = self.config.exp.in_process_dir
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
+        best_fid = self.fs_utils.get_best_fid()
         
         for x, _ in datasets_bar:
             log = self.framework.fit(x, step=self.step)
@@ -142,9 +152,10 @@ class UnifyingFramework():
                 if self.do_fid_during_training and \
                     not (self.current_model_type == "ldm" and self.train_idx == 1):
                     fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
-                    if self.fs_utils.get_best_fid() >= fid_score:
+                    if best_fid >= fid_score:
                         best_checkpoint_dir = self.config.exp.best_dir
                         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, self.checkpoint_prefix)
+                        best_fid = fid_score
                     self.wandblog.update_log({"FID score": fid_score})
                     self.wandblog.flush(step=self.step)
 
@@ -170,7 +181,6 @@ class UnifyingFramework():
         datasets_bar = tqdm(datasets, total=total_num)
         current_num = 0
         for x, _ in datasets_bar:
-            # x = jax.device_put(x.numpy())
             batch_size = x.shape[0]
             samples = self.sampling(batch_size, img_size, original_data=x)
             self.fs_utils.save_images_to_dir(samples, starting_pos = current_num)

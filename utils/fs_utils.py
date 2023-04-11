@@ -133,6 +133,10 @@ class FSUtils():
         best_fid = None
         in_process_dir = self.config.exp.in_process_dir
         fid_log_file = os.path.join(in_process_dir, "fid_log.txt")
+
+        if not os.path.exists(fid_log_file):
+            return float('inf')
+
         with open(fid_log_file, 'r') as f:
             txt = f.read()
             logs = txt.split('\n')
