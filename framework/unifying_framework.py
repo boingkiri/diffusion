@@ -1,7 +1,7 @@
 # from framework.DDPM.ddpm import DDPM
 from framework.diffusion.ddpm_framework import DDPMFramework
 from framework.diffusion.edm_framework import EDMFramework
-from framework.diffusion.consistency_framework import CMFramework
+# from framework.diffusion.consistency_framework import CMFramework
 from framework.LDM import LDM
 
 import jax
@@ -54,9 +54,9 @@ class UnifyingFramework():
         elif self.current_model_type in ['edm']:
             diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
             self.framework = EDMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
-        elif self.current_model_type in ['cm']:
-            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = CMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
+        # elif self.current_model_type in ['cm']:
+        #     diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+        #     self.framework = CMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
         elif self.current_model_type == "ldm":
             ldm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
             self.framework = LDM(config, ldm_rng, self.fs_utils, self.wandblog)

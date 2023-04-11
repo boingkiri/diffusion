@@ -66,7 +66,8 @@ class EDMFramework(DefaultModel):
                 aniso=1, translate_frac=1)
 
         @jax.jit
-        def loss_fn(params, y, rng_key):
+        # def loss_fn(params, y, rng_key):
+        def loss_fn(params, y, augment_label, rng_key):
             p_mean = -1.2
             p_std = 1.2
             sigma_data = 0.5
@@ -76,8 +77,7 @@ class EDMFramework(DefaultModel):
             sigma = jnp.exp(rnd_normal * p_std + p_mean)
             weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
             # TODO: Implement augmented pipe 
-            # y, augment_label = self.augmentation_pipeline if 
-            y, augment_label = self.augmentation_pipeline(y) if self.augment_rate is not None else (y, None)
+            # y, augment_label = self.augmentation_pipeline(y) if self.augment_rate is not None else (y, None)
             n = jax.random.normal(rng_key, y.shape) * sigma
             
             # Network will predict D_yn (denoised dataset rather than epsilon) directly.
@@ -91,10 +91,12 @@ class EDMFramework(DefaultModel):
             loss_dict['total_loss'] = loss
             return loss, loss_dict
         
-        def update(carry_state, x0):
+        # def update(carry_state, x0):
+        def update(carry_state, input_iterator_elem):
             (rng, state) = carry_state
+            (x0, label) = input_iterator_elem
             rng, new_rng = jax.random.split(rng)
-            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, x0, rng)
+            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, x0, label, rng)
 
             grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
             new_state = state.apply_gradients(grads=grad)
@@ -137,7 +139,14 @@ class EDMFramework(DefaultModel):
                                     x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2)
             return x_result
 
-        self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
+        def scan_fn(init, x0, label):
+            # xs = zip(x0, label)
+            xs = jax.lax.map(lambda params: params, (x0, label))
+            scanning = jax.lax.scan(update, init, xs)
+            return scanning
+
+        # self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
+        self.update_fn = jax.pmap(scan_fn, axis_name=self.pmap_axis)
         self.p_sample_jit = jax.pmap(p_sample_jit)
 
     
@@ -164,10 +173,15 @@ class EDMFramework(DefaultModel):
         key, dropout_key = jax.random.split(self.rand_key, 2)
         self.rand_key = key
 
+        # Augment pipeline
+        x0, augment_label = self.augmentation_pipeline(x0) if self.augment_rate is not None else (x0, None)
+        # pmap_input = self.augmentation_pipeline(x0) if self.augment_rate is not None else (x0, None)
+
         # Apply pmap
         dropout_key = jax.random.split(dropout_key, jax.local_device_count())
         dropout_key = jnp.asarray(dropout_key)
-        new_carry, loss_dict_stack = self.update_fn((dropout_key, self.model_state), x0)
+        # new_carry, loss_dict_stack = self.update_fn((dropout_key, self.model_state), x0)
+        new_carry, loss_dict_stack = self.update_fn((dropout_key, self.model_state), x0, augment_label)
         (_, new_state) = new_carry
 
         loss_dict = flax.jax_utils.unreplicate(loss_dict_stack)
