@@ -19,7 +19,7 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: edm_two_attention_head
+exp_name: edm_augment_pipe
 do_training: true
 do_sampling: true
 num_sampling: 50000

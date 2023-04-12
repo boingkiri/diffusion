@@ -202,7 +202,8 @@ class AugmentPipe:
 
     x_t_flat = jnp.reshape(x_t, [-1])
     y_t_flat = jnp.reshape(y_t, [-1])
-    ones = jnp.ones_like(y_t_flat)
+
+    ones = jnp.ones_like(x_t_flat)
 
     # Grid with ones
     grid = jnp.stack([x_t_flat, y_t_flat, ones])
@@ -225,7 +226,7 @@ class AugmentPipe:
 
     batch_idx = jnp.arange(0, batch_size)
     batch_idx = jnp.reshape(batch_idx, (batch_size, 1, 1))
-    b = jnp.tile(batch_idx, (1, height, width))
+    # b = jnp.tile(batch_idx, (1, height, width))
 
     result_value = self.get_pixel_value_vmap(image, x, y)
     return result_value
@@ -331,8 +332,120 @@ class AugmentPipe:
     y = H - 1 - jnp.abs((H - 1 - (y + ty) % (H * 2 - 2)))
     images = images.flatten()[(((b * C) + c) * H + y) * W + x]
     return images, [tx / (W * self.translate_int_max), ty / (H * self.translate_int_max)]
+  
+  @partial(jax.jit, static_argnums=(0,))
+  def scale_fn(self, key, images, G_inv):
+    B = images.shape[0]
+    key, scale_key1, scale_key2 = jax.random.split(key, 3)
+    w = jax.random.normal(scale_key1, (B,))
+    w = jnp.where(
+      jax.random.uniform(scale_key2, (B,)) < self.scale * self.p,
+      w, jnp.zeros_like(w))
+    s = 2 ** (w * self.scale_std)
+    G_inv = G_inv @ scale2d_inv(s, s)
+    return G_inv, [w]
+  
+  @partial(jax.jit, static_argnums=(0,))
+  def rotate_fn(self, key, images, G_inv):
+    B= images.shape[0]
+    key, rotate_key1, rotate_key2 = jax.random.split(key, 3)
+    w = (jax.random.uniform(rotate_key1, (B,)) * 2 - 1) * (jnp.pi * self.rotate_frac_max)
+    w = jnp.where(
+      jax.random.uniform(rotate_key2, (B,)) < self.rotate_frac * self.p, 
+      w, jnp.zeros_like(w))
+    G_inv = G_inv @ rotate2d_inv(-w)
+    return G_inv, [jnp.cos(w) - 1, jnp.sin(w)]
 
-  # @partial(jax.vmap, in_axes=(None, 0))
+  @partial(jax.jit, static_argnums=(0,))
+  def aniso_fn(self, key, images, G_inv):
+    B= images.shape[0]
+    key, aniso_key1, aniso_key2, aniso_key3, aniso_key4 = jax.random.split(key, 5)
+    w = jax.random.normal(aniso_key1, (B,))
+    r = (jax.random.uniform(aniso_key2, (B,)) * 2 - 1) * jnp.pi
+    w = jnp.where(
+      jax.random.uniform(aniso_key3, (B,)) < self.aniso * self.p, 
+      w, jnp.zeros_like(w))
+    r = jnp.where(
+      jax.random.uniform(aniso_key4, (B,)) < self.aniso_rotate_prob, 
+      r, jnp.zeros_like(r))
+    s = 2 ** (w * self.aniso_std)
+    G_inv = G_inv @ rotate2d_inv(r) @ scale2d_inv(s, 1 / s) @ rotate2d_inv(-r)
+    return G_inv, [w * jnp.cos(r), w * jnp.sin(r)]
+  
+  @partial(jax.jit, static_argnums=(0,))
+  def translate_frac_fn(self, key, images, G_inv):
+    B = images.shape[0]
+    H = images.shape[2]
+    W = images.shape[3]
+    
+    key, tf_key1, tf_key2 = jax.random.split(key, 3)
+    w = jax.random.normal(tf_key1, [2, B])
+    w = jnp.where(
+      jax.random.uniform(tf_key2, [1, B]) < self.translate_frac * self.p, 
+      w, jnp.zeros_like(w))
+    G_inv = G_inv @ translate2d_inv(w[0] * W * self.translate_frac_std, w[1] * H * self.translate_frac_std)
+    return G_inv, [w[0], w[1]]
+
+  @partial(jax.jit, static_argnums=(0,))
+  def before_apply_padding_geometry(self, G_inv, images):
+    W, H = images.shape[-1], images.shape[-2]
+    
+    cx = (W - 1) / 2
+    cy = (H - 1) / 2
+    cp = matrix([-cx, -cy, 1], [cx, -cy, 1], [cx, cy, 1], [-cx, cy, 1]) # [idx, xyz]
+    cp = G_inv @ cp.T # [batch, xyz, idx]
+    Hz = jnp.asarray(wavelets['sym6'], dtype=jnp.float32)
+    Hz_pad = len(Hz) // 4
+
+    margin = jnp.transpose(cp[:, :2, :], (1, 0, 2))
+    margin = jnp.reshape(margin, (margin.shape[0], -1)) # [xy, batch * idx]
+    margin = jnp.concatenate([-margin, margin]).max(axis=1) # [x0, y0, x1, y1]
+    margin = margin + constant([Hz_pad * 2 - cx, Hz_pad * 2 - cy] * 2)
+    margin = jnp.maximum(margin, constant([0, 0] * 2))
+    margin = jnp.minimum(margin, constant([W - 1, H - 1] * 2))
+    mx0, my0, mx1, my1 = jnp.ceil(margin).astype(jnp.int32)
+    return mx0, my0, mx1, my1
+
+  @partial(jax.jit, static_argnums=(0,))
+  def after_apply_padding_geometry(self, images, G_inv, original_image_dummy):
+    # B, C, H, W = batch_size, channel_size, height_size, width_size
+    image_size = original_image_dummy.shape
+    B, C, H, W = image_size[0], image_size[1], image_size[2], image_size[3]
+
+
+    Hz = jnp.asarray(wavelets['sym6'], dtype=jnp.float32)
+    Hz_pad = len(Hz) // 4
+    # Upsample.
+    conv_weight = jnp.tile(constant(Hz[None, None, ::-1]), [images.shape[1], 1, 1])
+    conv_pad = (len(Hz) + 1) // 2
+    images = jnp.stack([images, jnp.zeros_like(images)], axis=4).reshape(B, C, images.shape[2], -1)[:, :, :, :-1]
+    images = jax.lax.conv_general_dilated(images, jnp.expand_dims(conv_weight, 2), 
+                                          (1, 1), padding=[[0, 0], [conv_pad, conv_pad]], feature_group_count=images.shape[1], 
+                                          dimension_numbers=("NCHW", "OIHW", "NCHW"))
+    images = jnp.stack([images, jnp.zeros_like(images)], axis=3).reshape(B, C, -1, images.shape[3])[:, :, :-1, :]
+    images = jax.lax.conv_general_dilated(images, jnp.expand_dims(conv_weight, 3), 
+                                          (1, 1), padding=[[conv_pad, conv_pad], [0, 0]], feature_group_count=images.shape[1], 
+                                          dimension_numbers=("NCHW", "OIHW", "NCHW"))
+    G_inv = scale2d(2, 2) @ G_inv @ scale2d_inv(2, 2)
+    G_inv = translate2d(-0.5, -0.5) @ G_inv @ translate2d_inv(-0.5, -0.5)
+
+    # Execute transformation.
+    shape = [B, C, (H + Hz_pad * 2) * 2, (W + Hz_pad * 2) * 2]
+    G_inv = scale2d(2 / images.shape[3], 2 / images.shape[2]) @ G_inv @ scale2d_inv(2 / shape[3], 2 / shape[2])
+    grid = self.affine_grid(theta=G_inv[:,:2,:], shape=shape)
+    images = self.grid_sampler(images, grid)
+
+    # Downsample and crop.
+    conv_weight = jnp.tile(constant(Hz[None, None, :]), [images.shape[1], 1, 1])
+    conv_pad = (len(Hz) - 1) // 2
+    images = jax.lax.conv_general_dilated(images, jnp.expand_dims(conv_weight, 2), 
+                                          (1, 2), padding=[[0, 0], [conv_pad, conv_pad]], feature_group_count=images.shape[1], 
+                                          dimension_numbers=("NCHW", "OIHW", "NCHW"))[:, :, :, Hz_pad : -Hz_pad]
+    images = jax.lax.conv_general_dilated(images, jnp.expand_dims(conv_weight, 3), 
+                                          (2, 1), padding=[[conv_pad, conv_pad], [0, 0]], feature_group_count=images.shape[1], 
+                                          dimension_numbers=("NCHW", "OIHW", "NCHW"))[:, :, Hz_pad : -Hz_pad, :]
+    return images
+
   def __call__(self, images):
     pmap=False
     if len(images.shape) != 4:
@@ -340,18 +453,10 @@ class AugmentPipe:
       original_images_format = images.shape
       images= images.reshape((-1, *images.shape[-3:]))
 
-    
-    ### TODO: dirty code - jnp.pad need concretized value, not abstract value.
-    ### Therefore, I put CIFAR10's resolution manually for now. **Need fix**
     B, H, W, C = images.shape
-    # B, H, W, C = self.images_shape
-    # H = 32
-    # W = 32
 
-    # images = images.reshape(B, C, H, W)
     images = jnp.transpose(images, (0, 3, 1, 2))
     self.rng_key, augmentation_key = jax.random.split(self.rng_key)
-    # common_shape = (B, 1, 1, 1)
     labels = [jnp.zeros([B, 0])]
 
     ## Pixel blitting
@@ -380,99 +485,37 @@ class AugmentPipe:
     G_inv = I_3
 
     if self.scale > 0:
-      augmentation_key, scale_key1, scale_key2 = jax.random.split(augmentation_key, 3)
-      w = jax.random.normal(scale_key1, (B,))
-      w = jnp.where(
-        jax.random.uniform(scale_key2, (B,)) < self.scale * self.p,
-        w, jnp.zeros_like(w))
-      s = 2 ** (w * self.scale_std)
-      G_inv = G_inv @ scale2d_inv(s, s)
-      labels += [w]
+      augmentation_key, tmp_key = jax.random.split(augmentation_key)
+      G_inv, add_labels = self.scale_fn(tmp_key, images, G_inv)
+      labels += add_labels
     
     if self.rotate_frac > 0:
-      augmentation_key, rotate_key1, rotate_key2 = jax.random.split(augmentation_key, 3)
-      w = (jax.random.uniform(rotate_key1, (B,)) * 2 - 1) * (jnp.pi * self.rotate_frac_max)
-      w = jnp.where(
-        jax.random.uniform(rotate_key2, (B,)) < self.rotate_frac * self.p, 
-        w, jnp.zeros_like(w))
-      G_inv = G_inv @ rotate2d_inv(-w)
-      labels += [jnp.cos(w) - 1, jnp.sin(w)]
+      augmentation_key, tmp_key = jax.random.split(augmentation_key)
+      G_inv, add_labels = self.rotate_fn(tmp_key, images, G_inv)
+      labels += add_labels
 
     if self.aniso > 0:
-      augmentation_key, aniso_key1, aniso_key2, aniso_key3, aniso_key4 = jax.random.split(augmentation_key, 5)
-      w = jax.random.normal(aniso_key1, (B,))
-      r = (jax.random.uniform(aniso_key2, (B,)) * 2 - 1) * jnp.pi
-      w = jnp.where(
-        jax.random.uniform(aniso_key3, (B,)) < self.aniso * self.p, 
-        w, jnp.zeros_like(w))
-      r = jnp.where(
-        jax.random.uniform(aniso_key4, (B,)) < self.aniso_rotate_prob, 
-        r, jnp.zeros_like(r))
-      s = 2 ** (w * self.aniso_std)
-      G_inv = G_inv @ rotate2d_inv(r) @ scale2d_inv(s, 1 / s) @ rotate2d_inv(-r)
-      labels += [w * jnp.cos(r), w * jnp.sin(r)]
+      augmentation_key, tmp_key = jax.random.split(augmentation_key)
+      G_inv, add_labels = self.aniso_fn(tmp_key, images, G_inv)
+      labels += add_labels
     
     if self.translate_frac > 0:
-      augmentation_key, tf_key1, tf_key2 = jax.random.split(augmentation_key, 3)
-      w = jax.random.normal(tf_key1, [2, B])
-      w = jnp.where(
-        jax.random.uniform(tf_key2, [1, B]) < self.translate_frac * self.p, 
-        w, jnp.zeros_like(w))
-      G_inv = G_inv @ translate2d_inv(w[0] * W * self.translate_frac_std, w[1] * H * self.translate_frac_std)
-      labels += [w[0], w[1]]
+      augmentation_key, tmp_key = jax.random.split(augmentation_key)
+      G_inv, add_labels = self.translate_frac_fn(tmp_key, images, G_inv)
+      labels += add_labels
     
     # Execute geometric transformations
     if G_inv is not I_3:
-      
-      cx = (W - 1) / 2
-      cy = (H - 1) / 2
-      cp = matrix([-cx, -cy, 1], [cx, -cy, 1], [cx, cy, 1], [-cx, cy, 1]) # [idx, xyz]
-      cp = G_inv @ cp.T # [batch, xyz, idx]
-      Hz = jnp.asarray(wavelets['sym6'], dtype=jnp.float32)
-      Hz_pad = len(Hz) // 4
-
-      margin = jnp.transpose(cp[:, :2, :], (1, 0, 2))
-      margin = jnp.reshape(margin, (margin.shape[0], -1)) # [xy, batch * idx]
-      margin = jnp.concatenate([-margin, margin]).max(axis=1) # [x0, y0, x1, y1]
-      margin = margin + constant([Hz_pad * 2 - cx, Hz_pad * 2 - cy] * 2)
-      margin = jnp.maximum(margin, constant([0, 0] * 2))
-      margin = jnp.minimum(margin, constant([W - 1, H - 1] * 2))
-      mx0, my0, mx1, my1 = jnp.ceil(margin).astype(jnp.int32)
+      original_images_size_dummy = jnp.zeros(images.shape)
+      mx0, my0, mx1, my1 = self.before_apply_padding_geometry(G_inv, images)
 
       # Pad image and adjust origin.
-      # padding = [[0, 0], [0, 0], [my0, my1], [mx0, mx1]]
-      # images = jnp.pad(images, padding, mode='reflect')
-      # G_inv = translate2d((mx0 - mx1) / 2, (my0 - my1) / 2) @ G_inv
+      # TODO: This code prevent to use JIT, which causes bottleneck.
+      padding = [[0, 0], [0, 0], [my0, my1], [mx0, mx1]]
+      images = jnp.pad(images, padding, mode='reflect')
+      G_inv = translate2d((mx0 - mx1) / 2, (my0 - my1) / 2) @ G_inv
 
-      # Upsample.
-      conv_weight = jnp.tile(constant(Hz[None, None, ::-1]), [images.shape[1], 1, 1])
-      conv_pad = (len(Hz) + 1) // 2
-      images = jnp.stack([images, jnp.zeros_like(images)], axis=4).reshape(B, C, images.shape[2], -1)[:, :, :, :-1]
-      images = jax.lax.conv_general_dilated(images, jnp.expand_dims(conv_weight, 2), 
-                                            (1, 1), padding=[[0, 0], [conv_pad, conv_pad]], feature_group_count=images.shape[1], 
-                                            dimension_numbers=("NCHW", "OIHW", "NCHW"))
-      images = jnp.stack([images, jnp.zeros_like(images)], axis=3).reshape(B, C, -1, images.shape[3])[:, :, :-1, :]
-      images = jax.lax.conv_general_dilated(images, jnp.expand_dims(conv_weight, 3), 
-                                            (1, 1), padding=[[conv_pad, conv_pad], [0, 0]], feature_group_count=images.shape[1], 
-                                            dimension_numbers=("NCHW", "OIHW", "NCHW"))
-      G_inv = scale2d(2, 2) @ G_inv @ scale2d_inv(2, 2)
-      G_inv = translate2d(-0.5, -0.5) @ G_inv @ translate2d_inv(-0.5, -0.5)
-
-      # Execute transformation.
-      shape = [B, C, (H + Hz_pad * 2) * 2, (W + Hz_pad * 2) * 2]
-      G_inv = scale2d(2 / images.shape[3], 2 / images.shape[2]) @ G_inv @ scale2d_inv(2 / shape[3], 2 / shape[2])
-      grid = self.affine_grid(theta=G_inv[:,:2,:], shape=shape)
-      images = self.grid_sampler(images, grid)
-
-      # Downsample and crop.
-      conv_weight = jnp.tile(constant(Hz[None, None, :]), [images.shape[1], 1, 1])
-      conv_pad = (len(Hz) - 1) // 2
-      images = jax.lax.conv_general_dilated(images, jnp.expand_dims(conv_weight, 2), 
-                                            (1, 2), padding=[[0, 0], [conv_pad, conv_pad]], feature_group_count=images.shape[1], 
-                                            dimension_numbers=("NCHW", "OIHW", "NCHW"))[:, :, :, Hz_pad : -Hz_pad]
-      images = jax.lax.conv_general_dilated(images, jnp.expand_dims(conv_weight, 3), 
-                                            (2, 1), padding=[[conv_pad, conv_pad], [0, 0]], feature_group_count=images.shape[1], 
-                                            dimension_numbers=("NCHW", "OIHW", "NCHW"))[:, :, Hz_pad : -Hz_pad, :]
+      images = self.after_apply_padding_geometry(images, G_inv, original_images_size_dummy)
 
     # Select parameters for color transformations
     I_4 = jnp.eye(4)
@@ -516,7 +559,6 @@ class AugmentPipe:
       M = (jnp.outer(luma_axis, luma_axis) + (I_4 - jnp.outer(luma_axis, luma_axis)) * (2 ** (w * self.saturation_std))) @ M
       labels += [w]
 
-    # breakpoint()
     # Execute color transformations
     if M is not I_4:
       images = images.reshape([B, C, H * W])
