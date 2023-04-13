@@ -104,13 +104,11 @@ class AttentionModule(nn.Module):
         orig_x = x
         x = nn.GroupNorm(epsilon=self.eps)(x)
         qkv = CustomConv2d(self.out_channels, self.out_channels * 3, kernel_channels=1, init_mode=init_attn)(x)
-        # qkv = qkv.reshape(x.shape[0] * self.num_heads, x.shape[1] // self.num_heads, -1, 3)
         qkv = qkv.reshape(x.shape[0] * self.num_heads, 3, -1, x.shape[-1] // self.num_heads)
         q, k, v = jnp.split(qkv, 3, axis=1)
         k = k / jnp.sqrt(k.shape[-1])
         
         w = jnp.einsum('bnqc,bnkc->bnqk', q, k)
-        # w = nn.softmax(w, axis=2)
         w = nn.softmax(w, axis=-1)
 
         a = jnp.einsum('bnqk,bnkc->bnqc', w, v)
@@ -226,7 +224,7 @@ class UNetpp(nn.Module):
         # Mapping
         self.map_noise = TimeEmbedding(noise_channels)
         self.map_label = nn.Dense(noise_channels, kernel_init=init) if self.label_dim else None
-        self.map_augment = nn.Dense(noise_channels, use_bias=False, kernel_init=init_zero) if self.augment_dim else None
+        self.map_augment = nn.Dense(noise_channels, use_bias=False, kernel_init=init) if self.augment_dim else None
         self.map_layer0 = nn.Dense(emb_channels, kernel_init=init)
         self.map_layer1 = nn.Dense(emb_channels, kernel_init=init)
 
@@ -280,7 +278,11 @@ class UNetpp(nn.Module):
 
     def __call__(self, x, noise_labels, train, augment_labels=None):
         emb = self.map_noise(noise_labels)
-
+        # swap sin/cos
+        emb_shape = emb.shape
+        emb = emb.reshape(emb.shape[0], 2, -1)
+        emb = jnp.flip(emb, axis=1)
+        emb = emb.reshape(*emb_shape)
         # Add augment embedding if exists
         if augment_labels is not None:
             emb += self.map_augment(augment_labels)
