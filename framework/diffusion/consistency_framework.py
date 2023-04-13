@@ -45,7 +45,7 @@ class CMFramework(DefaultModel):
                                sigma_max=diffusion_framework['sigma_max'])
         self.model_state = self.init_model_state(config)
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
-        
+
         # Parameters
         self.sigma_min = diffusion_framework['sigma_min']
         self.sigma_max = diffusion_framework['sigma_max']
@@ -64,6 +64,9 @@ class CMFramework(DefaultModel):
             if prefix not in teacher_model_path: # It means teacher_model_path is indicating exp name 
                 checkpoint_dir = config.exp.checkpoint_dir.split("/")[-1]
                 teacher_model_path = os.path.join(teacher_model_path, checkpoint_dir)
+            ## TODO: need to implement various pretrained model
+            ## For now, I just write code to execute our EDM pretrained model
+            self.teacher_model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
             self.teacher_model_state = checkpoints.restore_checkpoint(teacher_model_path, None, prefix=prefix)
 
             # Set step indices for distillation
@@ -100,7 +103,6 @@ class CMFramework(DefaultModel):
                 aniso=1, translate_frac=1)
 
         # Distillation and Training loss function are different.
-        # self.perceptual_loss = lpips.LPIPS(net='vgg')
         self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16', replicate=False)
         if self.is_distillation:
             @jax.jit
@@ -117,7 +119,7 @@ class CMFramework(DefaultModel):
                 perturbed_x = y + next_sigma * noise
 
                 # Calculate heun 2nd method
-                target_xn = heun_2nd_method(self.teacher_model_state["params_ema"], perturbed_x, solver_key, gamma, idx+1)
+                target_xn = heun_2nd_method(self.teacher_model_state['params_ema'], perturbed_x, solver_key, gamma, idx+1)
 
                 augment_dim = config.model.diffusion.get("augment_dim", None)
                 augment_labels = jnp.zeros((*perturbed_x.shape[:-3], augment_dim)) if augment_dim is not None else None
@@ -135,8 +137,9 @@ class CMFramework(DefaultModel):
                     output_shape = (y.shape[0], 224, 224, y.shape[-1])
                     online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
                     target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
+                    online_consistency = (online_consistency + 1) / 2.0
+                    target_consistency = (target_consistency + 1) / 2.0
                     loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
-                    # loss = jnp.mean(self.perceptual_loss.forward(online_consistency, target_consistency))
                 elif diffusion_framework.loss == "l2":
                     loss = jnp.mean((online_consistency - target_consistency) ** 2)
                 elif diffusion_framework.loss == "l1":
@@ -229,24 +232,24 @@ class CMFramework(DefaultModel):
             augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
 
             # Euler step
-            denoised = self.model.apply(
+            denoised = self.teacher_model.apply(
                 {'params': params}, x=x_hat, sigma=t_hat, 
                 train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
             d_cur = (x_hat - denoised) / t_hat
             x_next = x_hat + (t_next - t_hat) * d_cur
 
             # Apply 2nd order correction.
-            def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
-                denoised = self.model.apply(
+            def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key, step):
+                denoised = self.teacher_model.apply(
                     {'params': params}, x=x_next, sigma=t_next, 
                     train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
                 d_prime = (x_next - denoised) / t_next
-                x_next = x_hat + (0.5 * d_cur + 0.5 * d_prime) * (t_next - t_hat)
-                return x_next
-            x_result = jax.lax.cond(t_next[0, 0, 0, 0] != 0.0, 
-                                    second_order_corrections, 
-                                    lambda x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2: x_next, 
-                                    x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2)
+                x_corrected_one = x_hat + (0.5 * d_cur + 0.5 * d_prime) * (t_next - t_hat)
+                return_val = jnp.where(step[:, None, None, None] == 0, x_next, x_corrected_one)
+                return return_val
+            
+            x_result = second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2, step)
+            
             return x_result
 
         def p_sample_fn(params, x_cur, rng_key, step):
@@ -320,20 +323,12 @@ class CMFramework(DefaultModel):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
-        t_steps = jnp.append(jnp.zeros_like(self.t_steps[0]), self.t_steps)
+        # t_steps = jnp.append(jnp.zeros_like(self.t_steps[0]), self.t_steps)
 
-        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * t_steps[-1]
+        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.t_steps[-1]
         rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
         rng_key = jax.random.split(rng_key, jax.local_device_count())
-        latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, t_steps[-1])
-        # for t_cur, t_next in pbar:
-        # for step in steps:
-        #     rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
-            
-        #     gamma = self.get_gamma(step)
-        #     rng_key = jax.random.split(rng_key, jax.local_device_count())
-        #     gamma = jnp.asarray([gamma] * jax.local_device_count())
-        #     latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, gamma, step)
+        latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.t_steps[-1])
 
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
