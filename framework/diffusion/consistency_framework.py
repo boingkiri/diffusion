@@ -75,11 +75,12 @@ class CMFramework(DefaultModel):
             self.t_steps = (self.sigma_min ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
             
             # Initialize model 
-            frozened_params = flax.core.frozen_dict.freeze(self.teacher_model_state["params_ema"])
-            self.model_state = self.model_state.replace(params=frozened_params)
-            self.model_state = self.model_state.replace(params_ema=frozened_params)
-            self.model_state = self.model_state.replace(target_model=frozened_params)
-            self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
+            if self.model_state.step == 0:
+                frozened_params = flax.core.frozen_dict.freeze(self.teacher_model_state["params_ema"])
+                self.model_state = self.model_state.replace(params=frozened_params)
+                self.model_state = self.model_state.replace(params_ema=frozened_params)
+                self.model_state = self.model_state.replace(target_model=frozened_params)
+                self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
         else:
             # TODO
             # self.n_steps_fn = lambda k: jnp.ceil(jnp.sqrt((k / diffusion_framework.train.total_step) * ((self.sigma_max + 1) ** 2 - (self.sigma_min ** 2)) + self.sigma_min ** 2) - 1) + 1
