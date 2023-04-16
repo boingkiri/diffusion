@@ -12,6 +12,7 @@ class CMEMA(DefaultEMA):
         ):
 
         super().__init__(beta, update_every, update_after_step)
+
         def ema_update_pmap_fn(state):
             step = state.step
             current_decay = self.get_current_decay(step)
