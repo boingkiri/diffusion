@@ -318,10 +318,6 @@ class UNetpp(nn.Module):
         self.enc = enc_modules
         self.dec = dec_modules
 
-        with open("features.pickle", "rb") as f:
-            import pickle
-            self.features = pickle.load(f) 
-
     def __call__(self, x, noise_labels, train, augment_labels=None):
         emb = self.map_noise(noise_labels)
 
