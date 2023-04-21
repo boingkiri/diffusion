@@ -116,7 +116,7 @@ class EDMFramework(DefaultModel):
             # Euler step
             denoised = self.model.apply(
                 {'params': params}, x=x_hat, sigma=t_hat, 
-                train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key}).astype(jnp.float64)
+                train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
             d_cur = (x_hat - denoised) / t_hat
             x_next = x_hat + (t_next - t_hat) * d_cur
 
@@ -124,7 +124,7 @@ class EDMFramework(DefaultModel):
             def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
                 denoised = self.model.apply(
                     {'params': params}, x=x_next, sigma=t_next, 
-                    train=False, augment_labels= augment_labels, rngs={'dropout': rng_key}).astype(jnp.float64)
+                    train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
                 d_prime = (x_next - denoised) / t_next
                 x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
                 return x_next
@@ -194,7 +194,7 @@ class EDMFramework(DefaultModel):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
-        step_indices = jnp.arange(self.n_timestep, dtype=jnp.float64)
+        step_indices = jnp.arange(self.n_timestep)
         t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
         t_steps = jnp.append(t_steps, jnp.zeros_like(t_steps[:1]))
         pbar = tqdm(zip(t_steps[:-1], t_steps[1:]))
