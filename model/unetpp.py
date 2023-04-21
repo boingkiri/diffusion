@@ -19,9 +19,11 @@ class Linear(nn.Module):
         init_function = create_initializer(self.init_mode) if type(self.init_mode) is str else self.init_mode
         weight_init_function = lambda key, shape, dtype: init_function(key, shape, dtype) * self.init_weight
         bias_init_function = lambda key, shape, dtype, fan_in, fan_out: init_function(key, shape, dtype, fan_in=fan_in, fan_out=fan_out) * self.init_bias
-        self.weight = self.param("weight", weight_init_function, (self.in_features, self.out_features), jnp.float32)
-        self.bias = self.param("bias", bias_init_function, (self.out_features,), jnp.float32,
-                                    self.in_features, self.out_features) if self.use_bias else None
+        self.weight = self.param("weight", 
+                                weight_init_function, (self.in_features, self.out_features), jnp.float32)
+        self.bias = self.param("bias", 
+                                bias_init_function, (self.out_features,), jnp.float32,
+                                self.in_features, self.out_features) if self.use_bias else None
 
     def __call__(self, x):
         x = x @ self.weight
@@ -60,7 +62,6 @@ class CustomConv2d(nn.Module):
                    if self.kernel_channels and self.use_bias else None
         f = jnp.asarray(self.resample_filter)
         f = jnp.expand_dims(jnp.outer(f, f), axis=(-1, -2)) / (jnp.sum(f) ** 2)
-        # self.resample_filter = f if self.up or self.down else None
         self.resample_filter_outer = f if self.up or self.down else None
         self.dim_spec = ('NHWC', 'HWIO', 'NHWC')
 
@@ -103,11 +104,6 @@ class CustomConv2d(nn.Module):
                 padding = [[w_pad] * 2] * 2
                 x = jax.lax.conv_general_dilated(x, w, window_strides=(1, 1), 
                                                  padding=padding, dimension_numbers=self.dim_spec)
-                # x = x.transpose(0, 3, 1, 2)
-                # w = w.transpose(3, 2, 0, 1)
-                # x = jax.lax.conv(x, w, (1, 1), "SAME")
-                # x = x.transpose(0, 2, 3, 1)
-        
         if b is not None:
             x = x + b.reshape(1, 1, 1, -1)
         return x
@@ -127,17 +123,6 @@ class AttentionModule(nn.Module):
     @nn.compact
     def __call__(self, x):
         orig_x = x
-        # x = self.norm2(x)
-        # qkv = self.qkv(x)
-        # qkv = qkv.reshape(x.shape[0] * self.num_heads, 3, -1, x.shape[-1] // self.num_heads)
-        # q, k, v = jnp.split(qkv, 3, axis=1)
-        # k = k / jnp.sqrt(k.shape[-1])
-        # w = jnp.einsum('bnqc,bnkc->bnqk', q, k)
-        # w = nn.softmax(w, axis=-1)
-
-        # a = jnp.einsum('bnqk,bnkc->bnqc', w, v)
-        # a = a.reshape(*x.shape)
-        # x = self.proj(a) + orig_x
         x = self.norm2(x)
         qkv = self.qkv(x)
         qkv = jnp.transpose(qkv, (0, 3, 1, 2))
@@ -183,7 +168,6 @@ class UNetBlock(nn.Module):
             up=self.up, down=self.down, 
             resample_filter=self.resample_filter, 
             init_mode=init)
-        # self.affine = nn.Dense(self.out_channels * (2 if self.adaptive_scale else 1), kernel_init=init)
         self.affine = Linear(self.emb_channels, self.out_channels * (2 if self.adaptive_scale else 1), init_mode=init)
         self.norm1 = nn.GroupNorm(epsilon=self.eps)
         self.dropout1 = nn.Dropout(self.dropout_rate)
@@ -233,7 +217,6 @@ class PositionalEmbedding(nn.Module):
         freqs = jnp.arange(start=0, stop=self.num_channels // 2)
         freqs = freqs / (self.num_channels // 2 - (1 if self.endpoint else 0))
         freqs = (1 / self.max_positions) ** freqs
-        # x = x.ger(freqs.to(x.dtype))
         x = jnp.outer(x, freqs.astype(x.dtype))
         x = jnp.concatenate([jnp.cos(x), jnp.sin(x)], axis=1)
         return x
@@ -263,7 +246,6 @@ class UNetpp(nn.Module):
         noise_channels = self.n_channels * 1 # This can be changed
         init = create_initializer('xavier_uniform')
         init_zero = create_initializer('xavier_zero')
-        init_attn = create_initializer('xavier_attn')
         block_kwargs = dict(
             emb_channels=emb_channels,
             num_heads=self.n_heads,
@@ -276,12 +258,7 @@ class UNetpp(nn.Module):
         )
 
         # Mapping
-        # self.map_noise = TimeEmbedding(noise_channels)
         self.map_noise = PositionalEmbedding(num_channels=noise_channels, endpoint=True)
-        # self.map_label = nn.Dense(noise_channels, kernel_init=init) if self.label_dim else None
-        # self.map_augment = nn.Dense(noise_channels, use_bias=False, kernel_init=init) if self.augment_dim else None
-        # self.map_layer0 = nn.Dense(emb_channels, kernel_init=init)
-        # self.map_layer1 = nn.Dense(emb_channels, kernel_init=init)
         self.map_label = Linear(self.label_dim, noise_channels, init_mode=init) if self.label_dim else None
         self.map_augment = Linear(self.augment_dim, noise_channels, use_bias=False, init_mode=init) if self.augment_dim else None
         self.map_layer0 = Linear(noise_channels, emb_channels, init_mode=init)
@@ -365,7 +342,6 @@ class UNetpp(nn.Module):
         # Encoder
         skips = []
         aux = x
-        orig_x = x
         for key, block in self.enc.items():
             if 'aux_down' in key:
                 aux = block(aux)
@@ -374,11 +350,7 @@ class UNetpp(nn.Module):
             elif 'aux_residual' in key:
                 x = skips[-1] = aux = (x + block(aux)) / jnp.sqrt(2)
             else:
-                # if "8x8_block" in key :
-                #     breakpoint()
                 x = block(x, emb, train) if isinstance(block, UNetBlock) else block(x)
-                # if "8x8_block" in key :
-                #     breakpoint()
                 skips.append(x)
 
         # Decoder
@@ -390,18 +362,12 @@ class UNetpp(nn.Module):
             elif 'aux_norm' in key:
                 tmp = block(x)
             elif 'aux_conv' in key:
-                # breakpoint()
                 tmp = block(nn.silu(tmp))
                 aux = tmp if aux is None else tmp + aux
-                # breakpoint()
             else:
-                # if "16x16_block" in key :
-                #     breakpoint()
                 if x.shape[-1] != block.in_channels:
                     x = jnp.concatenate([x, skips.pop()], axis=-1)
                 x = block(x, emb, train)
-                # if "16x16_block" in key :
-                #     breakpoint()
         return aux
 
 
@@ -430,8 +396,5 @@ class EDMPrecond(nn.Module):
         elif self.model_type == "unet":
             net = UNet(**self.model_kwargs)
         F_x = net(c_in * x, c_noise.flatten(), train, augment_labels)
-        # F_x = net(x, c_noise.flatten(), train, augment_labels)
         D_x = c_skip * x + c_out * F_x
-        # D_x = F_x
-        # breakpoint()
         return D_x
