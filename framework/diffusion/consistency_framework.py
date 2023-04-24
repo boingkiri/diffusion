@@ -194,7 +194,8 @@ class CMFramework(DefaultModel):
         def update(carry_state, x0):
             (rng, state) = carry_state
             rng, new_rng = jax.random.split(rng)
-            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(state.params, state.target_model, x0, rng)
+            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(
+                state.params, jax.lax.stop_gradient(state.target_model), x0, rng)
 
             grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
             # breakpoint()
@@ -206,7 +207,7 @@ class CMFramework(DefaultModel):
             ema_updated_params = jax.tree_map(
                 lambda x, y: self.target_model_ema_decay * x + (1 - self.target_model_ema_decay) * y,
                 new_state.target_model, new_state.params)
-            new_state = new_state.replace(target_model = jax.lax.stop_gradient(ema_updated_params))
+            new_state = new_state.replace(target_model = ema_updated_params)
 
             # Update EMA for sampling
             new_state = self.ema_obj.ema_update(new_state)
