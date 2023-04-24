@@ -3,8 +3,9 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
-import copy
-from default_ema import DefaultEMA 
+# import copy
+# from default_ema import DefaultEMA 
+from utils.ema.default_ema import DefaultEMA 
 
 from flax.training.train_state import TrainState
 
