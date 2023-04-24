@@ -8,7 +8,8 @@ from model.unetpp import CMPrecond, EDMPrecond
 from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
-from utils.ema.ema_cm import CMEMA
+# from utils.ema.ema_cm import CMEMA
+from utils.ema.ema_edm import EDMEMA
 from utils.augment_utils import AugmentPipe
 from framework.default_diffusion import DefaultModel
 # import lpips
@@ -92,7 +93,8 @@ class CMFramework(DefaultModel):
 
         # Create ema obj
         ema_config = config.ema
-        self.ema_obj = CMEMA(**ema_config)
+        # self.ema_obj = CMEMA(**ema_config)
+        self.ema_obj = EDMEMA(**ema_config)
 
         # Augmentation pipeline
         augment_rng, self.rand_key = jax.random.split(self.rand_key)
