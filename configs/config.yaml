@@ -10,7 +10,8 @@ defaults:
     - discriminator/discriminator_kl
     # - diffusion/dit_b
     # - diffusion/unet
-    - diffusion/unetpp
+    # - diffusion/unetpp
+    - diffusion/unetpp_ve
   # - ema: ema
   - ema: ema_edm
   - dataset: cifar10
@@ -19,7 +20,8 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: edm_augment_pipe
+# exp_name: edm_augment_pipe
+exp_name: edm_porting_from_torch_ve_1000
 do_training: true
 do_sampling: true
 num_sampling: 50000

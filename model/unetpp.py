@@ -138,6 +138,19 @@ class AttentionModule(nn.Module):
         a = jnp.transpose(a, (0, 2, 3, 1))
         
         x = self.proj(a) + orig_x
+        # orig_x = x
+        # x = self.norm2(x)
+        # qkv = self.qkv(x)
+        # qkv = qkv.reshape(x.shape[0] * self.num_heads, -1, 3, x.shape[-1] // self.num_heads)
+        # q, k, v = jnp.split(qkv, 3, axis=2)
+        # k = k / jnp.sqrt(k.shape[-1])
+        
+        # w = jnp.einsum('bqnc,bknc->bqkn', q, k)
+        # w = nn.softmax(w, axis=2)
+
+        # a = jnp.einsum('bqkn,bknc->bqnc', w, v)
+        # a = a.reshape(*x.shape)
+        # x = self.proj(a) + orig_x
         return x
 
 class UNetBlock(nn.Module):
@@ -221,6 +234,22 @@ class PositionalEmbedding(nn.Module):
         x = jnp.concatenate([jnp.cos(x), jnp.sin(x)], axis=1)
         return x
 
+class FourierEmbedding(nn.Module):
+    num_channels: int
+    scale: float = 16
+    def setup(self):
+        # key = self.make_rng('params')
+        # randn = jax.random.normal(key, (self.num_channels // 2,))
+        # self.freqs = randn * self.scale
+        self.freqs = self.param('freqs', jax.random.normal, (self.num_channels // 2,), jnp.float32)
+    
+    def __call__(self, x):
+        # x = x.ger((2 * np.pi * self.freqs).to(x.dtype))
+        freqs = jax.lax.stop_gradient(self.freqs)
+        x = jnp.outer(x, (2 * jnp.pi * freqs))
+        x = jnp.concatenate([jnp.cos(x), jnp.sin(x)], axis=1)
+        return x
+
 class UNetpp(nn.Module):
     image_channels: int = 3
     n_channels: int = 128
@@ -243,7 +272,8 @@ class UNetpp(nn.Module):
 
     def setup(self):
         emb_channels = self.n_channels * 4
-        noise_channels = self.n_channels * 1 # This can be changed
+        # noise_channels = self.n_channels * 1 # This can be changed
+        noise_channels = self.n_channels * (1 if len(self.resample_filter) == 2 else 2)
         init = create_initializer('xavier_uniform')
         init_zero = create_initializer('xavier_zero')
         block_kwargs = dict(
@@ -258,8 +288,8 @@ class UNetpp(nn.Module):
         )
 
         # Mapping
-        self.map_noise = PositionalEmbedding(num_channels=noise_channels, endpoint=True)
-        self.map_label = Linear(self.label_dim, noise_channels, init_mode=init) if self.label_dim else None
+        self.map_noise = PositionalEmbedding(num_channels=noise_channels, endpoint=True) if self.embedding_type == "positional" else FourierEmbedding(num_channels=noise_channels)
+        self.map_label = Linear(self.label_dim, noise_channels, init_mode=init) if self.label_dim else None 
         self.map_augment = Linear(self.augment_dim, noise_channels, use_bias=False, init_mode=init) if self.augment_dim else None
         self.map_layer0 = Linear(noise_channels, emb_channels, init_mode=init)
         self.map_layer1 = Linear(emb_channels, emb_channels, init_mode=init)
@@ -287,7 +317,7 @@ class UNetpp(nn.Module):
                     enc_modules[f'{res}x{res}_aux_down'] = CustomConv2d(in_channels=caux, out_channels=caux, kernel_channels=0, down=True, resample_filter=self.resample_filter)
                     enc_modules[f'{res}x{res}_aux_skip'] = CustomConv2d(in_channels=caux, out_channels=cout, kernel_channels=1, init_mode=init)
                 if self.encoder_type == "residual":
-                    enc_modules[f'{res}x{res}_aux_residual'] = CustomConv2d(in_channels=caux, out_channels=cout, kernel_channdls=3, down=True, resample_filter=self.resample_filter, fused_resample=True, init_mode=init)
+                    enc_modules[f'{res}x{res}_aux_residual'] = CustomConv2d(in_channels=caux, out_channels=cout, kernel_channels=3, down=True, resample_filter=self.resample_filter, fused_resample=True, init_mode=init)
                     caux=cout
             for idx in range(self.n_blocks):
                 cin = cout
