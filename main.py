@@ -18,7 +18,7 @@ def start(config: DictConfig):
     print(OmegaConf.to_yaml(config))
     print("------------------------------------------------------")
     diffusion_framework = UnifyingFramework(model_type, config, rng)
-
+    
     # if jax.devices
 
     if config.do_training:
@@ -41,6 +41,6 @@ def start(config: DictConfig):
         diffusion_framework.sampling_and_save(config.num_sampling)
         fid_score = diffusion_framework.fid_utils.calculate_fid(config.exp.sampling_dir)
         print(fid_score)
-
+    
 if __name__ == "__main__":
     start()

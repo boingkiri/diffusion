@@ -8,7 +8,7 @@ from model.unetpp import CMPrecond, EDMPrecond
 from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
-# from utils.ema.ema_cm import CMEMA
+from utils.ema.ema_cm import CMEMA
 from utils.ema.ema_edm import EDMEMA
 from utils.augment_utils import AugmentPipe
 from framework.default_diffusion import DefaultModel
@@ -55,7 +55,11 @@ class CMFramework(DefaultModel):
         self.S_churn = 0 
         self.S_min = 0 
         self.S_max = float('inf') 
-        self.S_noise = 1 
+        self.S_noise = 1
+        
+        self.mu_0 = diffusion_framework.params_ema_for_training[0]
+        self.s_0 = diffusion_framework.params_ema_for_training[1]
+        self.s_1 = diffusion_framework.params_ema_for_training[2]
 
         # Distillation or Training
         self.is_distillation = diffusion_framework.is_distillation
@@ -83,18 +87,33 @@ class CMFramework(DefaultModel):
                 self.model_state = self.model_state.replace(target_model=frozened_params)
                 self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
         else:
-            # TODO
-            # self.n_steps_fn = lambda k: jnp.ceil(jnp.sqrt((k / diffusion_framework.train.total_step) * ((self.sigma_max + 1) ** 2 - (self.sigma_min ** 2)) + self.sigma_min ** 2) - 1) + 1
-            # self.ema_power = jnp.exp(self.sigma_min * jnp.log())
-            pass
+            self.n_timestep_fn = lambda k: jnp.ceil(jnp.sqrt((k / diffusion_framework.train.total_step) * ((self.s_1 + 1) ** 2 - self.s_0 ** 2) + self.s_0 ** 2) - 1) + 1
+            self.ema_power_fn = lambda k: jnp.exp(self.s_0 * jnp.log(self.mu_0) / self.n_timestep_fn(k))
+            self.t_steps_fn = lambda idx, n_timestep: (self.sigma_min ** (1 / self.rho) + idx / (n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
+            '''
+            # CT training is also initialized by pre-trained EDM model for fair comparison with CD / continuous-time CT
+            self.teacher_model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
+            self.teacher_model_state = checkpoints.restore_checkpoint(teacher_model_path, None, prefix=prefix)
+            
+            # Initialize model 
+            if self.model_state.step == 0:
+                frozened_params = flax.core.frozen_dict.freeze(self.teacher_model_state["params_ema"])
+                self.model_state = self.model_state.replace(params=frozened_params)
+                self.model_state = self.model_state.replace(params_ema=frozened_params)
+                self.model_state = self.model_state.replace(target_model=frozened_params)
+                self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
+            '''
+            # Initialize model 
+            if self.model_state.step == 0:
+                self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
         
-        # Replicate model state to use multiple compuatation units 
+        # Replicate model state to use multiple computation units 
         self.model_state = flax.jax_utils.replicate(self.model_state)
 
         # Create ema obj
         ema_config = config.ema
-        # self.ema_obj = CMEMA(**ema_config)
-        self.ema_obj = EDMEMA(**ema_config)
+        self.ema_obj = CMEMA(**ema_config)
+        # self.ema_obj = EDMEMA(**ema_config)
 
         # Augmentation pipeline
         augment_rng, self.rand_key = jax.random.split(self.rand_key)
@@ -155,31 +174,33 @@ class CMFramework(DefaultModel):
                 return loss, loss_dict
         else:
             @jax.jit
-            def loss_fn(params, params_ema, y, rng_key): # TODO
-                return
+            def loss_fn(params, params_ema, y, rng_key, n_timestep):
                 rng_key, step_key, normal_key, dropout_key = jax.random.split(rng_key, 4)
-
-                # Sample n ~ U[0, N-2]
-                idx = jax.random.randint(step_key, y.shape[0], minval=0, maxval=self.n_timestep-1)
-                sigma = self.t_steps[idx]
-                next_sigma = self.t_steps[idx+1]
-
-                gamma = self.get_gamma(idx)
-
                 
-
+                # Sample n ~ U[0, N-2]
+                idx = jax.random.randint(step_key, (y.shape[0], ), minval=0, maxval=n_timestep-1)
+                
+                sigma = self.t_steps_fn(idx, n_timestep)[:, None, None, None]
+                next_sigma = self.t_steps_fn(idx+1, n_timestep)[:, None, None, None]
+                
+                noise = jax.random.normal(rng_key, y.shape)
 
                 # Get consistency function values
                 online_consistency = self.model.apply(
-                    {'params': params}, x=y+next_sigma, 
+                    {'params': params}, x= y + next_sigma * noise,
                     sigma=next_sigma, train=True, augment_labels=None, rngs={'dropout': dropout_key})
                 
                 target_consistency = self.model.apply(
-                    {'params': params_ema}, x=target_xn, 
+                    {'params': params_ema}, x= y + sigma * noise, 
                     sigma=sigma, train=True, augment_labels=None, rngs={'dropout': dropout_key})
 
                 if diffusion_framework.loss == "lpips":
-                    loss = self.perceptual_loss(online_consistency, target_consistency)
+                    output_shape = (y.shape[0], 224, 224, y.shape[-1])
+                    online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
+                    target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
+                    online_consistency = (online_consistency + 1) / 2.0
+                    target_consistency = (target_consistency + 1) / 2.0
+                    loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
                 elif diffusion_framework.loss == "l2":
                     loss = jnp.mean((online_consistency - target_consistency) ** 2)
                 elif diffusion_framework.loss == "l1":
@@ -194,8 +215,15 @@ class CMFramework(DefaultModel):
         def update(carry_state, x0):
             (rng, state) = carry_state
             rng, new_rng = jax.random.split(rng)
-            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(
-                state.params, jax.lax.stop_gradient(state.target_model), x0, rng)
+            
+            args = [state.params, jax.lax.stop_gradient(state.target_model), x0, rng]         
+            if not self.is_distillation:
+                # state.step is incremented by every call to 'apply.gradients'
+                self.target_model_ema_decay = self.ema_power_fn(state.step)
+                n_timestep = self.n_timestep_fn(state.step)
+                args += [n_timestep.astype(float)]
+            
+            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(*args)
 
             grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
             # breakpoint()
@@ -327,12 +355,17 @@ class CMFramework(DefaultModel):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
-        # t_steps = jnp.append(jnp.zeros_like(self.t_steps[0]), self.t_steps)
+        num_steps = self.n_timestep_fn(self.model_state.step)
+        last_t_step = self.t_steps[-1] if self.is_distillation else self.t_steps_fn(num_steps-1, num_steps)[0]
+        # last_t_step = self.sigma_max
 
-        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.t_steps[-1]
+        # t_steps = jnp.append(jnp.zeros_like(self.t_steps[0]), self.t_steps)
+        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
+        
         rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
         rng_key = jax.random.split(rng_key, jax.local_device_count())
-        latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.t_steps[-1])
+        # latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, last_t_step)
+        latent_sample = self.p_sample_jit(self.model_state.target_model, latent_sample, rng_key, self.sigma_max)
 
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)

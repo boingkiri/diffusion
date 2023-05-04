@@ -7,8 +7,8 @@ defaults:
     # - diffusion/edm
     - diffusion/cm
   - model: 
-    - autoencoder/autoencoder_kl
-    - discriminator/discriminator_kl
+    # - autoencoder/autoencoder_kl
+    # - discriminator/discriminator_kl
     # - diffusion/dit_b
     # - diffusion/unet
     # - diffusion/unetpp
@@ -20,8 +20,9 @@ defaults:
 
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
-type: ${framework.diffusion.type}
-exp_name: cm_distillation
+type: cm
+# type: ${framework.diffusion.type}
+exp_name: cm_training_230504_edm_init
 do_training: true
 do_sampling: true
 num_sampling: 50000
