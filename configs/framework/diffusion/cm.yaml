@@ -29,7 +29,7 @@ train:
   # warmup: 5000
   # warmup: 19532 # int(10e6 / ${.batch_size})
   batch_size: 512
-  total_step: 800000
+  total_step: 1200000
   sampling_step: 10000
   saving_step: 100000
   optimizer:

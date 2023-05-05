@@ -121,6 +121,7 @@ class UnifyingFramework():
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
         best_fid = self.fs_utils.get_best_fid()
+        first_step = True
         
         for x, _ in datasets_bar:
             log = self.framework.fit(x, step=self.step)
@@ -146,7 +147,8 @@ class UnifyingFramework():
 
             if self.step % 50000 == 0 and self.step != 0:
                 model_state = self.framework.get_model_state()
-                self.save_model_state(model_state)
+                if not first_step:
+                    self.save_model_state(model_state)
 
                 # Calculate FID score with 1000 samples
                 if self.do_fid_during_training and \
@@ -163,7 +165,9 @@ class UnifyingFramework():
                 if not self.next_step():
                     break
             self.step += self.n_jitted_steps
+            first_step = False
             datasets_bar.update(self.n_jitted_steps)
+            
 
     def sampling_and_save(self, total_num, img_size=None):
         if img_size is None:

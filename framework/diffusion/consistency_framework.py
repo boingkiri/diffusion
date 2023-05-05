@@ -88,10 +88,11 @@ class CMFramework(DefaultModel):
                 self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
         else:
             self.n_timestep_fn = lambda k: jnp.ceil(jnp.sqrt((k / diffusion_framework.train.total_step) * ((self.s_1 + 1) ** 2 - self.s_0 ** 2) + self.s_0 ** 2) - 1) + 1
-            self.ema_power_fn = lambda k: jnp.exp(self.s_0 * jnp.log(self.mu_0) / self.n_timestep_fn(k))
+            # input parameter changed from "k" to "n_timestep"
+            self.ema_power_fn = lambda n_timestep: jnp.exp(self.s_0 * jnp.log(self.mu_0) / n_timestep)
             self.t_steps_fn = lambda idx, n_timestep: (self.sigma_min ** (1 / self.rho) + idx / (n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
             '''
-            # CT training is also initialized by pre-trained EDM model for fair comparison with CD / continuous-time CT
+            # CT training is also initialized by pre-trained EDM model for fair comparison with continuous-time CT
             self.teacher_model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
             self.teacher_model_state = checkpoints.restore_checkpoint(teacher_model_path, None, prefix=prefix)
             
@@ -103,9 +104,6 @@ class CMFramework(DefaultModel):
                 self.model_state = self.model_state.replace(target_model=frozened_params)
                 self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
             '''
-            # Initialize model 
-            if self.model_state.step == 0:
-                self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
         
         # Replicate model state to use multiple computation units 
         self.model_state = flax.jax_utils.replicate(self.model_state)
@@ -219,8 +217,8 @@ class CMFramework(DefaultModel):
             args = [state.params, jax.lax.stop_gradient(state.target_model), x0, rng]         
             if not self.is_distillation:
                 # state.step is incremented by every call to 'apply.gradients'
-                self.target_model_ema_decay = self.ema_power_fn(state.step)
                 n_timestep = self.n_timestep_fn(state.step)
+                self.target_model_ema_decay = self.ema_power_fn(n_timestep)
                 args += [n_timestep.astype(float)]
             
             (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(*args)
@@ -355,17 +353,14 @@ class CMFramework(DefaultModel):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
-        num_steps = self.n_timestep_fn(self.model_state.step)
-        last_t_step = self.t_steps[-1] if self.is_distillation else self.t_steps_fn(num_steps-1, num_steps)[0]
-        # last_t_step = self.sigma_max
-
-        # t_steps = jnp.append(jnp.zeros_like(self.t_steps[0]), self.t_steps)
+        # One-step generation
+        # latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
         latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
         
         rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
         rng_key = jax.random.split(rng_key, jax.local_device_count())
-        # latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, last_t_step)
-        latent_sample = self.p_sample_jit(self.model_state.target_model, latent_sample, rng_key, self.sigma_max)
+        # latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.sigma_max)
+        latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.sigma_max)
 
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
