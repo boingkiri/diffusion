@@ -186,19 +186,9 @@ class CMFramework(DefaultModel):
                 augment_dim = config.model.diffusion.get("augment_dim", None)
                 augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
 
-                augment_dim = config.model.diffusion.get("augment_dim", None)
-                augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
-
-                augment_dim = config.model.diffusion.get("augment_dim", None)
-                augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
-
-                augment_dim = config.model.diffusion.get("augment_dim", None)
-                augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
-
                 # Get consistency function values
                 online_consistency = self.model.apply(
                     {'params': params}, x= y + next_sigma * noise,
-                    sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
                     sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
                 
                 target_consistency = self.model.apply(
