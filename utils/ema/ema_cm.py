@@ -18,7 +18,7 @@ class CMEMA(DefaultEMA):
             current_decay = self.get_current_decay(step)
             ema_updated_params = jax.tree_map(
                 lambda x, y: current_decay * x + (1 - current_decay) * y,
-                state.params_ema, state.target_model)
+                state.params_ema, state.params)
             # state = state.replace(params_ema = jax.lax.stop_gradient(ema_updated_params))
             state = state.replace(params_ema = ema_updated_params)
             return state

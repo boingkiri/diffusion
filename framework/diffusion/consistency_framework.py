@@ -183,14 +183,17 @@ class CMFramework(DefaultModel):
                 
                 noise = jax.random.normal(rng_key, y.shape)
 
+                augment_dim = config.model.diffusion.get("augment_dim", None)
+                augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
+
                 # Get consistency function values
                 online_consistency = self.model.apply(
                     {'params': params}, x= y + next_sigma * noise,
-                    sigma=next_sigma, train=True, augment_labels=None, rngs={'dropout': dropout_key})
+                    sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
                 
                 target_consistency = self.model.apply(
                     {'params': params_ema}, x= y + sigma * noise, 
-                    sigma=sigma, train=True, augment_labels=None, rngs={'dropout': dropout_key})
+                    sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
 
                 if diffusion_framework.loss == "lpips":
                     output_shape = (y.shape[0], 224, 224, y.shape[-1])
@@ -354,12 +357,10 @@ class CMFramework(DefaultModel):
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
         # One-step generation
-        # latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
         latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
         
         rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
         rng_key = jax.random.split(rng_key, jax.local_device_count())
-        # latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.sigma_max)
         latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.sigma_max)
 
         if original_data is not None:
