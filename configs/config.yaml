@@ -22,7 +22,7 @@ defaults:
 # type: edm
 type: cm
 # type: ${framework.diffusion.type}
-exp_name: cm_training_230501 #cm_training_230504_edm_init
+exp_name: cm_training_230505_mod_ema
 do_training: true
 do_sampling: true
 num_sampling: 50000
