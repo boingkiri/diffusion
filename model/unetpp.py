@@ -396,7 +396,6 @@ class UNetpp(nn.Module):
                 x = block(x, emb, train)
         return aux
 
-
 class EDMPrecond(nn.Module):
     model_kwargs : dict
 
@@ -423,4 +422,64 @@ class EDMPrecond(nn.Module):
             net = UNet(**self.model_kwargs)
         F_x = net(c_in * x, c_noise.flatten(), train, augment_labels)
         D_x = c_skip * x + c_out * F_x
+        return D_x
+
+class CMPrecond(nn.Module):
+    model_kwargs : dict
+
+    image_channels: int
+    label_dim: int = 0
+    use_fp16: bool = False
+    sigma_min : float = 0.0 # 0.002
+    sigma_max : float = float('inf') # 80
+    sigma_data : float = 0.5
+    model_type : str = "unetpp"
+    
+    @nn.compact
+    def __call__(self, x, sigma, augment_labels, train):
+        c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
+        c_out = ((sigma - self.sigma_min) * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
+        c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
+        c_noise = jnp.log(sigma) / 4
+
+        # Predict F_x. There is only UNetpp case for now. 
+        # Should add more cases. (ex, DhariwalUNet (ADM)) 
+        if self.model_type == "unetpp":
+            net = UNetpp(**self.model_kwargs)
+        elif self.model_type == "unet":
+            net = UNet(**self.model_kwargs)
+        
+        F_x = net(c_in * x, c_noise.flatten(), train, augment_labels)
+        D_x = c_skip * x + c_out * F_x
+        return D_x
+
+class JTPrecond(nn.Module):
+    model_kwargs : dict
+
+    image_channels: int
+    label_dim: int = 0
+    use_fp16: bool = False
+    sigma_min : float = 0.0 # 0.002
+    sigma_max : float = float('inf') # 80
+    sigma_data : float = 0.5
+    model_type : str = "unetpp"
+    
+    total_step : float = 8e+5
+    scale : float = 1e+5
+    
+    @nn.compact
+    def __call__(self, x, sigma, step, augment_labels, train):
+        c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
+        c_noise = jnp.log(sigma) / 4
+        c = nn.sigmoid((step - 0.5 * self.total_step) / self.scale)
+        
+        # Predict F_x. There is only UNetpp case for now. 
+        # Should add more cases. (ex, DhariwalUNet (ADM)) 
+        if self.model_type == "unetpp":
+            net = UNetpp(**self.model_kwargs)
+        elif self.model_type == "unet":
+            net = UNet(**self.model_kwargs)
+        
+        F_x = net(c_in * x, c_noise.flatten(), train, augment_labels)
+        D_x = (1-c) * x + c * F_x
         return D_x

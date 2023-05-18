@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import flax
 from flax.training import checkpoints
 
-from model.unetpp import CMPrecond, EDMPrecond
+from model.unetpp import CMPrecond, EDMPrecond, JTPrecond
 from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
@@ -46,6 +46,14 @@ class CMFramework(DefaultModel):
                                sigma_max=diffusion_framework['sigma_max'])
         self.model_state = self.init_model_state(config)
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
+        
+        self.traj_model = JTPrecond(model_config, 
+                               image_channels=model_config['image_channels'], 
+                               model_type=model_type, 
+                               sigma_min=diffusion_framework['sigma_min'],
+                               sigma_max=diffusion_framework['sigma_max'])
+        self.traj_model_state = self.init_model_state(config)
+        self.traj_model_state = fs_obj.load_model_state("diffusion", self.traj_model_state)
 
         # Parameters
         self.sigma_min = diffusion_framework['sigma_min']
@@ -89,21 +97,8 @@ class CMFramework(DefaultModel):
         else:
             self.n_timestep_fn = lambda k: jnp.ceil(jnp.sqrt((k / diffusion_framework.train.total_step) * ((self.s_1 + 1) ** 2 - self.s_0 ** 2) + self.s_0 ** 2) - 1) + 1
             # input parameter changed from "k" to "n_timestep"
-            self.ema_power_fn = lambda n_timestep: jnp.exp(self.s_0 * jnp.log(self.mu_0) / n_timestep)
+            self.ema_power_fn = lambda n_timestep: jnp.exp(self.s_0 * jnp.log(self.mu_0) / jnp.maximum(n_timestep - 1, 1))
             self.t_steps_fn = lambda idx, n_timestep: (self.sigma_min ** (1 / self.rho) + idx / (n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
-            '''
-            # CT training is also initialized by pre-trained EDM model for fair comparison with continuous-time CT
-            self.teacher_model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
-            self.teacher_model_state = checkpoints.restore_checkpoint(teacher_model_path, None, prefix=prefix)
-            
-            # Initialize model 
-            if self.model_state.step == 0:
-                frozened_params = flax.core.frozen_dict.freeze(self.teacher_model_state["params_ema"])
-                self.model_state = self.model_state.replace(params=frozened_params)
-                self.model_state = self.model_state.replace(params_ema=frozened_params)
-                self.model_state = self.model_state.replace(target_model=frozened_params)
-                self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
-            '''
         
         # Replicate model state to use multiple computation units 
         self.model_state = flax.jax_utils.replicate(self.model_state)
@@ -186,13 +181,20 @@ class CMFramework(DefaultModel):
                 augment_dim = config.model.diffusion.get("augment_dim", None)
                 augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
 
-                # Get consistency function values
-                online_consistency = self.model.apply(
+                online_traj = self.traj_model.apply(
                     {'params': params}, x= y + next_sigma * noise,
+                    sigma=next_sigma, step=self.traj_model_state.step, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+
+                target_traj = self.traj_model.apply(
+                    {'params': params_ema}, x= y + sigma * noise,
+                    sigma=sigma, step=self.traj_model_state.step, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+
+                online_consistency = self.model.apply(
+                    {'params': params}, x= online_traj,
                     sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
                 
                 target_consistency = self.model.apply(
-                    {'params': params_ema}, x= y + sigma * noise, 
+                    {'params': params_ema}, x= target_traj, 
                     sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
 
                 if diffusion_framework.loss == "lpips":

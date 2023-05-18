@@ -22,7 +22,7 @@ defaults:
 # type: edm
 type: cm
 # type: ${framework.diffusion.type}
-exp_name: cm_training_230508_original_loss
+exp_name: cm_training_230518_joint_training
 do_training: true
 do_sampling: true
 num_sampling: 50000

@@ -29,7 +29,6 @@ train:
   # warmup: 5000
   # warmup: 19532 # int(10e6 / ${.batch_size})
   batch_size: 512
-  total_step: 3200000
   total_step: 800000
   sampling_step: 10000
   saving_step: 100000
