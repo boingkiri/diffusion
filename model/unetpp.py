@@ -452,7 +452,7 @@ class CMPrecond(nn.Module):
         F_x = net(c_in * x, c_noise.flatten(), train, augment_labels)
         D_x = c_skip * x + c_out * F_x
         return D_x
-
+'''
 class JTPrecond(nn.Module):
     model_kwargs : dict
 
@@ -483,3 +483,4 @@ class JTPrecond(nn.Module):
         F_x = net(c_in * x, c_noise.flatten(), train, augment_labels)
         D_x = (1-c) * x + c * F_x
         return D_x
+'''
