@@ -47,7 +47,7 @@ class CMFramework(DefaultModel):
         self.model_state = self.init_model_state(config)
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
         
-        self.traj_model = EDMPrecond(model_config, 
+        self.traj_model = CMPrecond(model_config, 
                                image_channels=model_config['image_channels'], 
                                model_type=model_type, 
                                sigma_min=diffusion_framework['sigma_min'],
@@ -170,7 +170,8 @@ class CMFramework(DefaultModel):
                 return loss, loss_dict
         else:
             @jax.jit
-            def loss_fn(params, params_ema, traj_params, traj_params_ema, y, rng_key, n_timestep):
+            # def loss_fn(params, params_ema, traj_params, traj_params_ema, y, rng_key, n_timestep):
+            def loss_fn(params, params_ema, traj_params, y, rng_key, n_timestep):
                 rng_key, step_key, normal_key, dropout_key = jax.random.split(rng_key, 4)
                 
                 # Sample n ~ U[0, N-2]
@@ -190,40 +191,59 @@ class CMFramework(DefaultModel):
                 traj = self.traj_model.apply(
                     {'params': traj_params}, x= next_perturbed_x,
                     sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-                
+                '''
                 traj_ema = self.traj_model.apply(
                     {'params': traj_params_ema}, x= next_perturbed_x,
                     sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-                
+                '''
                 # Calculate g_phi from EDM denoiser output
                 c = sigma / next_sigma
                 traj_g_phi = (1 - c) * traj + c * next_perturbed_x
-                traj_g_phi_ema = (1 - c) * traj_ema + c * next_perturbed_x
+                # traj_g_phi_ema = (1 - c) * traj_ema + c * next_perturbed_x
 
-                online_consistency = self.model.apply(
+                online_consistency_1 = self.model.apply(
                     {'params': params}, x= next_perturbed_x,
                     sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
                 
-                target_consistency = self.model.apply(
-                    {'params': params_ema}, x= traj_g_phi_ema, 
+                target_consistency_1 = self.model.apply(
+                    {'params': params_ema}, x= traj_g_phi, 
+                    sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+                
+                online_consistency_2 = self.model.apply(
+                    {'params': params}, x= traj_g_phi,
+                    sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+
+                target_consistency_2 = self.model.apply(
+                    {'params': params_ema}, x= perturbed_x, 
                     sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
 
                 if diffusion_framework.loss == "lpips":
                     output_shape = (y.shape[0], 224, 224, y.shape[-1])
+                    '''
                     online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
                     target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
                     online_consistency = (online_consistency + 1) / 2.0
                     target_consistency = (target_consistency + 1) / 2.0
-                    loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
+                    '''
+                    online_consistency_1 = jax.image.resize(online_consistency_1, output_shape, "bilinear")
+                    online_consistency_1 = (online_consistency_1 + 1) / 2.0
+                    
+                    target_consistency_1 = jax.image.resize(target_consistency_1, output_shape, "bilinear")
+                    target_consistency_1 = (target_consistency_1 + 1) / 2.0
+                    
+                    online_consistency_2 = jax.image.resize(online_consistency_2, output_shape, "bilinear")
+                    online_consistency_2 = (online_consistency_2 + 1) / 2.0
+
+                    target_consistency_2 = jax.image.resize(target_consistency_2, output_shape, "bilinear")
+                    target_consistency_2 = (target_consistency_2 + 1) / 2.0
+                    
+                    loss = jnp.mean(self.perceptual_loss(online_consistency_1, target_consistency_1)) + self.beta * jnp.mean(self.perceptual_loss(online_consistency_2, target_consistency_2))
                 elif diffusion_framework.loss == "l2":
-                    loss = jnp.mean((online_consistency - target_consistency) ** 2)
+                    loss = jnp.mean((online_consistency_1 - target_consistency_1) ** 2) + self.beta * jnp.mean((target_consistency_2 - online_consistency_2) ** 2)
                 elif diffusion_framework.loss == "l1":
-                    loss = jnp.mean(jnp.abs(online_consistency - target_consistency))
+                    loss = jnp.mean(jnp.abs(online_consistency_1 - target_consistency_1)) + self.beta * jnp.mean(jnp.abs(target_consistency_2 - online_consistency_2))
                 else:
                     NotImplementedError("Consistency model is only support lpips, l2, and l1 loss.")
-
-                # Add ODE trajectory loss
-                loss += self.beta * jnp.mean((traj_g_phi - perturbed_x) ** 2)
 
                 loss_dict = {}
                 loss_dict['total_loss'] = loss
@@ -234,7 +254,7 @@ class CMFramework(DefaultModel):
             rng, new_rng = jax.random.split(rng)
             
             args = [state.params, jax.lax.stop_gradient(state.target_model),
-                    traj_state.params, jax.lax.stop_gradient(traj_state.target_model), 
+                    traj_state.params, # jax.lax.stop_gradient(traj_state.target_model), 
                     x0, rng]         
             if not self.is_distillation:
                 # state.step is incremented by every call to 'apply.gradients'
@@ -258,11 +278,13 @@ class CMFramework(DefaultModel):
                 new_state.target_model, new_state.params)
             new_state = new_state.replace(target_model = ema_updated_params)
 
+            '''
             # Also do it for traj model
             ema_updated_traj_params = jax.tree_map(
                 lambda x, y: self.target_model_ema_decay * x + (1 - self.target_model_ema_decay) * y,
                 new_traj_state.target_model, new_traj_state.params)
             new_traj_state = new_traj_state.replace(target_model = ema_updated_traj_params)
+            '''
 
             # Update EMA for sampling
             new_state = self.ema_obj.ema_update(new_state)

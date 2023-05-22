@@ -11,3 +11,5 @@ cifar
 test/outputs
 outputs
 main.log
+
+pretrained_models
