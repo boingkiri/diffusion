@@ -47,13 +47,14 @@ class CMFramework(DefaultModel):
         self.model_state = self.init_model_state(config)
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
         
-        self.traj_model = JTPrecond(model_config, 
-                               image_channels=model_config['image_channels'], 
-                               model_type=model_type, 
-                               sigma_min=diffusion_framework['sigma_min'],
-                               sigma_max=diffusion_framework['sigma_max'])
-        self.traj_model_state = self.init_model_state(config)
-        self.traj_model_state = fs_obj.load_model_state("diffusion", self.traj_model_state)
+        # self.traj_model = JTPrecond(model_config, 
+        #                        image_channels=model_config['image_channels'], 
+        #                        model_type=model_type, 
+        #                        sigma_min=diffusion_framework['sigma_min'],
+        #                        sigma_max=diffusion_framework['sigma_max'])
+        self.diffusion_model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
+        self.diffusion_model_state = self.init_model_state(config)
+        self.diffusion_model_state = fs_obj.load_model_state("diffusion", self.diffusion_model_state)
 
         # Parameters
         self.sigma_min = diffusion_framework['sigma_min']
@@ -102,7 +103,7 @@ class CMFramework(DefaultModel):
         
         # Replicate model state to use multiple computation units 
         self.model_state = flax.jax_utils.replicate(self.model_state)
-        self.traj_model_state = flax.jax_utils.replicate(self.traj_model_state)
+        self.diffusion_model_state = flax.jax_utils.replicate(self.diffusion_model_state)
 
         # Create ema obj
         ema_config = config.ema
@@ -168,7 +169,7 @@ class CMFramework(DefaultModel):
                 return loss, loss_dict
         else:
             @jax.jit
-            def loss_fn(params, params_ema, traj_params, traj_params_ema, y, rng_key, n_timestep):
+            def loss_fn(params, traj_params, params_ema, y, rng_key, n_timestep):
                 rng_key, step_key, normal_key, dropout_key = jax.random.split(rng_key, 4)
                 
                 # Sample n ~ U[0, N-2]
@@ -182,21 +183,63 @@ class CMFramework(DefaultModel):
                 augment_dim = config.model.diffusion.get("augment_dim", None)
                 augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
 
-                online_traj = self.traj_model.apply(
+                denoise = self.diffusion_model.apply(
                     {'params': traj_params}, x= y + next_sigma * noise,
-                    sigma=next_sigma, step=flax.jax_utils.unreplicate(self.traj_model_state.step), train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+                    sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
 
-                target_traj = self.traj_model.apply(
-                    {'params': traj_params_ema}, x= y + sigma * noise,
-                    sigma=sigma, step=flax.jax_utils.unreplicate(self.traj_model_state.step), train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
 
                 online_consistency = self.model.apply(
-                    {'params': params}, x= online_traj,
+                    {'params': params}, x= y + next_sigma * noise,
                     sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
                 
                 target_consistency = self.model.apply(
-                    {'params': params_ema}, x= target_traj, 
+                    {'params': params_ema}, x= denoise, 
                     sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+
+                if diffusion_framework.loss == "lpips":
+                    denoise_loss = jnp.mean((denoise - (y + sigma * noise)) ** 2)
+
+                    output_shape = (y.shape[0], 224, 224, y.shape[-1])
+                    online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
+                    target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
+                    online_consistency = (online_consistency + 1) / 2.0
+                    target_consistency = (target_consistency + 1) / 2.0
+                    perceptual_loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
+
+                    # TODO: adjust loss ratio
+                    loss = perceptual_loss + denoise_loss
+                elif diffusion_framework.loss == "l2":
+                    loss = jnp.mean((online_consistency - target_consistency) ** 2)
+                elif diffusion_framework.loss == "l1":
+                    loss = jnp.mean(jnp.abs(online_consistency - target_consistency))
+                else:
+                    NotImplementedError("Consistency model is only support lpips, l2, and l1 loss.")
+
+                loss_dict = {}
+                loss_dict['total_loss'] = loss
+                loss_dict['denoise_loss'] = denoise_loss
+                loss_dict['perceptual_loss'] = perceptual_loss
+                return loss, loss_dict
+            
+            @jax.jit
+            def diffusion_loss_fn(traj_params, y, rng_key, n_timestep):
+                rng_key, step_key, normal_key, dropout_key = jax.random.split(rng_key, 4)
+                
+                # Sample n ~ U[0, N-2]
+                idx = jax.random.randint(step_key, (y.shape[0], ), minval=0, maxval=n_timestep-1)
+                
+                sigma = self.t_steps_fn(idx, n_timestep)[:, None, None, None]
+                next_sigma = self.t_steps_fn(idx+1, n_timestep)[:, None, None, None]
+                
+                noise = jax.random.normal(rng_key, y.shape)
+                
+                augment_dim = config.model.diffusion.get("augment_dim", None)
+                augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
+
+                online_traj = self.diffusion_model.apply(
+                    {'params': traj_params}, x= y + next_sigma * noise,
+                    sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+
 
                 if diffusion_framework.loss == "lpips":
                     output_shape = (y.shape[0], 224, 224, y.shape[-1])
@@ -217,11 +260,10 @@ class CMFramework(DefaultModel):
                 return loss, loss_dict
         
         def update(carry_state, x0):
-            (rng, state, traj_state) = carry_state
+            (rng, state, diffusion_state) = carry_state
             rng, new_rng = jax.random.split(rng)
             
-            args = [state.params, jax.lax.stop_gradient(state.target_model), 
-                    traj_state.params, jax.lax.stop_gradient(traj_state.target_model), 
+            args = [state.params, diffusion_state.params, jax.lax.stop_gradient(state.target_model), 
                     x0, rng]         
             if not self.is_distillation:
                 # state.step is incremented by every call to 'apply.gradients'
@@ -229,12 +271,14 @@ class CMFramework(DefaultModel):
                 self.target_model_ema_decay = self.ema_power_fn(n_timestep)
                 args += [n_timestep.astype(float)]
             
-            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(*args)
+            (_, loss_dict), grad = jax.value_and_grad(loss_fn, argnums=(0, 1) ,has_aux=True)(*args)
 
             grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
+
+            consistency_grad, diffusion_grad = grad
             # breakpoint()
-            new_state = state.apply_gradients(grads=grad)
-            new_traj_state = traj_state.apply_gradients(grads=grad)
+            new_state = state.apply_gradients(grads=consistency_grad)
+            new_diffusion_state = diffusion_state.apply_gradients(grads=diffusion_grad)
 
             for loss_key in loss_dict:
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
@@ -246,16 +290,16 @@ class CMFramework(DefaultModel):
             new_state = new_state.replace(target_model = ema_updated_params)
 
             # Also do it for traj model
-            ema_updated_traj_params = jax.tree_map(
-                lambda x, y: self.target_model_ema_decay * x + (1 - self.target_model_ema_decay) * y,
-                new_traj_state.target_model, new_traj_state.params)
-            new_traj_state = new_traj_state.replace(target_model = ema_updated_traj_params)
+            # ema_updated_traj_params = jax.tree_map(
+            #     lambda x, y: self.target_model_ema_decay * x + (1 - self.target_model_ema_decay) * y,
+            #     new_diffusion_state.target_model, new_diffusion_state.params)
+            # new_diffusion_state = new_diffusion_state.replace(target_model = ema_updated_traj_params)
 
             # Update EMA for sampling
             new_state = self.ema_obj.ema_update(new_state)
-            new_traj_state = self.ema_obj.ema_update(new_traj_state)
+            new_diffusion_state = self.ema_obj.ema_update(new_diffusion_state)
 
-            new_carry_state = (new_rng, new_state, new_traj_state)
+            new_carry_state = (new_rng, new_state, new_diffusion_state)
             return new_carry_state, loss_dict
         
         def heun_2nd_method(params, x_cur, rng_key, gamma, step):
@@ -352,7 +396,7 @@ class CMFramework(DefaultModel):
         # Apply pmap
         dropout_key = jax.random.split(dropout_key, jax.local_device_count())
         dropout_key = jnp.asarray(dropout_key)
-        new_carry, loss_dict_stack = self.update_fn((dropout_key, self.model_state, self.traj_model_state), x0)
+        new_carry, loss_dict_stack = self.update_fn((dropout_key, self.model_state, self.diffusion_model_state), x0)
         (_, new_state, new_traj_state) = new_carry
 
         loss_dict = flax.jax_utils.unreplicate(loss_dict_stack)
@@ -360,7 +404,7 @@ class CMFramework(DefaultModel):
             loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])
 
         self.model_state = new_state
-        self.traj_model_state = new_traj_state
+        self.diffusion_model_state = new_traj_state
 
         return_dict = {}
         return_dict.update(loss_dict)
