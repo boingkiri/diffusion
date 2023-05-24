@@ -22,14 +22,14 @@ defaults:
 # type: edm
 type: cm
 # type: ${framework.diffusion.type}
-exp_name: traj_guidance_230522
+exp_name: traj_guidance_230523_sqrt
 do_training: true
 do_sampling: true
 num_sampling: 50000
 sampling_batch: 256
 rand_seed: 42
 fid_during_training: true # True when calculating fid during training, otherwise, false.
-n_jitted_steps: 20
+n_jitted_steps: 100
 
 framework:
   train_idx: 2
