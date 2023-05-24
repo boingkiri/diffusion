@@ -85,7 +85,6 @@ class CMFramework(DefaultModel):
 
             # Set step indices for distillation
             step_indices = jnp.arange(self.n_timestep)
-            # self.t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
             self.t_steps = (self.sigma_min ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
             
             # Initialize model 
@@ -136,7 +135,14 @@ class CMFramework(DefaultModel):
                 perturbed_x = y + next_sigma * noise
 
                 # Calculate heun 2nd method
-                target_xn = heun_2nd_method(self.teacher_model_state['params_ema'], perturbed_x, solver_key, gamma, idx+1)
+                # target_xn = heun_2nd_method(
+                #     self.teacher_model_state['params_ema'], 
+                #     self.teacher_model,
+                #     perturbed_x, solver_key, gamma, idx+1)
+                target_xn = heun_2nd_method(
+                    self.teacher_model_state['params_ema'], 
+                    self.teacher_model,
+                    perturbed_x, solver_key, gamma, next_sigma, sigma)
 
                 augment_dim = config.model.diffusion.get("augment_dim", None)
                 augment_labels = jnp.zeros((*perturbed_x.shape[:-3], augment_dim)) if augment_dim is not None else None
@@ -170,7 +176,9 @@ class CMFramework(DefaultModel):
         else:
             @jax.jit
             def loss_fn(params, traj_params, params_ema, y, rng_key, n_timestep):
-                rng_key, step_key, normal_key, dropout_key = jax.random.split(rng_key, 4)
+                loss_dict = {}
+
+                rng_key, step_key, solver_key, dropout_key, diffusion_key = jax.random.split(rng_key, 5)
                 
                 # Sample n ~ U[0, N-2]
                 idx = jax.random.randint(step_key, (y.shape[0], ), minval=0, maxval=n_timestep-1)
@@ -183,31 +191,42 @@ class CMFramework(DefaultModel):
                 augment_dim = config.model.diffusion.get("augment_dim", None)
                 augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
 
-                denoise = self.diffusion_model.apply(
-                    {'params': traj_params}, x= y + next_sigma * noise,
-                    sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+                gamma = self.get_gamma(idx)[:, None, None, None]
 
+                # target_xn = heun_2nd_method(
+                #     traj_params, 
+                #     self.diffusion_model,
+                #     y + next_sigma * noise, solver_key, gamma, idx+1)
+                target_xn = heun_2nd_method(
+                    traj_params, 
+                    self.diffusion_model,
+                    y + next_sigma * noise, solver_key, gamma, next_sigma, sigma)
 
                 online_consistency = self.model.apply(
                     {'params': params}, x= y + next_sigma * noise,
                     sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
                 
                 target_consistency = self.model.apply(
-                    {'params': params_ema}, x= denoise, 
+                    {'params': params_ema}, x= target_xn, 
                     sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
 
                 if diffusion_framework.loss == "lpips":
-                    denoise_loss = jnp.mean((denoise - (y + sigma * noise)) ** 2)
+                    # Add denoising loss
+                    diffusion_loss, diffusion_loss_dict = diffusion_loss_fn(traj_params, y, diffusion_key)
+                    loss_dict.update(diffusion_loss_dict)
 
+                    # Original lpips loss
                     output_shape = (y.shape[0], 224, 224, y.shape[-1])
                     online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
                     target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
                     online_consistency = (online_consistency + 1) / 2.0
                     target_consistency = (target_consistency + 1) / 2.0
                     perceptual_loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
-
+                    
+                    loss_dict['perceptual_loss'] = perceptual_loss
+                    
                     # TODO: adjust loss ratio
-                    loss = perceptual_loss + denoise_loss
+                    loss = perceptual_loss + diffusion_loss
                 elif diffusion_framework.loss == "l2":
                     loss = jnp.mean((online_consistency - target_consistency) ** 2)
                 elif diffusion_framework.loss == "l1":
@@ -215,48 +234,32 @@ class CMFramework(DefaultModel):
                 else:
                     NotImplementedError("Consistency model is only support lpips, l2, and l1 loss.")
 
-                loss_dict = {}
                 loss_dict['total_loss'] = loss
-                loss_dict['denoise_loss'] = denoise_loss
-                loss_dict['perceptual_loss'] = perceptual_loss
                 return loss, loss_dict
             
             @jax.jit
-            def diffusion_loss_fn(traj_params, y, rng_key, n_timestep):
-                rng_key, step_key, normal_key, dropout_key = jax.random.split(rng_key, 4)
-                
-                # Sample n ~ U[0, N-2]
-                idx = jax.random.randint(step_key, (y.shape[0], ), minval=0, maxval=n_timestep-1)
-                
-                sigma = self.t_steps_fn(idx, n_timestep)[:, None, None, None]
-                next_sigma = self.t_steps_fn(idx+1, n_timestep)[:, None, None, None]
-                
-                noise = jax.random.normal(rng_key, y.shape)
-                
-                augment_dim = config.model.diffusion.get("augment_dim", None)
-                augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
+            def diffusion_loss_fn(params, y, rng_key):
+                p_mean = -1.2
+                p_std = 1.2
+                sigma_data = 0.5
 
-                online_traj = self.diffusion_model.apply(
-                    {'params': traj_params}, x= y + next_sigma * noise,
-                    sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-
-
-                if diffusion_framework.loss == "lpips":
-                    output_shape = (y.shape[0], 224, 224, y.shape[-1])
-                    online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
-                    target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
-                    online_consistency = (online_consistency + 1) / 2.0
-                    target_consistency = (target_consistency + 1) / 2.0
-                    loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
-                elif diffusion_framework.loss == "l2":
-                    loss = jnp.mean((online_consistency - target_consistency) ** 2)
-                elif diffusion_framework.loss == "l1":
-                    loss = jnp.mean(jnp.abs(online_consistency - target_consistency))
-                else:
-                    NotImplementedError("Consistency model is only support lpips, l2, and l1 loss.")
+                rng_key, sigma_key, dropout_key = jax.random.split(rng_key, 3)
+                rnd_normal = jax.random.normal(sigma_key, (y.shape[0], 1, 1, 1))
+                sigma = jnp.exp(rnd_normal * p_std + p_mean)
+                weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
+                # TODO: Implement augmented pipe 
+                y, augment_label = self.augmentation_pipeline(y) if self.augment_rate is not None else (y, None)
+                n = jax.random.normal(rng_key, y.shape) * sigma
+                
+                # Network will predict D_yn (denoised dataset rather than epsilon) directly.
+                D_yn = self.diffusion_model.apply(
+                    {'params': params}, x=(y + n), sigma=sigma, 
+                    train=True, augment_labels=augment_label, rngs={'dropout': dropout_key})
+                loss = weight * ((D_yn - y) ** 2)
+                loss = jnp.mean(loss)
 
                 loss_dict = {}
-                loss_dict['total_loss'] = loss
+                loss_dict['diffusion_loss'] = loss
                 return loss, loss_dict
         
         def update(carry_state, x0):
@@ -276,7 +279,6 @@ class CMFramework(DefaultModel):
             grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
 
             consistency_grad, diffusion_grad = grad
-            # breakpoint()
             new_state = state.apply_gradients(grads=consistency_grad)
             new_diffusion_state = diffusion_state.apply_gradients(grads=diffusion_grad)
 
@@ -289,12 +291,6 @@ class CMFramework(DefaultModel):
                 new_state.target_model, new_state.params)
             new_state = new_state.replace(target_model = ema_updated_params)
 
-            # Also do it for traj model
-            # ema_updated_traj_params = jax.tree_map(
-            #     lambda x, y: self.target_model_ema_decay * x + (1 - self.target_model_ema_decay) * y,
-            #     new_diffusion_state.target_model, new_diffusion_state.params)
-            # new_diffusion_state = new_diffusion_state.replace(target_model = ema_updated_traj_params)
-
             # Update EMA for sampling
             new_state = self.ema_obj.ema_update(new_state)
             new_diffusion_state = self.ema_obj.ema_update(new_diffusion_state)
@@ -302,16 +298,18 @@ class CMFramework(DefaultModel):
             new_carry_state = (new_rng, new_state, new_diffusion_state)
             return new_carry_state, loss_dict
         
-        def heun_2nd_method(params, x_cur, rng_key, gamma, step):
+        # def heun_2nd_method(params, diffusion_model, x_cur, rng_key, gamma, step):
+        def heun_2nd_method(params, diffusion_model, x_cur, rng_key, gamma, t_cur, t_next):
             rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
 
-            t_cur = self.t_steps[step]
-            t_next = jnp.where(
-                step == 0, 
-                jnp.zeros_like(t_cur), 
-                self.t_steps[step - 1])
-            t_cur = t_cur[:, None, None, None]
-            t_next = t_next[:, None, None, None]
+            # t_cur = self.t_steps[step]
+            # t_next = jnp.where(
+            #     step == 0, 
+            #     jnp.zeros_like(t_cur), 
+            #     self.t_steps[step - 1])
+            # t_cur = t_cur[:, None, None, None]
+            # t_next = t_next[:, None, None, None]
+
 
             # Increase noise temporarily.
             t_hat = t_cur + gamma * t_cur
@@ -323,23 +321,26 @@ class CMFramework(DefaultModel):
             augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
 
             # Euler step
-            denoised = self.teacher_model.apply(
+            denoised = diffusion_model.apply(
                 {'params': params}, x=x_hat, sigma=t_hat, 
                 train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
             d_cur = (x_hat - denoised) / t_hat
             x_next = x_hat + (t_next - t_hat) * d_cur
 
             # Apply 2nd order correction.
-            def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key, step):
-                denoised = self.teacher_model.apply(
+            # def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key, step):
+            def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
+                denoised = diffusion_model.apply(
                     {'params': params}, x=x_next, sigma=t_next, 
                     train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
                 d_prime = (x_next - denoised) / t_next
                 x_corrected_one = x_hat + (0.5 * d_cur + 0.5 * d_prime) * (t_next - t_hat)
-                return_val = jnp.where(step[:, None, None, None] == 0, x_next, x_corrected_one)
+                # return_val = jnp.where(step[:, None, None, None] == 0, x_next, x_corrected_one)
+                return_val = x_corrected_one
                 return return_val
             
-            x_result = second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2, step)
+            # x_result = second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2, step)
+            x_result = second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2)
             
             return x_result
 
@@ -429,8 +430,4 @@ class CMFramework(DefaultModel):
         return latent_sample
 
     def get_gamma(self, step):
-        # gamma_val = jnp.minimum(jnp.sqrt(2) - 1, self.S_churn / self.n_timestep)
-        # gamma = jnp.where(self.S_min <= self.t_steps[step] and self.t_steps[step] <= self.S_max,
-        #                 gamma_val, 0)
-        # return gamma
         return jnp.zeros_like(step) # This is possible because consistency model only consider deterministic sampling
