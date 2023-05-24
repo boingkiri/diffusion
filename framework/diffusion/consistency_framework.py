@@ -59,6 +59,7 @@ class CMFramework(DefaultModel):
         self.sigma_min = diffusion_framework['sigma_min']
         self.sigma_max = diffusion_framework['sigma_max']
         
+        self.alpha = diffusion_framework['alpha']
         self.beta = diffusion_framework['beta']
         
         self.rho = diffusion_framework['rho']
@@ -206,12 +207,10 @@ class CMFramework(DefaultModel):
                     sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
                 
                 target_consistency_1 = self.model.apply(
-                    {'params': params_ema}, x= traj_g_phi, 
+                    {'params': params}, x= traj_g_phi, 
                     sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
                 
-                online_consistency_2 = self.model.apply(
-                    {'params': params}, x= traj_g_phi,
-                    sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+                online_consistency_2 = target_consistency_1
 
                 target_consistency_2 = self.model.apply(
                     {'params': params_ema}, x= perturbed_x, 
@@ -237,7 +236,7 @@ class CMFramework(DefaultModel):
                     target_consistency_2 = jax.image.resize(target_consistency_2, output_shape, "bilinear")
                     target_consistency_2 = (target_consistency_2 + 1) / 2.0
                     
-                    loss = jnp.mean(self.perceptual_loss(online_consistency_1, target_consistency_1)) + self.beta * jnp.mean(self.perceptual_loss(online_consistency_2, target_consistency_2))
+                    loss = self.alpha * jnp.mean(self.perceptual_loss(online_consistency_1, target_consistency_1)) + self.beta * jnp.mean(self.perceptual_loss(online_consistency_2, target_consistency_2))
                 elif diffusion_framework.loss == "l2":
                     loss = jnp.mean((online_consistency_1 - target_consistency_1) ** 2) + self.beta * jnp.mean((target_consistency_2 - online_consistency_2) ** 2)
                 elif diffusion_framework.loss == "l1":
