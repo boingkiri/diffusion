@@ -1,15 +1,14 @@
-# from diffusion.framework.unifying_framework import UnifyingFramework
-from framework.unifying_framework import UnifyingFramework
-
-import jax
 from jax import random
 
-
 import wandb
-import hydra
+from hydra import initialize, compose
 from omegaconf import OmegaConf, DictConfig
 
-@hydra.main(config_path="configs", config_name="config")
+from framework.unifying_framework import UnifyingFramework
+
+import os
+import argparse
+
 def start(config: DictConfig):
     rng = random.PRNGKey(config.rand_seed)
     model_type = config.type
@@ -45,4 +44,19 @@ def start(config: DictConfig):
         print(fid_score)
     
 if __name__ == "__main__":
-    start()
+    parser = argparse.ArgumentParser(description="Diffuion")
+    parser.add_argument("--config", action="store", type=str, default="config")
+    args = parser.parse_args()
+
+    config_path = "configs"
+    
+    with initialize(version_base=None, config_path=config_path) as cfg:
+        # if args.config != "config":
+        #     args.config = os.path.join("examples", args.config)
+        #     cfg = compose(config_name=args.config)
+        #     cfg = cfg.examples
+        # else:
+        #     cfg = compose(config_name=args.config)
+
+        cfg = compose(config_name=args.config)
+        start(cfg)
