@@ -3,34 +3,11 @@ from flax import linen as nn
 
 from typing import Tuple, Union, List, Any
 from collections import OrderedDict
-from collections import OrderedDict
 
 from model.modules import *
 
 from model.unet import UNet
 
-class Linear(nn.Module):
-    in_features: int
-    out_features: int
-    use_bias: bool = True
-    init_mode: Any = "kaiming_normal"
-    init_weight: float = 1.0
-    init_bias: float = 0.0
-    def setup(self):
-        init_function = create_initializer(self.init_mode) if type(self.init_mode) is str else self.init_mode
-        weight_init_function = lambda key, shape, dtype: init_function(key, shape, dtype) * self.init_weight
-        bias_init_function = lambda key, shape, dtype, fan_in, fan_out: init_function(key, shape, dtype, fan_in=fan_in, fan_out=fan_out) * self.init_bias
-        self.weight = self.param("weight", 
-                                weight_init_function, (self.in_features, self.out_features), jnp.float32)
-        self.bias = self.param("bias", 
-                                bias_init_function, (self.out_features,), jnp.float32,
-                                self.in_features, self.out_features) if self.use_bias else None
-
-    def __call__(self, x):
-        x = x @ self.weight
-        if self.use_bias:
-            x = x + self.bias
-        return x
 class Linear(nn.Module):
     in_features: int
     out_features: int
@@ -115,7 +92,6 @@ class CustomConv2d(nn.Module):
             if self.up:
                 # Conv transpose
                 padding = [[(f.shape[0] - 1) - f_pad] * 2] * 2
-                padding = [[(f.shape[0] - 1) - f_pad] * 2] * 2
                 x = jax.lax.conv_general_dilated(x, jnp.tile((f * 4), [1, 1, 1, self.in_channels]), window_strides=(1, 1),
                                             padding=padding, lhs_dilation=(2, 2), rhs_dilation=None, dimension_numbers=self.dim_spec,
                                             feature_group_count=self.in_channels)
@@ -146,12 +122,6 @@ class AttentionModule(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        self.qkv = CustomConv2d(self.out_channels, self.out_channels * 3, kernel_channels=1, init_mode=init_attn)
-        self.proj = CustomConv2d(self.out_channels, self.out_channels, kernel_channels=1, init_mode=init_zero)
-        self.norm2 = nn.GroupNorm(epsilon=self.eps)
-
-    @nn.compact
-    def __call__(self, x):
         orig_x = x
         x = self.norm2(x)
         qkv = self.qkv(x)
@@ -159,35 +129,10 @@ class AttentionModule(nn.Module):
         qkv = qkv.reshape(x.shape[0] * self.num_heads, x.shape[-1] // self.num_heads, 3, -1)
         q, k, v = jnp.split(qkv, 3, axis=2)
         k = k / jnp.sqrt(k.shape[1])
-        x = self.norm2(x)
-        qkv = self.qkv(x)
-        qkv = jnp.transpose(qkv, (0, 3, 1, 2))
-        qkv = qkv.reshape(x.shape[0] * self.num_heads, x.shape[-1] // self.num_heads, 3, -1)
-        q, k, v = jnp.split(qkv, 3, axis=2)
-        k = k / jnp.sqrt(k.shape[1])
         
-        w = jnp.einsum('bcnq,bcnk->bnqk', q, k)
         w = jnp.einsum('bcnq,bcnk->bnqk', q, k)
         w = nn.softmax(w, axis=-1)
 
-        a = jnp.einsum('bnqk,bcnk->bcnq', w, v)
-        a = a.reshape(x.shape[0], x.shape[3], x.shape[1], x.shape[2])
-        a = jnp.transpose(a, (0, 2, 3, 1))
-        
-        x = self.proj(a) + orig_x
-        # orig_x = x
-        # x = self.norm2(x)
-        # qkv = self.qkv(x)
-        # qkv = qkv.reshape(x.shape[0] * self.num_heads, -1, 3, x.shape[-1] // self.num_heads)
-        # q, k, v = jnp.split(qkv, 3, axis=2)
-        # k = k / jnp.sqrt(k.shape[-1])
-        
-        # w = jnp.einsum('bqnc,bknc->bqkn', q, k)
-        # w = nn.softmax(w, axis=2)
-
-        # a = jnp.einsum('bqkn,bknc->bqnc', w, v)
-        # a = a.reshape(*x.shape)
-        # x = self.proj(a) + orig_x
         a = jnp.einsum('bnqk,bcnk->bcnq', w, v)
         a = a.reshape(x.shape[0], x.shape[3], x.shape[1], x.shape[2])
         a = jnp.transpose(a, (0, 2, 3, 1))
@@ -305,35 +250,6 @@ class FourierEmbedding(nn.Module):
         x = jnp.concatenate([jnp.cos(x), jnp.sin(x)], axis=1)
         return x
 
-class PositionalEmbedding(nn.Module):
-    num_channels: int
-    max_positions: int = 10000
-    endpoint: bool = False
-
-    def __call__(self, x):
-        freqs = jnp.arange(start=0, stop=self.num_channels // 2)
-        freqs = freqs / (self.num_channels // 2 - (1 if self.endpoint else 0))
-        freqs = (1 / self.max_positions) ** freqs
-        x = jnp.outer(x, freqs.astype(x.dtype))
-        x = jnp.concatenate([jnp.cos(x), jnp.sin(x)], axis=1)
-        return x
-
-class FourierEmbedding(nn.Module):
-    num_channels: int
-    scale: float = 16
-    def setup(self):
-        # key = self.make_rng('params')
-        # randn = jax.random.normal(key, (self.num_channels // 2,))
-        # self.freqs = randn * self.scale
-        self.freqs = self.param('freqs', jax.random.normal, (self.num_channels // 2,), jnp.float32)
-    
-    def __call__(self, x):
-        # x = x.ger((2 * np.pi * self.freqs).to(x.dtype))
-        freqs = jax.lax.stop_gradient(self.freqs)
-        x = jnp.outer(x, (2 * jnp.pi * freqs))
-        x = jnp.concatenate([jnp.cos(x), jnp.sin(x)], axis=1)
-        return x
-
 class UNetpp(nn.Module):
     image_channels: int = 3
     n_channels: int = 128
@@ -356,8 +272,6 @@ class UNetpp(nn.Module):
 
     def setup(self):
         emb_channels = self.n_channels * 4
-        # noise_channels = self.n_channels * 1 # This can be changed
-        noise_channels = self.n_channels * (1 if len(self.resample_filter) == 2 else 2)
         # noise_channels = self.n_channels * 1 # This can be changed
         noise_channels = self.n_channels * (1 if len(self.resample_filter) == 2 else 2)
         init = create_initializer('xavier_uniform')
@@ -389,30 +303,20 @@ class UNetpp(nn.Module):
         # TMP: for CIFAR10
         img_res = 32
 
-
-        # TMP: for CIFAR10
-        img_res = 32
-
         for level, mult in enumerate(self.ch_mults):
-            res = img_res >> level
             res = img_res >> level
             if level == 0:
                 cin = cout
                 cout = self.n_channels
                 enc_modules[f'{res}x{res}_conv'] = CustomConv2d(in_channels=cin, out_channels=cout, kernel_channels=3, init_mode=init)
-                enc_modules[f'{res}x{res}_conv'] = CustomConv2d(in_channels=cin, out_channels=cout, kernel_channels=3, init_mode=init)
                 skips.append(cout)
             else:
-                enc_modules[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
                 enc_modules[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
                 skips.append(cout)
                 if self.encoder_type == 'skip':
                     enc_modules[f'{res}x{res}_aux_down'] = CustomConv2d(in_channels=caux, out_channels=caux, kernel_channels=0, down=True, resample_filter=self.resample_filter)
                     enc_modules[f'{res}x{res}_aux_skip'] = CustomConv2d(in_channels=caux, out_channels=cout, kernel_channels=1, init_mode=init)
-                    enc_modules[f'{res}x{res}_aux_down'] = CustomConv2d(in_channels=caux, out_channels=caux, kernel_channels=0, down=True, resample_filter=self.resample_filter)
-                    enc_modules[f'{res}x{res}_aux_skip'] = CustomConv2d(in_channels=caux, out_channels=cout, kernel_channels=1, init_mode=init)
                 if self.encoder_type == "residual":
-                    enc_modules[f'{res}x{res}_aux_residual'] = CustomConv2d(in_channels=caux, out_channels=cout, kernel_channels=3, down=True, resample_filter=self.resample_filter, fused_resample=True, init_mode=init)
                     enc_modules[f'{res}x{res}_aux_residual'] = CustomConv2d(in_channels=caux, out_channels=cout, kernel_channels=3, down=True, resample_filter=self.resample_filter, fused_resample=True, init_mode=init)
                     caux=cout
             for idx in range(self.n_blocks):
@@ -420,28 +324,21 @@ class UNetpp(nn.Module):
                 cout = self.n_channels * mult
                 attn = self.is_atten[level]
                 enc_modules[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
-                enc_modules[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
                 skips.append(cout)
 
         dec_modules = {}
         for level, mult in reversed(list(enumerate(self.ch_mults))):
             res = img_res >> level
-            res = img_res >> level
             if level == len(self.ch_mults) - 1:
                 dec_modules[f"{res}x{res}_in0"] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
                 dec_modules[f"{res}x{res}_in1"] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
-                dec_modules[f"{res}x{res}_in0"] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
-                dec_modules[f"{res}x{res}_in1"] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
             else:
-                dec_modules[f"{res}x{res}_up"] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
-
                 dec_modules[f"{res}x{res}_up"] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
 
             for idx in range(self.n_blocks + 1):
                 cin = cout + skips.pop()
                 cout = self.n_channels * mult
                 attn = (idx == self.n_blocks) and (self.is_atten[level])
-                dec_modules[f"{res}x{res}_block{idx}"] = UNetBlock(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
                 dec_modules[f"{res}x{res}_block{idx}"] = UNetBlock(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
             if self.decoder_type == 'skip' or level == 0:
                 if self.decoder_type == "skip" and level < len(self.ch_mults) - 1:
@@ -453,12 +350,6 @@ class UNetpp(nn.Module):
 
     def __call__(self, x, noise_labels, train, augment_labels=None):
         emb = self.map_noise(noise_labels)
-
-        # Swap sin/cos
-        emb_shape = emb.shape
-        emb = emb.reshape(emb.shape[0], 2, -1)
-        emb = jnp.flip(emb, axis=1)
-        emb = emb.reshape(*emb_shape)
 
         # Swap sin/cos
         emb_shape = emb.shape
