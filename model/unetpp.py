@@ -119,8 +119,6 @@ class CustomConv2d(nn.Module):
                 x = jax.lax.conv_general_dilated(x, jnp.tile((f * 4), [1, 1, 1, self.in_channels]), window_strides=(1, 1),
                                             padding=padding, lhs_dilation=(2, 2), rhs_dilation=None, dimension_numbers=self.dim_spec,
                                             feature_group_count=self.in_channels)
-                                            padding=padding, lhs_dilation=(2, 2), rhs_dilation=None, dimension_numbers=self.dim_spec,
-                                            feature_group_count=self.in_channels)
             if self.down:
                 padding = [[f_pad] * 2] * 2
                 x = jax.lax.conv_general_dilated(x, jnp.tile(f, [1, 1, 1, self.in_channels]), window_strides=(2, 2), 
@@ -139,7 +137,6 @@ class AttentionModule(nn.Module):
     num_heads: int
     eps: float
 
-    def setup(self):
     def setup(self):
         init_attn = create_initializer("xavier_attn")
         init_zero = create_initializer("xavier_zero")
@@ -254,7 +251,6 @@ class UNetBlock(nn.Module):
                 kernel_channels=kernel, 
                 up=self.up, down=self.down,
                 resample_filter=self.resample_filter,
-                init_mode=init)
                 init_mode=init)
         if self.attention:
             self.atten = AttentionModule(self.out_channels, self.num_heads, self.eps)
@@ -455,9 +451,6 @@ class UNetpp(nn.Module):
                 dec_modules[f"{res}x{res}_block{idx}"] = UNetBlock(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
             if self.decoder_type == 'skip' or level == 0:
                 if self.decoder_type == "skip" and level < len(self.ch_mults) - 1:
-                    dec_modules[f"{res}x{res}_aux_up"] = CustomConv2d(in_channels=self.image_channels, out_channels=self.image_channels, kernel_channels=0, up=True, resample_filter=self.resample_filter)
-                dec_modules[f'{res}x{res}_aux_norm'] = nn.GroupNorm(epsilon=1e-6)
-                dec_modules[f'{res}x{res}_aux_conv'] = CustomConv2d(in_channels=cout, out_channels=self.image_channels, kernel_channels=3, init_mode=init_zero)
                     dec_modules[f"{res}x{res}_aux_up"] = CustomConv2d(in_channels=self.image_channels, out_channels=self.image_channels, kernel_channels=0, up=True, resample_filter=self.resample_filter)
                 dec_modules[f'{res}x{res}_aux_norm'] = nn.GroupNorm(epsilon=1e-6)
                 dec_modules[f'{res}x{res}_aux_conv'] = CustomConv2d(in_channels=cout, out_channels=self.image_channels, kernel_channels=3, init_mode=init_zero)
