@@ -5,7 +5,8 @@ defaults:
     # - diffusion/ddpm
     # - diffusion/improved_ddpm
     # - diffusion/edm
-    - diffusion/cm
+    # - diffusion/cm
+    - diffusion/cm_diffusion
   - model: 
     # - autoencoder/autoencoder_kl
     # - discriminator/discriminator_kl
@@ -20,9 +21,9 @@ defaults:
 
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
-type: cm
+type: cm_diffusion
 # type: ${framework.diffusion.type}
-exp_name: traj_guidance_230523_sqrt
+exp_name: cm_edm_beta9_230527
 do_training: true
 do_sampling: true
 num_sampling: 50000
