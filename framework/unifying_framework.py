@@ -1,7 +1,7 @@
 # from framework.DDPM.ddpm import DDPM
 from framework.diffusion.ddpm_framework import DDPMFramework
 from framework.diffusion.edm_framework import EDMFramework
-# from framework.diffusion.consistency_framework import CMFramework
+from framework.diffusion.consistency_framework import CMFramework
 from framework.LDM import LDM
 
 import jax
@@ -26,7 +26,7 @@ class UnifyingFramework():
     def __init__(self, model_type, config: DictConfig, random_rng) -> None:
         self.config = config # TODO: This code is ugly. It should not need to reuse config obj
         self.current_model_type = model_type.lower()
-        self.diffusion_model_type = ['ddpm', 'ddim', 'edm', 'cm'] 
+        self.diffusion_model_type = ['ddpm', 'ddim', 'edm', 'cm']
         self.random_rng = random_rng
         self.dataset_name = config.dataset.name
         self.do_fid_during_training = config.fid_during_training
@@ -54,9 +54,9 @@ class UnifyingFramework():
         elif self.current_model_type in ['edm']:
             diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
             self.framework = EDMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
-        # elif self.current_model_type in ['cm']:
-        #     diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-        #     self.framework = CMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
+        elif self.current_model_type in ['cm', 'cm_diffusion']:
+            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+            self.framework = CMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
         elif self.current_model_type == "ldm":
             ldm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
             self.framework = LDM(config, ldm_rng, self.fs_utils, self.wandblog)
@@ -98,7 +98,20 @@ class UnifyingFramework():
                 self.config.exp.checkpoint_dir, 
                 self.step, 
                 prefix=diffusion_prefix)
-
+        elif self.current_model_type == "cm_diffusion":
+            assert len(state) == 2
+            cm_prefix = self.config.exp.cm_prefix
+            diffusion_prefix = self.config.exp.diffusion_prefix
+            jax_utils.save_train_state(
+                state[0], 
+                self.config.exp.checkpoint_dir, 
+                self.step, 
+                prefix=cm_prefix)
+            jax_utils.save_train_state(
+                state[1], 
+                self.config.exp.checkpoint_dir, 
+                self.step, 
+                prefix=diffusion_prefix)
         elif self.current_model_type == "ldm" and self.train_idx == 1:
             assert len(state) == 2
             autoencoder_prefix = self.config.exp.autoencoder_prefix
@@ -121,6 +134,7 @@ class UnifyingFramework():
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
         best_fid = self.fs_utils.get_best_fid()
+        first_step = True
         
         for x, _ in datasets_bar:
             log = self.framework.fit(x, step=self.step)
@@ -146,7 +160,8 @@ class UnifyingFramework():
 
             if self.step % 50000 == 0 and self.step != 0:
                 model_state = self.framework.get_model_state()
-                self.save_model_state(model_state)
+                if not first_step:
+                    self.save_model_state(model_state)
 
                 # Calculate FID score with 1000 samples
                 if self.do_fid_during_training and \
@@ -154,7 +169,17 @@ class UnifyingFramework():
                     fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
                     if best_fid >= fid_score:
                         best_checkpoint_dir = self.config.exp.best_dir
-                        jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, self.checkpoint_prefix)
+                        
+                        ##########################################################
+                        ########### This works only for cm-diffusion! ############
+                        ##########################################################
+                        jax_utils.save_best_state([model_state[0], ], best_checkpoint_dir, self.step, "cm_")
+                        if len(model_state) >= 1:
+                            jax_utils.save_best_state([model_state[1], ], best_checkpoint_dir, self.step, "diffusion_")
+                        ##########################################################
+                        ##########################################################
+                        ##########################################################
+                        
                         best_fid = fid_score
                     self.wandblog.update_log({"FID score": fid_score})
                     self.wandblog.flush(step=self.step)
@@ -163,7 +188,9 @@ class UnifyingFramework():
                 if not self.next_step():
                     break
             self.step += self.n_jitted_steps
+            first_step = False
             datasets_bar.update(self.n_jitted_steps)
+            
 
     def sampling_and_save(self, total_num, img_size=None):
         if img_size is None:

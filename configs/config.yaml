@@ -4,31 +4,33 @@ defaults:
     # - diffusion/ddim
     # - diffusion/ddpm
     # - diffusion/improved_ddpm
-    - diffusion/edm
+    # - diffusion/edm
+    # - diffusion/cm
+    - diffusion/cm_diffusion
   - model: 
-    - autoencoder/autoencoder_kl
-    - discriminator/discriminator_kl
+    # - autoencoder/autoencoder_kl
+    # - discriminator/discriminator_kl
     # - diffusion/dit_b
     # - diffusion/unet
     # - diffusion/unetpp
-    - diffusion/unetpp_ve
-  # - ema: ema
-  - ema: ema_edm
+    - diffusion/unetpp_cm
+  # - ema: ema_edm
+  - ema: ema
   - dataset: cifar10
   - exp: exp_setting
 
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
-type: ${framework.diffusion.type}
-# exp_name: edm_augment_pipe
-exp_name: edm_porting_from_torch_ve_1000
+type: cm_diffusion
+# type: ${framework.diffusion.type}
+exp_name: cm_edm_beta9_230527
 do_training: true
 do_sampling: true
 num_sampling: 50000
 sampling_batch: 256
 rand_seed: 42
 fid_during_training: true # True when calculating fid during training, otherwise, false.
-n_jitted_steps: 10
+n_jitted_steps: 100
 
 framework:
   train_idx: 2

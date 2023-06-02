@@ -17,15 +17,17 @@ S_min: 0.01
 S_max: 1
 S_noise: 1.007
 
-augment_rate: 0.12
+# augment_rate: 0.12
 
 train:
-  learning_rate: 1.0e-3
-  # gradient_clip: 1.0
-  # warmup: 5000
-  warmup: 19532 # int(10e6 / ${.batch_size})
+  # learning_rate: 1.0e-3
+  learning_rate: 2.0e-4
+  gradient_clip: 1.0
+  warmup: 5000
+  # warmup: 19532 # int(10e6 / ${.batch_size})
   batch_size: 512
-  total_step: 400000
+  # total_step: 400000
+  total_step: 800000
   sampling_step: 10000
   saving_step: 100000
   optimizer:

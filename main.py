@@ -18,7 +18,7 @@ def start(config: DictConfig):
     print(OmegaConf.to_yaml(config))
     print("------------------------------------------------------")
     diffusion_framework = UnifyingFramework(model_type, config, rng)
-
+    
     # if jax.devices
 
     if config.do_training:
@@ -30,6 +30,10 @@ def start(config: DictConfig):
             wandb.init(project="my-ddim-WIP", config={**config})
         elif config.type == "edm":
             wandb.init(project="my-edm-WIP", config={**config})
+        elif config.type == "cm":
+            wandb.init(project="my-cm-WIP", config={**config})
+        elif config.type == "cm_diffusion":
+            wandb.init(project="my-cm-diffusion-WIP", config={**config})
 
         print("Training selected")
         diffusion_framework.train()
@@ -39,6 +43,6 @@ def start(config: DictConfig):
         diffusion_framework.sampling_and_save(config.num_sampling)
         fid_score = diffusion_framework.fid_utils.calculate_fid(config.exp.sampling_dir)
         print(fid_score)
-
+    
 if __name__ == "__main__":
     start()
