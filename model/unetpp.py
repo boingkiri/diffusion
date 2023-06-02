@@ -237,7 +237,6 @@ class UNetBlock(nn.Module):
             resample_filter=self.resample_filter, 
             init_mode=init)
         self.affine = Linear(self.emb_channels, self.out_channels * (2 if self.adaptive_scale else 1), init_mode=init)
-        self.affine = Linear(self.emb_channels, self.out_channels * (2 if self.adaptive_scale else 1), init_mode=init)
         self.norm1 = nn.GroupNorm(epsilon=self.eps)
         self.dropout1 = nn.Dropout(self.dropout_rate)
         self.conv1 = CustomConv2d(in_channels=self.out_channels, out_channels=self.out_channels, kernel_channels=3, init_mode=init_zero)
@@ -375,11 +374,6 @@ class UNetpp(nn.Module):
         )
 
         # Mapping
-        self.map_noise = PositionalEmbedding(num_channels=noise_channels, endpoint=True) if self.embedding_type == "positional" else FourierEmbedding(num_channels=noise_channels)
-        self.map_label = Linear(self.label_dim, noise_channels, init_mode=init) if self.label_dim else None 
-        self.map_augment = Linear(self.augment_dim, noise_channels, use_bias=False, init_mode=init) if self.augment_dim else None
-        self.map_layer0 = Linear(noise_channels, emb_channels, init_mode=init)
-        self.map_layer1 = Linear(emb_channels, emb_channels, init_mode=init)
         self.map_noise = PositionalEmbedding(num_channels=noise_channels, endpoint=True) if self.embedding_type == "positional" else FourierEmbedding(num_channels=noise_channels)
         self.map_label = Linear(self.label_dim, noise_channels, init_mode=init) if self.label_dim else None 
         self.map_augment = Linear(self.augment_dim, noise_channels, use_bias=False, init_mode=init) if self.augment_dim else None

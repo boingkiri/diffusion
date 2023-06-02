@@ -49,20 +49,21 @@ class CMFramework(DefaultModel):
         # self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
         
         
-        # self.traj_model = EDMPrecond(model_config, 
-        #                        image_channels=model_config['image_channels'], 
-        #                        model_type=model_type, 
-        #                        sigma_min=diffusion_framework['sigma_min'],
-        #                        sigma_max=diffusion_framework['sigma_max'])
-        self.diffusion_model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
-        self.diffusion_model_state = self.init_model_state(config)
-        self.diffusion_model_state = fs_obj.load_model_state("diffusion", self.diffusion_model_state)
+        self.traj_model = EDMPrecond(model_config, 
+                               image_channels=model_config['image_channels'], 
+                               model_type=model_type, 
+                               sigma_min=diffusion_framework['sigma_min'],
+                               sigma_max=diffusion_framework['sigma_max'])
+        self.traj_model_state = self.init_model_state(config)
+        # self.traj_model_state = fs_obj.load_model_state("diffusion", self.diffusion_model_state)
+        # self.diffusion_model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
+        # self.diffusion_model_state = self.init_model_state(config)
+        # self.diffusion_model_state = fs_obj.load_model_state("diffusion", self.diffusion_model_state)
 
         # Parameters
         self.sigma_min = diffusion_framework['sigma_min']
         self.sigma_max = diffusion_framework['sigma_max']
         
-        self.alpha = diffusion_framework['alpha']
         self.beta = diffusion_framework['beta']
         self.scale = diffusion_framework['traj_scale']
         
@@ -226,8 +227,8 @@ class CMFramework(DefaultModel):
 
                 if diffusion_framework.loss == "lpips":
                     # Add denoising loss
-                    diffusion_loss, diffusion_loss_dict = diffusion_loss_fn(traj_params, y, diffusion_key)
-                    loss_dict.update(diffusion_loss_dict)
+                    # diffusion_loss, diffusion_loss_dict = diffusion_loss_fn(traj_params, y, diffusion_key)
+                    # loss_dict.update(diffusion_loss_dict)
 
                     # Original lpips loss
                     output_shape = (y.shape[0], 224, 224, y.shape[-1])
@@ -294,9 +295,10 @@ class CMFramework(DefaultModel):
 
             grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
 
-            consistency_grad, diffusion_grad = grad
+            consistency_grad, traj_grad = grad
             new_state = state.apply_gradients(grads=consistency_grad)
-            new_diffusion_state = traj_state.apply_gradients(grads=diffusion_grad)
+            # new_diffusion_state = traj_state.apply_gradients(grads=diffusion_grad)
+            new_traj_state = traj_state.apply_gradients(grads=traj_grad)
 
             for loss_key in loss_dict:
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
