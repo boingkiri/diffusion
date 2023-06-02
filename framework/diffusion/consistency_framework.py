@@ -39,15 +39,17 @@ class CMFramework(DefaultModel):
         model_config = {**config.model.diffusion}
         model_type = model_config.pop("type")
         # self.model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
+        
         self.model = CMPrecond(model_config, 
                                image_channels=model_config['image_channels'], 
                                model_type=model_type, 
                                sigma_min=diffusion_framework['sigma_min'],
                                sigma_max=diffusion_framework['sigma_max'])
         self.model_state = self.init_model_state(config)
-        self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
+        # self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
         
-        self.traj_model = CMPrecond(model_config, 
+        
+        self.traj_model = EDMPrecond(model_config, 
                                image_channels=model_config['image_channels'], 
                                model_type=model_type, 
                                sigma_min=diffusion_framework['sigma_min'],
@@ -60,6 +62,7 @@ class CMFramework(DefaultModel):
         self.sigma_max = diffusion_framework['sigma_max']
         
         self.beta = diffusion_framework['beta']
+        self.scale = diffusion_framework['traj_scale']
         
         self.rho = diffusion_framework['rho']
         self.S_churn = 0 
@@ -198,52 +201,37 @@ class CMFramework(DefaultModel):
                 '''
                 # Calculate g_phi from EDM denoiser output
                 c = sigma / next_sigma
-                traj_g_phi = (1 - c) * traj + c * next_perturbed_x
-                # traj_g_phi_ema = (1 - c) * traj_ema + c * next_perturbed_x
+                traj_g_phi = (1-c) * traj + c * next_perturbed_x
+                # traj_g_phi_ema = (1-c) * traj_ema + c * next_perturbed_x
 
-                online_consistency_1 = self.model.apply(
+                ratio = jax.nn.sigmoid((flax.jax_utils.unreplicate(self.traj_model_state.step) - 0.5 * diffusion_framework.train.total_step) / self.scale)
+                interpolated_x = (1-ratio) * perturbed_x + ratio * traj_g_phi
+
+                online_consistency = self.model.apply(
                     {'params': params}, x= next_perturbed_x,
                     sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
                 
-                target_consistency_1 = self.model.apply(
-                    {'params': params_ema}, x= traj_g_phi, 
-                    sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-                
-                online_consistency_2 = self.model.apply(
-                    {'params': params}, x= traj_g_phi,
-                    sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-
-                target_consistency_2 = self.model.apply(
-                    {'params': params_ema}, x= perturbed_x, 
+                target_consistency = self.model.apply(
+                    {'params': params_ema}, x= interpolated_x, 
                     sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
 
                 if diffusion_framework.loss == "lpips":
                     output_shape = (y.shape[0], 224, 224, y.shape[-1])
-                    '''
+                    
                     online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
                     target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
                     online_consistency = (online_consistency + 1) / 2.0
                     target_consistency = (target_consistency + 1) / 2.0
-                    '''
-                    online_consistency_1 = jax.image.resize(online_consistency_1, output_shape, "bilinear")
-                    online_consistency_1 = (online_consistency_1 + 1) / 2.0
                     
-                    target_consistency_1 = jax.image.resize(target_consistency_1, output_shape, "bilinear")
-                    target_consistency_1 = (target_consistency_1 + 1) / 2.0
-                    
-                    online_consistency_2 = jax.image.resize(online_consistency_2, output_shape, "bilinear")
-                    online_consistency_2 = (online_consistency_2 + 1) / 2.0
-
-                    target_consistency_2 = jax.image.resize(target_consistency_2, output_shape, "bilinear")
-                    target_consistency_2 = (target_consistency_2 + 1) / 2.0
-                    
-                    loss = jnp.mean(self.perceptual_loss(online_consistency_1, target_consistency_1)) + self.beta * jnp.mean(self.perceptual_loss(online_consistency_2, target_consistency_2))
+                    loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
                 elif diffusion_framework.loss == "l2":
-                    loss = jnp.mean((online_consistency_1 - target_consistency_1) ** 2) + self.beta * jnp.mean((target_consistency_2 - online_consistency_2) ** 2)
+                    loss = jnp.mean((online_consistency - target_consistency) ** 2)
                 elif diffusion_framework.loss == "l1":
-                    loss = jnp.mean(jnp.abs(online_consistency_1 - target_consistency_1)) + self.beta * jnp.mean(jnp.abs(target_consistency_2 - online_consistency_2))
+                    loss = jnp.mean(jnp.abs(online_consistency - target_consistency))
                 else:
                     NotImplementedError("Consistency model is only support lpips, l2, and l1 loss.")
+
+                loss += self.beta * jnp.mean((traj_g_phi - perturbed_x) ** 2)
 
                 loss_dict = {}
                 loss_dict['total_loss'] = loss
@@ -347,7 +335,44 @@ class CMFramework(DefaultModel):
 
         self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
         self.p_sample_jit = jax.pmap(p_sample_fn, axis_name=self.pmap_axis, in_axes=(0, 0, 0, None))
+        
+        '''
+        # For sampling with g_phi
+        def p_sample_jit(traj_params, x_cur, rng_key, gamma, t_cur, t_next):
+            rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
 
+            # Increase noise temporarily.
+            t_hat = t_cur + gamma * t_cur
+            noise = jax.random.normal(rng_key, x_cur.shape) * self.S_noise
+            x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
+
+            # Augment label
+            augment_dim = config.model.diffusion.get("augment_dim", None)
+            augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
+
+            # Euler step
+            denoised = self.traj_model.apply(
+                {'params': traj_params}, x=x_hat, sigma=t_hat, 
+                train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+            d_cur = (x_hat - denoised) / t_hat
+            x_next = x_hat + (t_next - t_hat) * d_cur
+
+            # Apply 2nd order correction.
+            def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
+                denoised = self.traj_model.apply(
+                    {'params': traj_params}, x=x_next, sigma=t_next, 
+                    train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
+                d_prime = (x_next - denoised) / t_next
+                x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
+                return x_next
+            x_result = jax.lax.cond(t_next != 0.0, 
+                                    second_order_corrections, 
+                                    lambda x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2: x_next, 
+                                    x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2)
+            return x_result
+
+        self.p_sample_jit = jax.pmap(p_sample_jit)
+        '''
     
     def p_sample(self, param, xt, t):
         # Sample from p_theta(x_{t-1}|x_t)
@@ -378,7 +403,7 @@ class CMFramework(DefaultModel):
         return new_state
 
     def get_model_state(self):
-        return [flax.jax_utils.unreplicate(self.model_state)]
+        return [flax.jax_utils.unreplicate(self.model_state), flax.jax_utils.unreplicate(self.traj_model_state)]
     
     def fit(self, x0, cond=None, step=0):
         key, dropout_key = jax.random.split(self.rand_key, 2)
@@ -418,7 +443,37 @@ class CMFramework(DefaultModel):
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample
+    
+    '''
+    # For sampling with g_phi
+    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
+        latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
+        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
+        step_indices = jnp.arange(self.n_timestep)
+        t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
+        t_steps = jnp.append(t_steps, jnp.zeros_like(t_steps[0]))
+        pbar = tqdm(zip(t_steps[:-1], t_steps[1:]))
+
+        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * t_steps[0]
+        for t_cur, t_next in pbar:
+            rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+            gamma_val = jnp.minimum(jnp.sqrt(2) - 1, self.S_churn / self.n_timestep)
+            gamma = jnp.where(self.S_min <= t_cur and t_cur <= self.S_max,
+                            gamma_val, 0)
+
+            rng_key = jax.random.split(rng_key, jax.local_device_count())
+            t_cur = jnp.asarray([t_cur] * jax.local_device_count())
+            t_next = jnp.asarray([t_next] * jax.local_device_count())
+            gamma = jnp.asarray([gamma] * jax.local_device_count())
+            latent_sample = self.p_sample_jit(self.traj_model_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
+
+        if original_data is not None:
+            rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+            self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        return latent_sample
+    '''
+    
     def get_gamma(self, step):
         # gamma_val = jnp.minimum(jnp.sqrt(2) - 1, self.S_churn / self.n_timestep)
         # gamma = jnp.where(self.S_min <= self.t_steps[step] and self.t_steps[step] <= self.S_max,

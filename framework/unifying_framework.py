@@ -26,7 +26,7 @@ class UnifyingFramework():
     def __init__(self, model_type, config: DictConfig, random_rng) -> None:
         self.config = config # TODO: This code is ugly. It should not need to reuse config obj
         self.current_model_type = model_type.lower()
-        self.diffusion_model_type = ['ddpm', 'ddim', 'edm', 'cm'] 
+        self.diffusion_model_type = ['ddpm', 'ddim', 'edm', 'cm']
         self.random_rng = random_rng
         self.dataset_name = config.dataset.name
         self.do_fid_during_training = config.fid_during_training
@@ -54,7 +54,7 @@ class UnifyingFramework():
         elif self.current_model_type in ['edm']:
             diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
             self.framework = EDMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
-        elif self.current_model_type in ['cm']:
+        elif self.current_model_type in ['cm', 'cm_diffusion']:
             diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
             self.framework = CMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
         elif self.current_model_type == "ldm":
@@ -98,7 +98,20 @@ class UnifyingFramework():
                 self.config.exp.checkpoint_dir, 
                 self.step, 
                 prefix=diffusion_prefix)
-
+        elif self.current_model_type == "cm_diffusion":
+            assert len(state) == 2
+            cm_prefix = self.config.exp.cm_prefix
+            diffusion_prefix = self.config.exp.diffusion_prefix
+            jax_utils.save_train_state(
+                state[0], 
+                self.config.exp.checkpoint_dir, 
+                self.step, 
+                prefix=cm_prefix)
+            jax_utils.save_train_state(
+                state[1], 
+                self.config.exp.checkpoint_dir, 
+                self.step, 
+                prefix=diffusion_prefix)
         elif self.current_model_type == "ldm" and self.train_idx == 1:
             assert len(state) == 2
             autoencoder_prefix = self.config.exp.autoencoder_prefix
@@ -156,7 +169,17 @@ class UnifyingFramework():
                     fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
                     if best_fid >= fid_score:
                         best_checkpoint_dir = self.config.exp.best_dir
-                        jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, self.checkpoint_prefix)
+                        
+                        ##########################################################
+                        ########### This works only for cm-diffusion! ############
+                        ##########################################################
+                        jax_utils.save_best_state([model_state[0], ], best_checkpoint_dir, self.step, "cm_")
+                        if len(model_state) >= 1:
+                            jax_utils.save_best_state([model_state[1], ], best_checkpoint_dir, self.step, "diffusion_")
+                        ##########################################################
+                        ##########################################################
+                        ##########################################################
+                        
                         best_fid = fid_score
                     self.wandblog.update_log({"FID score": fid_score})
                     self.wandblog.flush(step=self.step)

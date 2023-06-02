@@ -94,7 +94,7 @@ def load_state_from_checkpoint_dir(checkpoint_dir, state, step, checkpoint_prefi
 
 def save_best_state(state, best_checkpoint_dir, step, checkpoint_prefix):
   assert type(state) is list
-  state = state[0] # TODO: This code assume the state is give as list. Too naive. 
+  state = state[0] # TODO: This code assume the state is give as list. Too naive.
   checkpoints.save_checkpoint(best_checkpoint_dir, state, step, prefix=checkpoint_prefix, overwrite=True)
   print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")
 

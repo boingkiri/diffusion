@@ -7,3 +7,4 @@ best_dir: ${exp.checkpoint_dir}/best
 autoencoder_prefix: 'ae_'
 discriminator_prefix: 'discriminator_'
 diffusion_prefix: 'diffusion_'
+cm_prefix: 'cm_'
