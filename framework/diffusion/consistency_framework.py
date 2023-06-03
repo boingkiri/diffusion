@@ -456,7 +456,7 @@ class CMFramework(DefaultModel):
             augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
 
             # Euler step
-            denoised = self.traj_model.apply(
+            _, _, denoised = self.model.apply(
                 {'params': traj_params}, x=x_hat, sigma=t_hat, 
                 train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
             d_cur = (x_hat - denoised) / t_hat
@@ -464,7 +464,7 @@ class CMFramework(DefaultModel):
 
             # Apply 2nd order correction.
             def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
-                denoised = self.traj_model.apply(
+                _, _, denoised = self.model.apply(
                     {'params': traj_params}, x=x_next, sigma=t_next, 
                     train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
                 d_prime = (x_next - denoised) / t_next
@@ -613,7 +613,7 @@ class CMFramework(DefaultModel):
             t_cur = jnp.asarray([t_cur] * jax.local_device_count())
             t_next = jnp.asarray([t_next] * jax.local_device_count())
             gamma = jnp.asarray([gamma] * jax.local_device_count())
-            latent_sample = self.p_sample_jit(self.traj_model_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
+            latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
 
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
