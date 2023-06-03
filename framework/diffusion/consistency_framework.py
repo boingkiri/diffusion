@@ -222,9 +222,9 @@ class CMFramework(DefaultModel):
                     {'params': params}, x= next_perturbed_x,
                     sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
                 
-                target_encoder, target_diffusion, target_consistency = self.model.apply(
-                    {'params': target_params}, x= perturbed_x, 
-                    sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+                # target_encoder, target_diffusion, target_consistency = self.model.apply(
+                #     {'params': target_params}, x= perturbed_x, 
+                #     sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
 
                 if diffusion_framework.loss == "lpips":
                     # Add denoising loss
@@ -235,12 +235,13 @@ class CMFramework(DefaultModel):
                     # Original lpips loss
                     output_shape = (y.shape[0], 224, 224, y.shape[-1])
                     
-                    online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
-                    target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
-                    online_consistency = (online_consistency + 1) / 2.0
-                    target_consistency = (target_consistency + 1) / 2.0
+                    # online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
+                    # target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
+                    # online_consistency = (online_consistency + 1) / 2.0
+                    # target_consistency = (target_consistency + 1) / 2.0
                     
-                    loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency)) + diffusion_loss
+                    # loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency)) + diffusion_loss
+                    loss = diffusion_loss
                 elif diffusion_framework.loss == "l2":
                     loss = jnp.mean((online_consistency - target_consistency) ** 2)
                 elif diffusion_framework.loss == "l1":
@@ -430,20 +431,55 @@ class CMFramework(DefaultModel):
             
             return x_result
 
-        def p_sample_fn(params, x_cur, rng_key, step):
-            dropout_key = rng_key
+        # def p_sample_fn(params, x_cur, rng_key, step):
+        #     dropout_key = rng_key
+        #     # Augment label
+        #     augment_dim = config.model.diffusion.get("augment_dim", None)
+        #     augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
+
+        #     encoder_output, consistency_output, diffusion_output = self.model.apply(
+        #         {'params': params}, x=x_cur, sigma=step, 
+        #         train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+        #     # return denoised
+        #     return consistency_output
+        # For sampling with g_phi
+        def p_sample_jit(traj_params, x_cur, rng_key, gamma, t_cur, t_next):
+            rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
+
+            # Increase noise temporarily.
+            t_hat = t_cur + gamma * t_cur
+            noise = jax.random.normal(rng_key, x_cur.shape) * self.S_noise
+            x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
+
             # Augment label
             augment_dim = config.model.diffusion.get("augment_dim", None)
             augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
 
-            encoder_output, consistency_output, diffusion_output = self.model.apply(
-                {'params': params}, x=x_cur, sigma=step, 
+            # Euler step
+            denoised = self.traj_model.apply(
+                {'params': traj_params}, x=x_hat, sigma=t_hat, 
                 train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-            # return denoised
-            return consistency_output
+            d_cur = (x_hat - denoised) / t_hat
+            x_next = x_hat + (t_next - t_hat) * d_cur
+
+            # Apply 2nd order correction.
+            def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
+                denoised = self.traj_model.apply(
+                    {'params': traj_params}, x=x_next, sigma=t_next, 
+                    train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
+                d_prime = (x_next - denoised) / t_next
+                x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
+                return x_next
+            x_result = jax.lax.cond(t_next != 0.0, 
+                                    second_order_corrections, 
+                                    lambda x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2: x_next, 
+                                    x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2)
+            return x_result
+
+        self.p_sample_jit = jax.pmap(p_sample_jit)
 
         self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
-        self.p_sample_jit = jax.pmap(p_sample_fn, axis_name=self.pmap_axis, in_axes=(0, 0, 0, None))
+        # self.p_sample_jit = jax.pmap(p_sample_fn, axis_name=self.pmap_axis, in_axes=(0, 0, 0, None))
         
         '''
         # For sampling with g_phi
@@ -512,7 +548,7 @@ class CMFramework(DefaultModel):
         return new_state
 
     def get_model_state(self):
-        return [flax.jax_utils.unreplicate(self.model_state), flax.jax_utils.unreplicate(self.traj_model_state)]
+        return [flax.jax_utils.unreplicate(self.model_state)]
     
     def fit(self, x0, cond=None, step=0):
         key, dropout_key = jax.random.split(self.rand_key, 2)
@@ -538,24 +574,24 @@ class CMFramework(DefaultModel):
         self.wandblog.update_log(return_dict)
         return return_dict
     
-    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
-        latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
-        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+    # def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
+    #     latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
+    #     sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
-        # One-step generation
-        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
+    #     # One-step generation
+    #     latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
         
-        rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        rng_key = jax.random.split(rng_key, jax.local_device_count())
-        # latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.sigma_max)
-        latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.sigma_max)
+    #     rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+    #     rng_key = jax.random.split(rng_key, jax.local_device_count())
+    #     # latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.sigma_max)
+    #     latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.sigma_max)
 
-        if original_data is not None:
-            rec_loss = jnp.mean((latent_sample - original_data) ** 2)
-            self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
-        return latent_sample
+    #     if original_data is not None:
+    #         rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+    #         self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+    #     return latent_sample
     
-    '''
+    
     # For sampling with g_phi
     def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
@@ -583,7 +619,7 @@ class CMFramework(DefaultModel):
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample
-    '''
+    
     
     def get_gamma(self, step):
         return jnp.zeros_like(step) # This is possible because consistency model only consider deterministic sampling
