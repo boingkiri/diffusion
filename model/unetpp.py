@@ -539,37 +539,38 @@ class CMDMPrecond(nn.Module):
         
         # D_x = c_skip * x + c_out * F_x
         # return D_x
+        consistency_head = TimeEmbedDependentHead(
+            image_channels=self.image_channels, 
+            n_channels=self.model_kwargs['n_channels'],
+            n_heads=self.model_kwargs['n_heads'],
+            dropout_rate=self.model_kwargs['dropout_rate'],
+            resample_filter=self.model_kwargs['resample_filter'],)
+        diffusion_head = TimeEmbedDependentHead(
+            image_channels=self.image_channels, 
+            n_channels=self.model_kwargs['n_channels'],
+            n_heads=self.model_kwargs['n_heads'],
+            dropout_rate=self.model_kwargs['dropout_rate'],
+            resample_filter=self.model_kwargs['resample_filter'],)
         if not self.t_emb_output:
-            consistency_head = nn.Sequential([
-                nn.GroupNorm(num_groups=self.image_channels),
-                nn.activation.silu,
-                nn.Conv(features=self.image_channels, kernel_size=(3, 3), 
-                        strides=(1, 1), padding='SAME', kernel_init=init_zero),
-            ])
+            # consistency_head = nn.Sequential([
+            #     nn.GroupNorm(num_groups=self.image_channels),
+            #     nn.activation.silu,
+            #     nn.Conv(features=self.image_channels, kernel_size=(3, 3), 
+            #             strides=(1, 1), padding='SAME', kernel_init=init_zero),
+            # ])
 
-            diffusion_head = nn.Sequential([
-                nn.GroupNorm(num_groups=self.image_channels),
-                nn.activation.silu,
-                nn.Conv(features=self.image_channels, kernel_size=(3, 3),
-                        strides=(1, 1), padding='SAME', kernel_init=init_zero),
-            ])
-            
+            # diffusion_head = nn.Sequential([
+            #     nn.GroupNorm(num_groups=self.image_channels),
+            #     nn.activation.silu,
+            #     nn.Conv(features=self.image_channels, kernel_size=(3, 3),
+            #             strides=(1, 1), padding='SAME', kernel_init=init_zero),
+            # ])
             F_x = net(c_in * x, c_noise.flatten(), train, augment_labels)
-            consistency_result = c_skip * x + c_out * consistency_head(F_x)
-            diffusion_result = c_skip * x + c_out * diffusion_head(F_x)
+            t_emb = jnp.zeros((x.shape[0], self.model_kwargs['n_channels'] * 4))
+            consistency_result = c_skip * x + c_out * consistency_head(F_x, t_emb, train)
+            diffusion_result = c_skip * x + c_out * diffusion_head(F_x, t_emb, train)
         else:
-            consistency_head = TimeEmbedDependentHead(
-                image_channels=self.image_channels, 
-                n_channels=self.model_kwargs['n_channels'],
-                n_heads=self.model_kwargs['n_heads'],
-                dropout_rate=self.model_kwargs['dropout_rate'],
-                resample_filter=self.model_kwargs['resample_filter'],)
-            diffusion_head = TimeEmbedDependentHead(
-                image_channels=self.image_channels, 
-                n_channels=self.model_kwargs['n_channels'],
-                n_heads=self.model_kwargs['n_heads'],
-                dropout_rate=self.model_kwargs['dropout_rate'],
-                resample_filter=self.model_kwargs['resample_filter'],)
+            
             F_x, t_emb = net(c_in * x, c_noise.flatten(), train, augment_labels)
             consistency_result = c_skip * x + c_out * consistency_head(F_x, t_emb, train)
             diffusion_result = c_skip * x + c_out * diffusion_head(F_x, t_emb, train)
