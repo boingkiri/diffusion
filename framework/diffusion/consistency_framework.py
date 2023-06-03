@@ -228,9 +228,9 @@ class CMFramework(DefaultModel):
 
                 if diffusion_framework.loss == "lpips":
                     # Add denoising loss
-                    # diffusion_loss, diffusion_loss_dict = diffusion_loss_fn(params, y, diffusion_key)
-                    # loss_dict.update(diffusion_loss_dict)
-                    diffusion_loss = jnp.mean((online_diffusion - y) ** 2)
+                    diffusion_loss, diffusion_loss_dict = diffusion_loss_fn(params, y, diffusion_key)
+                    loss_dict.update(diffusion_loss_dict)
+                    # diffusion_loss = jnp.mean((online_diffusion - y) ** 2)
 
                     # Original lpips loss
                     output_shape = (y.shape[0], 224, 224, y.shape[-1])
@@ -308,31 +308,31 @@ class CMFramework(DefaultModel):
                 loss_dict['total_loss'] = loss
                 return loss, loss_dict
             
-            @jax.jit
-            def diffusion_loss_fn(params, y, rng_key):
-                p_mean = -1.2
-                p_std = 1.2
-                sigma_data = 0.5
+        @jax.jit
+        def diffusion_loss_fn(params, y, rng_key):
+            p_mean = -1.2
+            p_std = 1.2
+            sigma_data = 0.5
 
-                rng_key, sigma_key, dropout_key = jax.random.split(rng_key, 3)
-                rnd_normal = jax.random.normal(sigma_key, (y.shape[0], 1, 1, 1))
-                sigma = jnp.exp(rnd_normal * p_std + p_mean)
-                weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
-                # TODO: Implement augmented pipe 
-                y, augment_label = self.augmentation_pipeline(y) if self.augment_rate is not None else (y, None)
-                n = jax.random.normal(rng_key, y.shape) * sigma
-                
-                # Network will predict D_yn (denoised dataset rather than epsilon) directly.
-                encoder_value, consistency_value, diffusion_value = self.model.apply(
-                    {'params': params}, x=(y + n), sigma=sigma, 
-                    train=True, augment_labels=augment_label, rngs={'dropout': dropout_key})
-                # loss = weight * ((D_yn - y) ** 2)
-                loss = weight * ((diffusion_value - y) ** 2)
-                loss = jnp.mean(loss)
+            rng_key, sigma_key, dropout_key = jax.random.split(rng_key, 3)
+            rnd_normal = jax.random.normal(sigma_key, (y.shape[0], 1, 1, 1))
+            sigma = jnp.exp(rnd_normal * p_std + p_mean)
+            weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
+            # TODO: Implement augmented pipe 
+            y, augment_label = self.augmentation_pipeline(y) if self.augment_rate is not None else (y, None)
+            n = jax.random.normal(rng_key, y.shape) * sigma
+            
+            # Network will predict D_yn (denoised dataset rather than epsilon) directly.
+            encoder_value, consistency_value, diffusion_value = self.model.apply(
+                {'params': params}, x=(y + n), sigma=sigma, 
+                train=True, augment_labels=augment_label, rngs={'dropout': dropout_key})
+            # loss = weight * ((D_yn - y) ** 2)
+            loss = weight * ((diffusion_value - y) ** 2)
+            loss = jnp.mean(loss)
 
-                loss_dict = {}
-                loss_dict['diffusion_loss'] = loss
-                return loss, loss_dict
+            loss_dict = {}
+            loss_dict['diffusion_loss'] = loss
+            return loss, loss_dict
         
         def update(carry_state, x0):
             # (rng, state, traj_state) = carry_state
