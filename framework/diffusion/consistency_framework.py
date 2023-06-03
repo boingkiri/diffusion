@@ -436,10 +436,11 @@ class CMFramework(DefaultModel):
             augment_dim = config.model.diffusion.get("augment_dim", None)
             augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
 
-            denoised = self.model.apply(
+            encoder_output, consistency_output, diffusion_output = self.model.apply(
                 {'params': params}, x=x_cur, sigma=step, 
                 train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-            return denoised
+            # return denoised
+            return consistency_output
 
         self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
         self.p_sample_jit = jax.pmap(p_sample_fn, axis_name=self.pmap_axis, in_axes=(0, 0, 0, None))
