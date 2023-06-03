@@ -7,7 +7,8 @@ learn_sigma: False
 # Consistency distillation or Consistency training
 is_distillation: False
 is_progressive_training: True
-distillation_path: experiments/edm_with_modified_attention_bad # Exp name or pretrained model file name
+# distillation_path: experiments/edm_with_modified_attention_bad # Exp name or pretrained model file name
+distillation_path: null # Exp name or pretrained model file name
 target_model_ema_decay: 0
 params_ema_for_training: [0.9, 2, 150] # mu_0, s_0, s_1
 

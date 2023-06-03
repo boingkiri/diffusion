@@ -105,17 +105,22 @@ class CMFramework(DefaultModel):
 
             pretrained_model_path = diffusion_framework.distillation_path
             prefix = fs_obj.get_state_prefix("diffusion")
-            if prefix not in pretrained_model_path: # It means teacher_model_path is indicating exp name 
-                checkpoint_dir = config.exp.checkpoint_dir.split("/")[-1]
-                pretrained_model_path = os.path.join(pretrained_model_path, checkpoint_dir)
             
-            # Initialize model
-            if self.model_state.step == 0:
-                frozened_params = flax.core.frozen_dict.freeze(self.teacher_model_state["params_ema"])
-                self.model_state = self.model_state.replace(params=frozened_params)
-                self.model_state = self.model_state.replace(params_ema=frozened_params)
-                self.model_state = self.model_state.replace(target_model=frozened_params)
-                self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
+            if pretrained_model_path is not None: 
+                if prefix not in pretrained_model_path: # It means teacher_model_path is indicating exp name 
+                    checkpoint_dir = config.exp.checkpoint_dir.split("/")[-1]
+                    pretrained_model_path = os.path.join(pretrained_model_path, checkpoint_dir)
+
+                # Restore pretrained model state
+                pretrained_model_state = checkpoints.restore_checkpoint(pretrained_model_path, None, prefix=prefix)
+            
+                # Initialize model
+                if self.model_state.step == 0:
+                    frozened_params = flax.core.frozen_dict.freeze(pretrained_model_state["params_ema"])
+                    self.model_state = self.model_state.replace(params=frozened_params)
+                    self.model_state = self.model_state.replace(params_ema=frozened_params)
+                    self.model_state = self.model_state.replace(target_model=frozened_params)
+                    self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
 
         else:
             self.n_timestep_fn = lambda k: jnp.ceil(jnp.sqrt((k / diffusion_framework.train.total_step) * ((self.s_1 + 1) ** 2 - self.s_0 ** 2) + self.s_0 ** 2) - 1) + 1
@@ -125,7 +130,6 @@ class CMFramework(DefaultModel):
         
         # Replicate model state to use multiple computation units 
         self.model_state = flax.jax_utils.replicate(self.model_state)
-        self.traj_model_state = flax.jax_utils.replicate(self.traj_model_state)
 
         # Create ema obj
         ema_config = config.ema
@@ -224,8 +228,9 @@ class CMFramework(DefaultModel):
 
                 if diffusion_framework.loss == "lpips":
                     # Add denoising loss
-                    diffusion_loss, diffusion_loss_dict = diffusion_loss_fn(params, y, diffusion_key)
-                    loss_dict.update(diffusion_loss_dict)
+                    # diffusion_loss, diffusion_loss_dict = diffusion_loss_fn(params, y, diffusion_key)
+                    # loss_dict.update(diffusion_loss_dict)
+                    diffusion_loss = jnp.mean((online_diffusion - y) ** 2)
 
                     # Original lpips loss
                     output_shape = (y.shape[0], 224, 224, y.shape[-1])

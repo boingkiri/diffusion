@@ -481,14 +481,14 @@ class CMDMPrecond(nn.Module):
         init_zero = create_initializer('xavier_zero')
         
         consistency_head = nn.Sequential([
-            nn.GroupNorm(),
+            nn.GroupNorm(num_groups=self.image_channels),
             nn.activation.silu,
             nn.Conv(features=self.image_channels, kernel_size=(3, 3), 
                     strides=(1, 1), padding='SAME', kernel_init=init_zero),
         ])
 
         diffusion_head = nn.Sequential([
-            nn.GroupNorm(),
+            nn.GroupNorm(num_groups=self.image_channels),
             nn.activation.silu,
             nn.Conv(features=self.image_channels, kernel_size=(3, 3),
                     strides=(1, 1), padding='SAME', kernel_init=init_zero),
