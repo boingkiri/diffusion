@@ -100,7 +100,8 @@ class CMFramework(DefaultModel):
                                image_channels=model_config['image_channels'], 
                                model_type=model_type, 
                                sigma_min=diffusion_framework['sigma_min'],
-                               sigma_max=diffusion_framework['sigma_max'])
+                               sigma_max=diffusion_framework['sigma_max'],
+                               t_emb_output = diffusion_framework['t_emb_output'],)
             self.model_state = self.init_model_state(config)
 
             pretrained_model_path = diffusion_framework.distillation_path
@@ -228,9 +229,9 @@ class CMFramework(DefaultModel):
 
                 if diffusion_framework.loss == "lpips":
                     # Add denoising loss
-                    # diffusion_loss, diffusion_loss_dict = diffusion_loss_fn(params, y, diffusion_key)
-                    # loss_dict.update(diffusion_loss_dict)
-                    diffusion_loss = jnp.mean((online_diffusion - y) ** 2)
+                    diffusion_loss, diffusion_loss_dict = diffusion_loss_fn(params, y, diffusion_key)
+                    loss_dict.update(diffusion_loss_dict)
+                    # diffusion_loss = jnp.mean((online_diffusion - y) ** 2)
 
                     # Original lpips loss
                     output_shape = (y.shape[0], 224, 224, y.shape[-1])
@@ -308,31 +309,31 @@ class CMFramework(DefaultModel):
                 loss_dict['total_loss'] = loss
                 return loss, loss_dict
             
-            @jax.jit
-            def diffusion_loss_fn(params, y, rng_key):
-                p_mean = -1.2
-                p_std = 1.2
-                sigma_data = 0.5
+        @jax.jit
+        def diffusion_loss_fn(params, y, rng_key):
+            p_mean = -1.2
+            p_std = 1.2
+            sigma_data = 0.5
 
-                rng_key, sigma_key, dropout_key = jax.random.split(rng_key, 3)
-                rnd_normal = jax.random.normal(sigma_key, (y.shape[0], 1, 1, 1))
-                sigma = jnp.exp(rnd_normal * p_std + p_mean)
-                weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
-                # TODO: Implement augmented pipe 
-                y, augment_label = self.augmentation_pipeline(y) if self.augment_rate is not None else (y, None)
-                n = jax.random.normal(rng_key, y.shape) * sigma
-                
-                # Network will predict D_yn (denoised dataset rather than epsilon) directly.
-                encoder_value, consistency_value, diffusion_value = self.model.apply(
-                    {'params': params}, x=(y + n), sigma=sigma, 
-                    train=True, augment_labels=augment_label, rngs={'dropout': dropout_key})
-                # loss = weight * ((D_yn - y) ** 2)
-                loss = weight * ((diffusion_value - y) ** 2)
-                loss = jnp.mean(loss)
+            rng_key, sigma_key, dropout_key = jax.random.split(rng_key, 3)
+            rnd_normal = jax.random.normal(sigma_key, (y.shape[0], 1, 1, 1))
+            sigma = jnp.exp(rnd_normal * p_std + p_mean)
+            weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
+            # TODO: Implement augmented pipe 
+            y, augment_label = self.augmentation_pipeline(y) if self.augment_rate is not None else (y, None)
+            n = jax.random.normal(rng_key, y.shape) * sigma
+            
+            # Network will predict D_yn (denoised dataset rather than epsilon) directly.
+            encoder_value, consistency_value, diffusion_value = self.model.apply(
+                {'params': params}, x=(y + n), sigma=sigma, 
+                train=True, augment_labels=augment_label, rngs={'dropout': dropout_key})
+            # loss = weight * ((D_yn - y) ** 2)
+            loss = weight * ((diffusion_value - y) ** 2)
+            loss = jnp.mean(loss)
 
-                loss_dict = {}
-                loss_dict['diffusion_loss'] = loss
-                return loss, loss_dict
+            loss_dict = {}
+            loss_dict['diffusion_loss'] = loss
+            return loss, loss_dict
         
         def update(carry_state, x0):
             # (rng, state, traj_state) = carry_state
@@ -456,7 +457,7 @@ class CMFramework(DefaultModel):
             augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
 
             # Euler step
-            denoised = self.traj_model.apply(
+            _, _, denoised = self.model.apply(
                 {'params': traj_params}, x=x_hat, sigma=t_hat, 
                 train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
             d_cur = (x_hat - denoised) / t_hat
@@ -464,7 +465,7 @@ class CMFramework(DefaultModel):
 
             # Apply 2nd order correction.
             def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
-                denoised = self.traj_model.apply(
+                _, _, denoised = self.model.apply(
                     {'params': traj_params}, x=x_next, sigma=t_next, 
                     train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
                 d_prime = (x_next - denoised) / t_next
@@ -613,7 +614,7 @@ class CMFramework(DefaultModel):
             t_cur = jnp.asarray([t_cur] * jax.local_device_count())
             t_next = jnp.asarray([t_next] * jax.local_device_count())
             gamma = jnp.asarray([gamma] * jax.local_device_count())
-            latent_sample = self.p_sample_jit(self.traj_model_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
+            latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
 
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
