@@ -169,13 +169,15 @@ class UnifyingFramework():
                     fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
                     if best_fid >= fid_score:
                         best_checkpoint_dir = self.config.exp.best_dir
+                        jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "diffusion_")
                         
                         ##########################################################
                         ########### This works only for cm-diffusion! ############
                         ##########################################################
-                        jax_utils.save_best_state([model_state[0], ], best_checkpoint_dir, self.step, "cm_")
-                        if len(model_state) >= 1:
-                            jax_utils.save_best_state([model_state[1], ], best_checkpoint_dir, self.step, "diffusion_")
+                        
+                        # jax_utils.save_best_state([model_state[0], ], best_checkpoint_dir, self.step, "cm_")
+                        # if len(model_state) >= 1:
+                        #     jax_utils.save_best_state([model_state[1], ], best_checkpoint_dir, self.step, "diffusion_")
                         ##########################################################
                         ##########################################################
                         ##########################################################
