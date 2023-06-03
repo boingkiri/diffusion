@@ -7,7 +7,7 @@ label_dim:  0
 augment_dim: 9
 
 ch_mults: [2, 2, 2]
-is_atten: [True, True, True] # [False, True, False]
+is_atten: [False, True, False] # [False, True, False]
 n_blocks: 4
 n_heads: 1
 n_groups: 32

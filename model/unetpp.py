@@ -452,3 +452,51 @@ class CMPrecond(nn.Module):
         F_x = net(c_in * x, c_noise.flatten(), train, augment_labels)
         D_x = c_skip * x + c_out * F_x
         return D_x
+
+class CMDMPrecond(nn.Module):
+    model_kwargs : dict
+    image_channels: int
+
+    label_dim: int = 0
+    use_fp16: bool = False
+    sigma_min : float = 0.0 # 0.002
+    sigma_max : float = float('inf') # 80
+    sigma_data : float = 0.5
+    model_type : str = "unetpp"
+    
+    @nn.compact
+    def __call__(self, x, sigma, augment_labels, train):
+        c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
+        c_out = ((sigma - self.sigma_min) * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
+        c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
+        c_noise = jnp.log(sigma) / 4
+
+        # Predict F_x. There is only UNetpp case for now. 
+        # Should add more cases. (ex, DhariwalUNet (ADM)) 
+        if self.model_type == "unetpp":
+            net = UNetpp(**self.model_kwargs)
+        elif self.model_type == "unet":
+            net = UNet(**self.model_kwargs)
+
+        init_zero = create_initializer('xavier_zero')
+        
+        consistency_head = nn.Sequential([
+            nn.GroupNorm(),
+            nn.activation.silu,
+            nn.Conv(features=self.image_channels, kernel_size=(3, 3), 
+                    strides=(1, 1), padding='SAME', kernel_init=init_zero),
+        ])
+
+        diffusion_head = nn.Sequential([
+            nn.GroupNorm(),
+            nn.activation.silu,
+            nn.Conv(features=self.image_channels, kernel_size=(3, 3),
+                    strides=(1, 1), padding='SAME', kernel_init=init_zero),
+        ])
+        
+        F_x = net(c_in * x, c_noise.flatten(), train, augment_labels)
+        # D_x = c_skip * x + c_out * F_x
+        # return D_x
+        consistency_result = c_skip * x + c_out * consistency_head(F_x)
+        diffusion_result = c_skip * x + c_out * diffusion_head(F_x)
+        return F_x, consistency_result, diffusion_result
