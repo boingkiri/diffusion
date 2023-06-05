@@ -219,13 +219,14 @@ class CMFramework(DefaultModel):
                 augment_dim = config.model.diffusion.get("augment_dim", None)
                 augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
 
-                online_encoder, online_diffusion, online_consistency = self.model.apply(
-                    {'params': params}, x= next_perturbed_x,
-                    sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-                
-                # target_encoder, target_diffusion, target_consistency = self.model.apply(
-                #     {'params': target_params}, x= perturbed_x, 
-                #     sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+                if diffusion_framework.step_idx != 0:
+                    online_encoder, online_diffusion, online_consistency = self.model.apply(
+                        {'params': params}, x= next_perturbed_x,
+                        sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+                    
+                    target_encoder, target_diffusion, target_consistency = self.model.apply(
+                        {'params': target_params}, x= perturbed_x, 
+                        sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
 
                 if diffusion_framework.loss == "lpips":
                     # Add denoising loss
@@ -236,13 +237,19 @@ class CMFramework(DefaultModel):
                     # Original lpips loss
                     output_shape = (y.shape[0], 224, 224, y.shape[-1])
                     
-                    # online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
-                    # target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
-                    # online_consistency = (online_consistency + 1) / 2.0
-                    # target_consistency = (target_consistency + 1) / 2.0
+                    online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
+                    target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
+                    online_consistency = (online_consistency + 1) / 2.0
+                    target_consistency = (target_consistency + 1) / 2.0
+
+                    perceptual_loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
                     
-                    # loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency)) + diffusion_loss
-                    loss = diffusion_loss
+                    if diffusion_framework.step_idx != 0:
+                        alpha = diffusion_framework.alpha
+                        loss = perceptual_loss + alpha * diffusion_loss
+                    else:
+                        loss = diffusion_loss
+                    loss = perceptual_loss + diffusion_loss
                 elif diffusion_framework.loss == "l2":
                     loss = jnp.mean((online_consistency - target_consistency) ** 2)
                 elif diffusion_framework.loss == "l1":

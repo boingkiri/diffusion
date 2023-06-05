@@ -23,7 +23,7 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: cm_dm_230603_encoder_head_wo_time_emb_1
+exp_name: cm_dm_230603_encoder_head_w_time_emb_test
 do_training: true
 do_sampling: true
 num_sampling: 50000
@@ -33,6 +33,9 @@ fid_during_training: true # True when calculating fid during training, otherwise
 n_jitted_steps: 10
 
 framework:
+  distillation_path: experiments/cm_dm_230603_encoder_head_w_time_emb_test # Exp name or pretrained model file name
+  step_idx : 1 # starts with index 0
+  alpha: 1
   train_idx: 2
   # pretrained_ae: "ldm_vq_cifar10_with_gan"
 
