@@ -125,7 +125,6 @@ class CMFramework(DefaultModel):
 
         else:
             self.n_timestep_fn = lambda k: jnp.ceil(jnp.sqrt((k / diffusion_framework.train.total_step) * ((self.s_1 + 1) ** 2 - self.s_0 ** 2) + self.s_0 ** 2) - 1) + 1
-            # input parameter changed from "k" to "n_timestep"
             self.ema_power_fn = lambda n_timestep: jnp.exp(self.s_0 * jnp.log(self.mu_0) / jnp.maximum(n_timestep - 1, 1))
             self.t_steps_fn = lambda idx, n_timestep: (self.sigma_min ** (1 / self.rho) + idx / (n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
         
@@ -220,13 +219,15 @@ class CMFramework(DefaultModel):
                 augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
 
                 if diffusion_framework.step_idx != 0:
-                    online_encoder, online_diffusion, online_consistency = self.model.apply(
+                    online_consistency = self.model.apply(
                         {'params': params}, x= next_perturbed_x,
-                        sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+                        sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key},
+                        method=self.model.consistency_output)
                     
-                    target_encoder, target_diffusion, target_consistency = self.model.apply(
+                    target_consistency = self.model.apply(
                         {'params': target_params}, x= perturbed_x, 
-                        sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+                        sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key},
+                        method=self.model.consistency_output)
 
                 if diffusion_framework.loss == "lpips":
                     # Add denoising loss
@@ -331,9 +332,13 @@ class CMFramework(DefaultModel):
             n = jax.random.normal(rng_key, y.shape) * sigma
             
             # Network will predict D_yn (denoised dataset rather than epsilon) directly.
-            encoder_value, consistency_value, diffusion_value = self.model.apply(
-                {'params': params}, x=(y + n), sigma=sigma, 
-                train=True, augment_labels=augment_label, rngs={'dropout': dropout_key})
+            # encoder_value, consistency_value, diffusion_value = self.model.apply(
+            #     {'params': params}, x=(y + n), sigma=sigma, 
+            #     train=True, augment_labels=augment_label, rngs={'dropout': dropout_key})
+            diffusion_value = self.model.apply(
+                {'params': params}, x=(y + n), sigma=sigma,
+                train=True, augment_labels=augment_label, rngs={'dropout': dropout_key},
+                method=self.model.diffusion_output)
             # loss = weight * ((D_yn - y) ** 2)
             loss = weight * ((diffusion_value - y) ** 2)
             loss = jnp.mean(loss)
