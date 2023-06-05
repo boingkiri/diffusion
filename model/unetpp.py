@@ -525,8 +525,27 @@ class CMDMPrecond(nn.Module):
     model_type : str = "unetpp"
 
     t_emb_output: bool = False
+
+    def setup(self):
+        if self.model_type == "unetpp":
+            self.UNetpp_0 = UNetpp(**self.model_kwargs, t_emb_output=self.t_emb_output)
+        elif self.model_type == "unet":
+            self.UNetpp_0 = UNet(**self.model_kwargs)
+        
+        self.TimeEmbedDependentHead_0 = TimeEmbedDependentHead( # For consistency
+            image_channels=self.image_channels, 
+            n_channels=self.model_kwargs['n_channels'],
+            n_heads=self.model_kwargs['n_heads'],
+            dropout_rate=self.model_kwargs['dropout_rate'],
+            resample_filter=self.model_kwargs['resample_filter'],)
+        self.TimeEmbedDependentHead_1 = TimeEmbedDependentHead( # For diffusion
+            image_channels=self.image_channels, 
+            n_channels=self.model_kwargs['n_channels'],
+            n_heads=self.model_kwargs['n_heads'],
+            dropout_rate=self.model_kwargs['dropout_rate'],
+            resample_filter=self.model_kwargs['resample_filter'],)
     
-    @nn.compact
+    # @nn.compact
     def __call__(self, x, sigma, augment_labels, train):
         c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
         c_out = ((sigma - self.sigma_min) * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
@@ -535,50 +554,69 @@ class CMDMPrecond(nn.Module):
 
         # Predict F_x. There is only UNetpp case for now. 
         # Should add more cases. (ex, DhariwalUNet (ADM)) 
-        if self.model_type == "unetpp":
-            net = UNetpp(**self.model_kwargs, t_emb_output=self.t_emb_output)
-        elif self.model_type == "unet":
-            net = UNet(**self.model_kwargs)
+        # if self.model_type == "unetpp":
+        #     net = UNetpp(**self.model_kwargs, t_emb_output=self.t_emb_output)
+        # elif self.model_type == "unet":
+        #     net = UNet(**self.model_kwargs)
 
         init_zero = create_initializer('xavier_zero')
         
         # D_x = c_skip * x + c_out * F_x
         # return D_x
-        consistency_head = TimeEmbedDependentHead(
-            image_channels=self.image_channels, 
-            n_channels=self.model_kwargs['n_channels'],
-            last_ch_mult=self.model_kwargs['ch_mults'][0],
-            n_heads=self.model_kwargs['n_heads'],
-            dropout_rate=self.model_kwargs['dropout_rate'],
-            resample_filter=self.model_kwargs['resample_filter'],)
-        diffusion_head = TimeEmbedDependentHead(
-            image_channels=self.image_channels, 
-            n_channels=self.model_kwargs['n_channels'],
-            last_ch_mult=self.model_kwargs['ch_mults'][0],
-            n_heads=self.model_kwargs['n_heads'],
-            dropout_rate=self.model_kwargs['dropout_rate'],
-            resample_filter=self.model_kwargs['resample_filter'],)
+        # consistency_head = TimeEmbedDependentHead(
+        #     image_channels=self.image_channels, 
+        #     n_channels=self.model_kwargs['n_channels'],
+        #     last_ch_mult=self.model_kwargs['ch_mults'][0],
+        #     n_heads=self.model_kwargs['n_heads'],
+        #     dropout_rate=self.model_kwargs['dropout_rate'],
+        #     resample_filter=self.model_kwargs['resample_filter'],)
+        # diffusion_head = TimeEmbedDependentHead(
+        #     image_channels=self.image_channels, 
+        #     n_channels=self.model_kwargs['n_channels'],
+        #     last_ch_mult=self.model_kwargs['ch_mults'][0],
+        #     n_heads=self.model_kwargs['n_heads'],
+        #     dropout_rate=self.model_kwargs['dropout_rate'],
+        #     resample_filter=self.model_kwargs['resample_filter'],)
         if not self.t_emb_output:
-            # consistency_head = nn.Sequential([
-            #     nn.GroupNorm(num_groups=self.image_channels),
-            #     nn.activation.silu,
-            #     nn.Conv(features=self.image_channels, kernel_size=(3, 3), 
-            #             strides=(1, 1), padding='SAME', kernel_init=init_zero),
-            # ])
-
-            # diffusion_head = nn.Sequential([
-            #     nn.GroupNorm(num_groups=self.image_channels),
-            #     nn.activation.silu,
-            #     nn.Conv(features=self.image_channels, kernel_size=(3, 3),
-            #             strides=(1, 1), padding='SAME', kernel_init=init_zero),
-            # ])
-            F_x = net(c_in * x, c_noise.flatten(), train, augment_labels)
+            F_x = self.UNetpp_0(c_in * x, c_noise.flatten(), train, augment_labels)
             t_emb = jnp.zeros((x.shape[0], self.model_kwargs['n_channels'] * 4))
-            consistency_result = c_skip * x + c_out * consistency_head(c_in * x, F_x, t_emb, train)
-            diffusion_result = c_skip * x + c_out * diffusion_head(c_in * x, F_x, t_emb, train)
+            consistency_result = c_skip * x + c_out * self.TimeEmbedDependentHead_0(c_in * x, F_x, t_emb, train)
+            diffusion_result = c_skip * x + c_out * self.TimeEmbedDependentHead_1(c_in * x, F_x, t_emb, train)
         else:
-            F_x, t_emb, last_x_emb = net(c_in * x, c_noise.flatten(), train, augment_labels)
-            consistency_result = c_skip * x + c_out * consistency_head(c_in * x, F_x, last_x_emb, t_emb, train)
-            diffusion_result = c_skip * x + c_out * diffusion_head(c_in * x, F_x, last_x_emb, t_emb, train)
+            F_x, t_emb, last_x_emb = self.UNetpp_0(c_in * x, c_noise.flatten(), train, augment_labels)
+            consistency_result = c_skip * x + c_out * self.TimeEmbedDependentHead_0(c_in * x, F_x, last_x_emb, t_emb, train)
+            diffusion_result = c_skip * x + c_out * self.TimeEmbedDependentHead_1(c_in * x, F_x, last_x_emb, t_emb, train)
 
         return F_x, consistency_result, diffusion_result
+    
+    def diffusion_output(self, x, sigma, augment_labels, train):
+        c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
+        c_out = ((sigma - self.sigma_min) * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
+        c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
+        c_noise = jnp.log(sigma) / 4
+
+        if not self.t_emb_output:
+            F_x = self.UNetpp_0(c_in * x, c_noise.flatten(), train, augment_labels)
+            t_emb = jnp.zeros((x.shape[0], self.model_kwargs['n_channels'] * 4))
+            diffusion_result = c_skip * x + c_out * self.TimeEmbedDependentHead_1(F_x, t_emb, train)
+        else:
+            F_x, t_emb, last_x_emb = self.UNetpp_0(c_in * x, c_noise.flatten(), train, augment_labels)
+            diffusion_result = c_skip * x + c_out * self.TimeEmbedDependentHead_1(c_in * x, F_x, last_x_emb, t_emb, train)
+
+        return diffusion_result
+
+    def consistency_output(self, x, sigma, augment_labels, train):
+        c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
+        c_out = ((sigma - self.sigma_min) * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
+        c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
+        c_noise = jnp.log(sigma) / 4
+
+        if not self.t_emb_output:
+            F_x = self.UNetpp_0(c_in * x, c_noise.flatten(), train, augment_labels)
+            t_emb = jnp.zeros((x.shape[0], self.model_kwargs['n_channels'] * 4))
+            consistency_result = c_skip * x + c_out * self.TimeEmbedDependentHead_0(F_x, t_emb, train)
+        else:
+            F_x, t_emb, last_x_emb = self.UNetpp_0(c_in * x, c_noise.flatten(), train, augment_labels)
+            consistency_result = c_skip * x + c_out * self.TimeEmbedDependentHead_0(c_in * x, F_x, last_x_emb, t_emb, train)
+
+        return consistency_result
