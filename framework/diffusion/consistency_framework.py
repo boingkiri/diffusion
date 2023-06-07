@@ -45,6 +45,7 @@ class CMFramework(DefaultModel):
                                sigma_min=diffusion_framework['sigma_min'],
                                sigma_max=diffusion_framework['sigma_max'])
         self.model_state = self.init_model_state(config)
+        self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
         
 
         # Parameters
