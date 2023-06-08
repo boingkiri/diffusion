@@ -1,4 +1,4 @@
-type: "cm_diffusion"
+type: "cm"
 n_timestep: 18
 loss: lpips # l2, l1, lpips
 # noise_schedule: linear # cosine, linear
