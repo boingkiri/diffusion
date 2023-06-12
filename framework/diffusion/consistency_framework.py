@@ -105,6 +105,7 @@ class CMFramework(DefaultModel):
                                sigma_max=diffusion_framework['sigma_max'],
                                t_emb_output = diffusion_framework['t_emb_output'],)
             self.model_state = self.init_model_state(config)
+            self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
 
             pretrained_model_path = diffusion_framework.distillation_path
             prefix = fs_obj.get_state_prefix("diffusion")
