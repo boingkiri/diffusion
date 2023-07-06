@@ -122,35 +122,35 @@ class AttentionModule(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        orig_x = x
-        x = self.norm2(x)
-        qkv = self.qkv(x)
-        qkv = jnp.transpose(qkv, (0, 3, 1, 2))
-        qkv = qkv.reshape(x.shape[0] * self.num_heads, x.shape[-1] // self.num_heads, 3, -1)
-        q, k, v = jnp.split(qkv, 3, axis=2)
-        k = k / jnp.sqrt(k.shape[1])
-        
-        w = jnp.einsum('bcnq,bcnk->bnqk', q, k)
-        w = nn.softmax(w, axis=-1)
-
-        a = jnp.einsum('bnqk,bcnk->bcnq', w, v)
-        a = a.reshape(x.shape[0], x.shape[3], x.shape[1], x.shape[2])
-        a = jnp.transpose(a, (0, 2, 3, 1))
-        
-        x = self.proj(a) + orig_x
         # orig_x = x
         # x = self.norm2(x)
         # qkv = self.qkv(x)
-        # qkv = qkv.reshape(x.shape[0] * self.num_heads, -1, 3, x.shape[-1] // self.num_heads)
+        # qkv = jnp.transpose(qkv, (0, 3, 1, 2))
+        # qkv = qkv.reshape(x.shape[0] * self.num_heads, x.shape[-1] // self.num_heads, 3, -1)
         # q, k, v = jnp.split(qkv, 3, axis=2)
-        # k = k / jnp.sqrt(k.shape[-1])
+        # k = k / jnp.sqrt(k.shape[1])
         
-        # w = jnp.einsum('bqnc,bknc->bqkn', q, k)
-        # w = nn.softmax(w, axis=2)
+        # w = jnp.einsum('bcnq,bcnk->bnqk', q, k)
+        # w = nn.softmax(w, axis=-1)
 
-        # a = jnp.einsum('bqkn,bknc->bqnc', w, v)
-        # a = a.reshape(*x.shape)
+        # a = jnp.einsum('bnqk,bcnk->bcnq', w, v)
+        # a = a.reshape(x.shape[0], x.shape[3], x.shape[1], x.shape[2])
+        # a = jnp.transpose(a, (0, 2, 3, 1))
+        
         # x = self.proj(a) + orig_x
+        orig_x = x
+        x = self.norm2(x)
+        qkv = self.qkv(x)
+        qkv = qkv.reshape(x.shape[0] * self.num_heads, -1, 3, x.shape[-1] // self.num_heads)
+        q, k, v = jnp.split(qkv, 3, axis=2)
+        k = k / jnp.sqrt(k.shape[-1])
+        
+        w = jnp.einsum('bqnc,bknc->bqkn', q, k)
+        w = nn.softmax(w, axis=2)
+
+        a = jnp.einsum('bqkn,bknc->bqnc', w, v)
+        a = a.reshape(*x.shape)
+        x = self.proj(a) + orig_x
         return x
 
 class UNetBlock(nn.Module):
@@ -238,13 +238,9 @@ class FourierEmbedding(nn.Module):
     num_channels: int
     scale: float = 16
     def setup(self):
-        # key = self.make_rng('params')
-        # randn = jax.random.normal(key, (self.num_channels // 2,))
-        # self.freqs = randn * self.scale
         self.freqs = self.param('freqs', jax.random.normal, (self.num_channels // 2,), jnp.float32)
     
     def __call__(self, x):
-        # x = x.ger((2 * np.pi * self.freqs).to(x.dtype))
         freqs = jax.lax.stop_gradient(self.freqs)
         x = jnp.outer(x, (2 * jnp.pi * freqs))
         x = jnp.concatenate([jnp.cos(x), jnp.sin(x)], axis=1)
@@ -256,11 +252,13 @@ class UNetpp(nn.Module):
     label_dim: int = 0
     augment_dim: int = 0
     
-    ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 2, 2)# (1, 2, 4, 4) # (1, 2, 2, 4)
-    is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False) # (False, True, True, True) # (False, False, True, True)
+    ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 2, 2)
+    is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False)
     n_blocks: int = 4
     n_heads: int = 1
     n_groups: int = 32
+    skip_rescale: bool = True
+
     dropout_rate: float = 0.1
     label_dropout_rate: float = 0.0
 
@@ -280,7 +278,7 @@ class UNetpp(nn.Module):
             emb_channels=emb_channels,
             num_heads=self.n_heads,
             dropout_rate=self.dropout_rate,
-            skip_scale=jnp.sqrt(0.5),
+            skip_scale=jnp.sqrt(0.5) if self.skip_rescale else 1.0,
             eps=1e-6,
             resample_filter=self.resample_filter,
             resample_proj=True,
