@@ -19,6 +19,7 @@ class FIDUtils():
         self.fs_utils = FSUtils(config)
         self.in_process_dir = config.exp.in_process_dir
         self.dataset_name = config.dataset.name
+        self.batch_size = 512
     
     def load_fid_model(self):
         model = inception.InceptionV3(pretrained=True)
@@ -36,17 +37,17 @@ class FIDUtils():
         if dataset_name == "cifar10" and "stats.npz" not in os.listdir(dataset_name):
             print("Precomputing CIFAR10 statistics")
             dataset_path = os.path.join(dataset_name, "train")
-            mu, sigma = fid.compute_statistics(dataset_path, self.params, self.apply_fn, 50, self.img_size)
+            mu, sigma = fid.compute_statistics(dataset_path, self.params, self.apply_fn, self.batch_size, self.img_size)
             statistics_file = os.path.join(dataset_name, "stats")
             np.savez(statistics_file, mu=mu, sigma=sigma)
             return mu, sigma
         print(f"Loading {dataset_name} statistics")
         statistics_file = os.path.join(dataset_name, "stats.npz")
-        mu, sigma = fid.compute_statistics(statistics_file, self.params, self.apply_fn, 50, self.img_size)
+        mu, sigma = fid.compute_statistics(statistics_file, self.params, self.apply_fn, self.batch_size, self.img_size)
         return mu, sigma
 
     def calculate_statistics(self, img_path):
-        mu, sigma = fid.compute_statistics(img_path, self.params, self.apply_fn, 50, self.img_size)
+        mu, sigma = fid.compute_statistics(img_path, self.params, self.apply_fn, self.batch_size, self.img_size)
         return mu, sigma
     
     def calculate_fid(self, src_img_path, des_img_path=None):
@@ -70,14 +71,6 @@ class FIDUtils():
         return tmp_dir
 
     def calculate_fid_in_step(self, step, model_obj, total_num_samples, batch_size=128):
-        # tmp_dir = self.get_tmp_dir()
-        # tmp_dir = os.path.join(self.in_process_dir, "tmp")
-
-        # current_num_samples = 0
-        # while current_num_samples < total_num_samples:
-        #     sample = model_obj.sampling(batch_size)
-        #     sample = jnp.reshape(sample, (batch_size, *sample.shape[-3:]))
-        #     current_num_samples += self.fs_utils.save_images_to_dir(sample, tmp_dir, current_num_samples)
         tmp_dir = self.save_images_for_fid(model_obj, total_num_samples, batch_size)
 
         fid_score = self.calculate_fid(tmp_dir)
