@@ -23,7 +23,7 @@ class FIDUtils():
     
     def load_fid_model(self):
         model = inception.InceptionV3(pretrained=True)
-        params = model.init(self.rng, jnp.ones((1, 256, 256, 3)))
+        params = model.init(self.rng, jnp.ones((1, self.img_size[0], self.img_size[1], 3)))
         apply_fn = jax.jit(functools.partial(model.apply, train=False))
         return model, params, apply_fn
     
