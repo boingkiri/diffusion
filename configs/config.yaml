@@ -5,8 +5,8 @@ defaults:
     # - diffusion/ddpm
     # - diffusion/improved_ddpm
     # - diffusion/edm
-    # - diffusion/cm
-    - diffusion/cm_diffusion
+    - diffusion/cm
+    # - diffusion/cm_diffusion
   - model: 
     # - autoencoder/autoencoder_kl
     # - discriminator/discriminator_kl
@@ -23,7 +23,7 @@ defaults:
 # type: edm
 type: cm_diffusion
 # type: ${framework.diffusion.type}
-exp_name: cm_edm_beta9_230527
+exp_name: cm_default_experiment
 do_training: true
 do_sampling: true
 num_sampling: 50000
