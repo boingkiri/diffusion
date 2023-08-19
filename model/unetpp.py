@@ -122,22 +122,6 @@ class AttentionModule(nn.Module):
 
     @nn.compact
     def __call__(self, x):
-        # orig_x = x
-        # x = self.norm2(x)
-        # qkv = self.qkv(x)
-        # qkv = jnp.transpose(qkv, (0, 3, 1, 2))
-        # qkv = qkv.reshape(x.shape[0] * self.num_heads, x.shape[-1] // self.num_heads, 3, -1)
-        # q, k, v = jnp.split(qkv, 3, axis=2)
-        # k = k / jnp.sqrt(k.shape[1])
-        
-        # w = jnp.einsum('bcnq,bcnk->bnqk', q, k)
-        # w = nn.softmax(w, axis=-1)
-
-        # a = jnp.einsum('bnqk,bcnk->bcnq', w, v)
-        # a = a.reshape(x.shape[0], x.shape[3], x.shape[1], x.shape[2])
-        # a = jnp.transpose(a, (0, 2, 3, 1))
-        
-        # x = self.proj(a) + orig_x
         orig_x = x
         x = self.norm2(x)
         qkv = self.qkv(x)
