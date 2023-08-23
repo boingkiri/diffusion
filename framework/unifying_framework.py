@@ -1,9 +1,3 @@
-# from framework.DDPM.ddpm import DDPM
-from framework.diffusion.ddpm_framework import DDPMFramework
-from framework.diffusion.edm_framework import EDMFramework
-from framework.diffusion.consistency_framework import CMFramework
-from framework.LDM import LDM
-
 import jax
 import jax.numpy as jnp
 
@@ -11,6 +5,7 @@ from utils.fs_utils import FSUtils
 from utils import jax_utils, common_utils
 from utils.fid_utils import FIDUtils
 from utils.log_utils import WandBLog
+from utils.common_utils import load_class_from_config_for_framework
 
 from tqdm import tqdm
 import os
@@ -24,9 +19,8 @@ class UnifyingFramework():
         This framework contains overall methods for training and sampling
     """
     def __init__(self, model_type, config: DictConfig, random_rng) -> None:
-        self.config = config # TODO: This code is ugly. It should not need to reuse config obj
+        self.config = config
         self.current_model_type = model_type.lower()
-        self.diffusion_model_type = ['ddpm', 'ddim', 'edm', 'cm']
         self.random_rng = random_rng
         self.dataset_name = config.dataset.name
         self.do_fid_during_training = config.fid_during_training
@@ -48,84 +42,36 @@ class UnifyingFramework():
         self.fs_utils.verify_and_create_workspace()
 
     def set_model(self, config: DictConfig):
-        if self.current_model_type in ['ddpm', 'ddim']:
-            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = DDPMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
-        elif self.current_model_type in ['edm']:
-            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = EDMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
-        elif self.current_model_type in ['cm', 'cm_diffusion']:
-            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = CMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
-        elif self.current_model_type == "ldm":
-            ldm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
-            self.framework = LDM(config, ldm_rng, self.fs_utils, self.wandblog)
-        else:
-            NotImplementedError("Model Type cannot be identified. Please check model name.")
+        rng, self.random_rng = jax.random.split(self.random_rng, 2)
+        framework_class = load_class_from_config_for_framework(self.framework)
+        self.framework = framework_class(config, rng, self.fs_utils, self.wandblog)
         
     def set_step(self, config: DictConfig):
-        # if self.current_model_type in self.diffusion_model_type:
-        #     self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
-        #     self.total_step = config['framework']['diffusion']['train']['total_step']
-        #     self.checkpoint_prefix = config.exp.diffusion_prefix
+        model_type = config['type']
         if self.current_model_type == "ldm":
             self.train_idx = config['framework']['train_idx']
             if self.train_idx == 1: # AE
                 self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='autoencoder')
                 self.total_step = config['framework']['autoencoder']['train']['total_step']
-                self.checkpoint_prefix = config.exp.autoencoder_prefix
             elif self.train_idx == 2: # Diffusion
                 self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
                 self.total_step = config['framework']['diffusion']['train']['total_step']
-                self.checkpoint_prefix = config.exp.diffusion_prefix
         else:
             self.step = self.fs_utils.get_start_step_from_checkpoint(model_type='diffusion')
             self.total_step = config['framework']['diffusion']['train']['total_step']
-            self.checkpoint_prefix = config.exp.diffusion_prefix
 
     def sampling(self, num_img, original_data=None):
         sample = self.framework.sampling(num_img, original_data=original_data)
         sample = jnp.reshape(sample, (num_img, *sample.shape[-3:]))
         return sample
     
-    def save_model_state(self, state:list):
-        if self.current_model_type in self.diffusion_model_type or \
-            (self.current_model_type == "ldm" and self.train_idx == 2):
-            assert len(state) == 1
-            diffusion_prefix = self.config.exp.diffusion_prefix
+    def save_model_state(self, state_dict:dict):
+        for state_name, state in state_dict.items():
             jax_utils.save_train_state(
-                state[0], 
+                state, 
                 self.config.exp.checkpoint_dir, 
                 self.step, 
-                prefix=diffusion_prefix)
-        elif self.current_model_type == "cm_diffusion":
-            assert len(state) == 2
-            cm_prefix = self.config.exp.cm_prefix
-            diffusion_prefix = self.config.exp.diffusion_prefix
-            jax_utils.save_train_state(
-                state[0], 
-                self.config.exp.checkpoint_dir, 
-                self.step, 
-                prefix=cm_prefix)
-            jax_utils.save_train_state(
-                state[1], 
-                self.config.exp.checkpoint_dir, 
-                self.step, 
-                prefix=diffusion_prefix)
-        elif self.current_model_type == "ldm" and self.train_idx == 1:
-            assert len(state) == 2
-            autoencoder_prefix = self.config.exp.autoencoder_prefix
-            discriminator_prefix = self.config.exp.discriminator_prefix
-            jax_utils.save_train_state(
-                state[0], 
-                self.config.exp.checkpoint_dir, 
-                self.step, 
-                prefix=autoencoder_prefix)
-            jax_utils.save_train_state(
-                state[1], 
-                self.config.exp.checkpoint_dir, 
-                self.step, 
-                prefix=discriminator_prefix)
+                prefix=state_name)
 
     def train(self):
         datasets = common_utils.load_dataset_from_tfds(n_jitted_steps=self.n_jitted_steps, x_flip=self.dataset_x_flip)
@@ -143,13 +89,17 @@ class UnifyingFramework():
                 loss_ema = log["train/total_loss"]
             else:
                 loss_ema = log["total_loss"]
+
             datasets_bar.set_description("Step: {step} loss: {loss:.4f}  lr*1e4: {lr:.4f}".format(
                 step=self.step,
                 loss=loss_ema,
                 lr=self.learning_rate_schedule(self.step) * (1e4)
             ))
 
-            if self.step % 1000 == 0:
+            if self.step % self.config['step']['logging_step'] == 0:
+                self.wandblog.flush(step=self.step)
+
+            if self.step % self.config['step']['sampling_step'] == 0:
                 batch_data = x[0, 0, :8] # (device_idx, n_jitted_steps, batch_size)
                 sample = self.sampling(8, original_data=batch_data)
                 xset = jnp.concatenate([sample[:8], batch_data], axis=0)
@@ -158,15 +108,20 @@ class UnifyingFramework():
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
 
-            if self.step % 50000 == 0 and self.step != 0:
+            if self.step % self.config['step']['save_step'] == 0 and self.step != 0:
                 model_state = self.framework.get_model_state()
                 if not first_step:
                     self.save_model_state(model_state)
 
+            if self.step % self.config['step']['eval_step'] == 0 and self.step != 0:
                 # Calculate FID score with 1000 samples
                 if self.do_fid_during_training and \
                     not (self.current_model_type == "ldm" and self.train_idx == 1):
-                    fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
+                    fid_score = self.fid_utils.calculate_fid_in_step(
+                        self.step, 
+                        self.framework, 
+                        self.config['fid']['num_sampling_during_training'],
+                        batch_size=128)
                     if best_fid >= fid_score:
                         best_checkpoint_dir = self.config.exp.best_dir
                         
@@ -179,7 +134,6 @@ class UnifyingFramework():
                         ##########################################################
                         ##########################################################
                         ##########################################################
-                        
                         best_fid = fid_score
                     self.wandblog.update_log({"FID score": fid_score})
                     self.wandblog.flush(step=self.step)

@@ -4,16 +4,13 @@ import jax.numpy as jnp
 import flax
 from flax.training import train_state
 
-from model.unet import UNet
-from model.DiT import DiT
+from model.modelContainer import ModelContainer
 from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
 from utils.ema.ema_ddpm import DDPMEMA
 from framework.default_diffusion import DefaultModel
-# from framework.diffusion import losses
 
-from typing import TypedDict
 from tqdm import tqdm
 
 from omegaconf import DictConfig
@@ -21,8 +18,8 @@ from functools import partial
 
 class DDPMFramework(DefaultModel):
     def __init__(self, config: DictConfig, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
-        # super().__init__(config, rand_key)
-        diffusion_framework = config.framework.diffusion
+        super().__init__()
+        diffusion_framework = config['framework']['diffusion']
         self.n_timestep = diffusion_framework['n_timestep']
         self.type = diffusion_framework['type']
         self.learn_sigma = diffusion_framework['learn_sigma']
@@ -31,21 +28,12 @@ class DDPMFramework(DefaultModel):
         self.fs_obj = fs_obj
         self.wandblog = wandblog
 
-        self.pmap_axis = "batch"
-
-        # Create UNet and its state
-        model_config = {**config.model.diffusion}
-        model_type = model_config.pop("type")
-        if model_type == "unet":
-            self.model = UNet(**model_config)
-        elif model_type == "dit":
-            self.model = DiT(**model_config)
-        state_rng, self.rand_key = jax.random.split(self.rand_key, 2)
-        # self.model_state = jax_utils.create_train_state(config, 'diffusion', self.model, state_rng, None)
-        self.model_state = self.init_model_state(config)
-        self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
+        # Create model container for adapting various models
+        self.model_container = ModelContainer(config, fs_obj)
+        self.model_keys = self.model_container.model_keys
         
         # PMAP
+        self.pmap_axis = "batch"
         self.model_state = flax.jax_utils.replicate(self.model_state)
 
         # Create ema obj
@@ -56,7 +44,6 @@ class DDPMFramework(DefaultModel):
         loss = diffusion_framework['loss']
 
         # DDPM perturbing configuration
-
         if self.noise_schedule == "linear":
             self.beta = jnp.linspace(beta[0], beta[1], self.n_timestep)
         elif self.noise_schedule == "cosine":
@@ -95,8 +82,11 @@ class DDPMFramework(DefaultModel):
             time = jax.random.randint(time_key, (data.shape[0], ), 0, self.n_timestep)
             perturbed_data, real_noise = self.q_sample(data, time, eps=real_noise)
             # Apply pmap
-            pred_noise = self.model.apply(
-                {'params': params}, x=perturbed_data, t=time, train=True, rngs={'dropout': rng_key})
+            # pred_noise = self.model.apply(
+            #     {'params': params}, x=perturbed_data, t=time, train=True, rngs={'dropout': rng_key})
+            arguments = {'x': perturbed_data, 't': time, 'train': True, 'rngs': {'dropout': rng_key}}
+            pred_noise = self.model_container.apply("diffusion", "params", arguments)
+
             loss_dict = {}
 
             if self.learn_sigma:
@@ -154,16 +144,7 @@ class DDPMFramework(DefaultModel):
                 coef1 = jnp.take(self.posterior_mean_coef1, time)[:, None, None, None]
                 coef2 = jnp.take(self.posterior_mean_coef2, time)[:, None, None, None]
                 mean = coef1 * pred_x0 + coef2 * perturbed_data
-                # beta = jnp.take(self.beta, time)
-                # sqrt_one_minus_alpha_bar = jnp.take(self.sqrt_one_minus_alpha_bar, time)
-                # eps_coef = beta / sqrt_one_minus_alpha_bar
-                # eps_coef = eps_coef[:, None, None, None]
-                # sqrt_alpha = jnp.take(self.sqrt_alpha, time)
-                # sqrt_alpha = sqrt_alpha[:, None, None, None]
-                # mean = (perturbed_data - eps_coef * pred_noise) / sqrt_alpha
 
-                # Var
-                # var = beta[:, None, None, None] if not self.learn_sigma else jnp.exp(self.get_learned_logvar(pred_logvar, time))
                 beta = jnp.take(self.beta, time)
                 sigma = beta[:, None, None, None] ** 0.5 if not self.learn_sigma \
                         else jnp.exp(0.5 * self.get_learned_logvar(pred_logvar, time))
@@ -266,9 +247,10 @@ class DDPMFramework(DefaultModel):
         self.rand_key, normal_key, dropout_key = jax.random.split(self.rand_key, 3)
         return self.p_sample_jit(param, xt, t, normal_key, dropout_key)
     
-    def get_model_state(self) -> TypedDict:
+    def get_model_state(self) -> dict:
         # self.set_ema_params_to_state()
-        return [flax.jax_utils.unreplicate(self.model_state)]
+        # return [flax.jax_utils.unreplicate(self.model_state)]
+        return {"ddpm": flax.jax_utils.unreplicate(self.model_state)}
 
     def init_model_state(self, config: DictConfig):
         self.rand_key, param_rng, dropout_rng = jax.random.split(self.rand_key, 3)

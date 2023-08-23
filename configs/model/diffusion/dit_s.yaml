@@ -1,4 +1,6 @@
 type: "dit"
+model_class: diffusion.model.DiT.DiT
+
 input_size: 16
 patch_size: 2
 in_channels: 4

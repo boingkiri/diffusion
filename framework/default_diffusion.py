@@ -3,7 +3,12 @@ from typing import TypedDict
 from abc import *
 from omegaconf import DictConfig
 
+from model.modelContainer import ModelContainer
+
 class DefaultModel(metaclass=ABCMeta):
+
+    model_container: ModelContainer
+
     @abstractmethod
     def fit(self, x, cond=None):
         pass
@@ -13,13 +18,5 @@ class DefaultModel(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def init_model_state(self, config: DictConfig, model_type, model, rng):
+    def get_model_state(self) -> dict:
         pass
-
-    @abstractmethod
-    def get_model_state(self):
-        pass
-
-    
-
-    

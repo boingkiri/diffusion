@@ -1,4 +1,6 @@
 type: "edm"
+framework_class: framework.diffusion.edm_framework.EDMFramework
+
 beta: [0.0001, 0.02]
 n_timestep: 18
 loss: "l2"
@@ -11,7 +13,6 @@ sigma_max: 80
 rho: 7
 
 deterministic_sampling: True
-# deterministic_sampling: False
 S_churn: 30
 S_min: 0.01
 S_max: 1

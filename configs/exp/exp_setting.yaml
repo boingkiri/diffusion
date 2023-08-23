@@ -4,6 +4,8 @@ sampling_dir: ${exp.current_exp_dir}/sampling
 in_process_dir: ${exp.current_exp_dir}/in_process
 checkpoint_dir: ${exp.current_exp_dir}/checkpoints
 best_dir: ${exp.checkpoint_dir}/best
+
+# Checkpoint prefix for each model 
 autoencoder_prefix: 'ae_'
 discriminator_prefix: 'discriminator_'
 diffusion_prefix: 'diffusion_'

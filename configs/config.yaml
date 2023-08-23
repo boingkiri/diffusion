@@ -1,40 +1,53 @@
-defaults:
-  # - framework: ldm
+# https://hydra.cc/docs/advanced/overriding_packages/#using-a-config-group-more-than-once
+# To make model attribute has more than one value, Add @_group_.{model-name-for-your-experiments} after model attribute.
+# The model container will make a list of models with the same name.
+# For example, model@_group_.src means that the name of `src` will be the name of attributes which is called in the code. 
+# Eg)
+# defaults: 
+#   - framework: 
+#     - diffusion/cm
+#   - model@_group_.cm_model: 
+#     - diffusion/unetpp_cm
+#   - model@_group_.traj_model: 
+#     - diffusion/unetpp_cm
+#   - ema: ema
+#   - dataset: cifar10
+#   - exp: exp_setting
+
+defaults: 
   - framework: 
-    # - diffusion/ddim
-    # - diffusion/ddpm
-    # - diffusion/improved_ddpm
-    # - diffusion/edm
     - diffusion/cm
-    # - diffusion/cm_diffusion
-  - model: 
-    # - autoencoder/autoencoder_kl
-    # - discriminator/discriminator_kl
-    # - diffusion/dit_b
-    # - diffusion/unet
-    # - diffusion/unetpp
+  - model@_group_.src: 
     - diffusion/unetpp_cm
-  # - ema: ema_edm
+  - model@_group_.dst: 
+    - diffusion/unetpp_cm
   - ema: ema
   - dataset: cifar10
   - exp: exp_setting
 
-# type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
-# type: edm
-type: cm_diffusion
-# type: ${framework.diffusion.type}
-exp_name: cm_default_experiment
-do_training: true
-do_sampling: true
-num_sampling: 50000
-sampling_batch: 256
 rand_seed: 42
-fid_during_training: true # True when calculating fid during training, otherwise, false.
+
+type: ${framework.diffusion.type}
+exp_name: cm_default_experiment
 n_jitted_steps: 100
 
-framework:
-  train_idx: 2
-  # pretrained_ae: "ldm_vq_cifar10_with_gan"
+fid:
+  fid_during_training: true # True when calculating fid during training, otherwise, false.
+  num_sampling_during_training: 10000
+  num_sampling_for_evaluation: 50000
+  sampling_batch: 256
+
+steps:
+  logging_step: 100
+  sampling_step: 1000
+  save_step: 50000
+  eval_step: 50000
+  
+
+do_training: true
+do_sampling: true
+
+is_pmap: true
 
 hydra:  
   output_subdir: null  

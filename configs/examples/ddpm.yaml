@@ -3,14 +3,12 @@ defaults:
     - diffusion/ddpm
   - model: 
     - diffusion/unet
-    # - diffusion/unetpp
   - ema: ema
   - dataset: cifar10
   - exp: exp_setting
 
-# type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
-type: ddpm
-exp_name: ddpm_pred_x0_with_original_unet
+type: ${framework.diffusion.type}
+exp_name: ddpm_default_experiment
 do_training: true
 do_sampling: true
 num_sampling: 50000

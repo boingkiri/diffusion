@@ -7,9 +7,8 @@ defaults:
   - dataset: cifar10
   - exp: exp_setting
 
-# type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 type: ${framework.diffusion.type}
-exp_name: ddpm_pred_x0_with_original_unet
+exp_name: iddpm_default_experiment
 do_training: true
 do_sampling: true
 num_sampling: 50000
@@ -20,7 +19,6 @@ n_jitted_steps: 10
 
 framework:
   train_idx: 2
-  # pretrained_ae: "ldm_vq_cifar10_with_gan"
 
 hydra:  
   output_subdir: null  

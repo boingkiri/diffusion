@@ -9,30 +9,37 @@ from framework.unifying_framework import UnifyingFramework
 import os
 import argparse
 
+from datetime import datetime 
+
 def start(config: DictConfig):
     rng = random.PRNGKey(config.rand_seed)
     model_type = config.type
     
+    # Print config setting
     print("-------------------Config Setting---------------------")
     print(OmegaConf.to_yaml(config))
     print("------------------------------------------------------")
+
+    # Set unifying framework
+    now = datetime.now()
+    now_str = now.strftime("%Y%m%d_%H%M%S")
+    config['now'] = now_str
     diffusion_framework = UnifyingFramework(model_type, config, rng)
-    
-    # if jax.devices
 
     if config.do_training:
-        if config.type == "ldm":
-            wandb.init(project="my-ldm-WIP", config={**config})
-        elif config.type == "ddpm":
-            wandb.init(project="my-ddpm-WIP", config={**config})
-        elif config.type == "ddim":
-            wandb.init(project="my-ddim-WIP", config={**config})
-        elif config.type == "edm":
-            wandb.init(project="my-edm-WIP", config={**config})
-        elif config.type == "cm":
-            wandb.init(project="my-cm-WIP", config={**config})
-        elif config.type == "cm_diffusion":
-            wandb.init(project="my-cm-diffusion-WIP", config={**config})
+        wandb.init(
+            project=config['logger']['logger_project_name'],
+            name=now_str + "_" + config['logger']['logger_experiment_name'],
+            config={**config},
+            config_exclude_keys=[
+                "logger",
+                "exp",
+                "do_training",
+                "do_sampling",
+                "num_sampling",
+            ],
+            tags=config['logger']['logger_tags'],
+        )
 
         print("Training selected")
         diffusion_framework.train()
@@ -45,18 +52,27 @@ def start(config: DictConfig):
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Diffuion")
+    
+    # Set config path
     parser.add_argument("--config", action="store", type=str, default="config")
+
+    # Set do_training and do_sampling flag with default value (True)
+    parser.add_argument("--do_training", action="store_true")
+    parser.add_argument("--no-do_training", dest="do_training", action="store_false")
+    parser.set_defaults(do_training=True)
+    parser.add_argument("--do_sampling", action="store_true")
+    parser.add_argument("--no-do_sampling", dest="do_training", action="store_false")
+    parser.set_defaults(do_sampling=True)
+
     args = parser.parse_args()
 
     config_path = "configs"
     
     with initialize(version_base=None, config_path=config_path) as cfg:
-        # if args.config != "config":
-        #     args.config = os.path.join("examples", args.config)
-        #     cfg = compose(config_name=args.config)
-        #     cfg = cfg.examples
-        # else:
-        #     cfg = compose(config_name=args.config)
-
         cfg = compose(config_name=args.config)
+
+        # Set do_training and do_sampling flag
+        cfg.do_training = args.do_training
+        cfg.do_sampling = args.do_sampling
+
         start(cfg)

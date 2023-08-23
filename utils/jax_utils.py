@@ -1,15 +1,11 @@
-from flax.training import train_state
-
-import jax
-import jax.numpy as jnp
-import optax
-import flax.linen as nn
 from flax.training import checkpoints
+from flax.training import train_state
+import optax
+import orbax.checkpoint
+
 
 from omegaconf import DictConfig
 from typing import Any
-
-from functools import partial
 
 class TrainState(train_state.TrainState):
   params_ema: Any = None
@@ -46,6 +42,7 @@ def create_optimizer(config: DictConfig, model_type):
   # Initialize the optimizer
   learning_rate = get_learning_rate_schedule(config, model_type)
   framework_config = get_framework_config(config, model_type)
+  
   # Gradient Clipping
   optax_chain = []
   if "gradient_clip" in framework_config['train']:
@@ -63,32 +60,20 @@ def create_optimizer(config: DictConfig, model_type):
   )
   return tx
 
-
-# @partial(jax.pmap, static_broadcasted_argnums=(0, 1, 2, 4))
-# def create_train_state(config: DictConfig, model_type, model, rng, aux_data=None):
-def create_train_state(config: DictConfig, model_type, apply_fn, params):
-  """
-  Creates initial 'TrainState'
-  """
-  tx = create_optimizer(config, model_type)
-
-  # Return the training state
-  return TrainState.create(
-      apply_fn=apply_fn,
-      params=params,
-      params_ema=params,
-      tx=tx
-  )
-
-def save_train_state(state, checkpoint_dir, step, prefix=None):
+def save_train_state(state, checkpoint_dir, prefix=None):
+  ocp = orbax.checkpoint.PyTreeCheckpointer()
   if prefix is None:
     prefix = "checkpoint_"
-  checkpoints.save_checkpoint(checkpoint_dir, state, step, prefix=prefix)
-  print(f"Saving {step} complete.")
+  checkpoint_dir = checkpoint_dir / f"{prefix}"
+  ocp.save(checkpoint_dir, state)
+  print(f"Saving {state.step} complete.")
 
 
 def load_state_from_checkpoint_dir(checkpoint_dir, state, step, checkpoint_prefix="checkpoint_"):
-    state = checkpoints.restore_checkpoint(checkpoint_dir, state, prefix=checkpoint_prefix, step=step)
+    # state = checkpoints.restore_checkpoint(checkpoint_dir, state, prefix=checkpoint_prefix, step=step)
+    ocp = orbax.checkpoint.PyTreeCheckpointer()
+    checkpoint_dir = checkpoint_dir / f"{checkpoint_prefix}"
+    state = ocp.restore(checkpoint_dir)
     print(f"Checkpoint {state.step} loaded")
     return state
 

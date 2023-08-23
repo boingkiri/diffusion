@@ -138,13 +138,6 @@ class FSUtils():
         elif model_type == "discriminator":
             prefix = self.config.exp.discriminator_prefix
         return prefix
-
-    def load_model_state(self, model_type, state, checkpoint_dir=None):
-        prefix = self.get_state_prefix(model_type)
-        if checkpoint_dir is None:
-            checkpoint_dir = self.config.exp.checkpoint_dir
-        state = jax_utils.load_state_from_checkpoint_dir(checkpoint_dir, state, None, prefix)
-        return state
     
     def get_best_fid(self):
         best_fid = None

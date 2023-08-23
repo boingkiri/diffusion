@@ -1,0 +1,10 @@
+# Setting for logger
+
+logger_type: wandb # For now, only wandb is supported.
+logger_project_name: my-{$framework.diffusion.type}
+logger_experiment_name: ${exp_name}
+logger_tags: 
+  - ${framework.diffusion.type}
+  - ${model.diffusion.type}
+  - ${dataset.type}
+

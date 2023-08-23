@@ -11,7 +11,7 @@ framework:
   is_distillation: False
 
 type: ${framework.diffusion.type}
-exp_name: cm_training
+exp_name: cm_training_default_experiment
 do_training: true
 do_sampling: true
 num_sampling: 50000

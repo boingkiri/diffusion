@@ -1,5 +1,4 @@
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import requests
 
 import flax
@@ -9,6 +8,18 @@ import jax.numpy as jnp
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
+
+if jax.devices()[0].device_kind == 'tpu':
+   os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  
+
+def check_device():
+  if jax.devices()[0].device_kind == 'tpu':
+    return 'tpu'
+  elif jax.devices()[0].device_kind == 'gpu':
+    return 'gpu'
+  else:
+    return 'cpu'
+   
 def download(url: str, dest_folder: str):
     if not os.path.exists(dest_folder):
         os.makedirs(dest_folder)  # create folder if it does not exist
@@ -41,8 +52,6 @@ def unnormalize_minus_one_to_one(images):
     return (images + 1) * 0.5 
 
 def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_steps=1, x_flip=True):
-  assert n_jitted_steps >= 1
-
   AUTOTUNE = tf.data.experimental.AUTOTUNE
   def normalize_channel_scale(image, label):
     image = tf.cast(image, tf.float32)
@@ -68,20 +77,40 @@ def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_step
   for dim in reversed(batch_dims):
     train_ds = train_ds.batch(dim)
   augmented_train_ds = train_ds.prefetch(AUTOTUNE)
-  # it = tfds.as_numpy(augmented_train_ds)
   it = map(lambda data: jax.tree_map(lambda x: x._numpy(), data), augmented_train_ds)
   it = flax.jax_utils.prefetch_to_device(it, 2)
 
   return it
-
 
 def get_image_size_from_dataset(dataset):
   if dataset == "cifar10":
     return [32, 32, 3]
   else:
     raise NotImplementedError
+  
+
+def load_class_from_config_for_framework(config):
+  config = config.get('framework', config)
+  config = config.get('diffusion', config)
+  class_name = config.get('framework_class', None)
+  if class_name is None:
+    raise KeyError("framework_class is not identified. Please check the diffusion part in config files.")
+  return inflate_class(class_name)
+
+def load_class_from_config_for_model(model_config):
+  config = config.get('model', model_config)
+  class_name = config.get('model_class', None)
+  if class_name is None:
+    raise KeyError("model_class is not identified. Please check the model part in config files.")
+  return inflate_class(class_name)
+
+def inflate_class(class_name):
+  module, cls = class_name.rsplit('.', 1)
+  module = __import__(class_name)
+  class_ = getattr(module, cls)
+  return class_
+   
 
 if __name__=="__main__":
   sample = jnp.zeros((16, 32, 32, 3))
-  # save_images(sample, 0, "sampling")
 

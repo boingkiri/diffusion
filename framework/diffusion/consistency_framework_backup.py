@@ -12,6 +12,7 @@ from utils.ema.ema_cm import CMEMA
 from utils.ema.ema_edm import EDMEMA
 from utils.augment_utils import AugmentPipe
 from framework.default_diffusion import DefaultModel
+# import lpips
 import lpips_jax
 
 from tqdm import tqdm
@@ -37,6 +38,8 @@ class CMFramework(DefaultModel):
         # Create UNet and its state
         model_config = {**config.model.diffusion}
         model_type = model_config.pop("type")
+        # self.model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
+        
         self.model = CMPrecond(model_config, 
                                image_channels=model_config['image_channels'], 
                                model_type=model_type, 
@@ -46,6 +49,17 @@ class CMFramework(DefaultModel):
         # self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
         
         
+        self.traj_model = EDMPrecond(model_config, 
+                               image_channels=model_config['image_channels'], 
+                               model_type=model_type, 
+                               sigma_min=diffusion_framework['sigma_min'],
+                               sigma_max=diffusion_framework['sigma_max'])
+        self.traj_model_state = self.init_model_state(config)
+        # self.traj_model_state = fs_obj.load_model_state("diffusion", self.diffusion_model_state)
+        # self.diffusion_model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
+        # self.diffusion_model_state = self.init_model_state(config)
+        # self.diffusion_model_state = fs_obj.load_model_state("diffusion", self.diffusion_model_state)
+
         # Parameters
         self.sigma_min = diffusion_framework['sigma_min']
         self.sigma_max = diffusion_framework['sigma_max']
@@ -267,6 +281,8 @@ class CMFramework(DefaultModel):
             (rng, state, traj_state) = carry_state
             rng, new_rng = jax.random.split(rng)
             
+            # args = [state.params, diffusion_state.params, jax.lax.stop_gradient(state.target_model), 
+            #         x0, rng]     
             args = [state.params, traj_state.params,jax.lax.stop_gradient(state.target_model),
                     x0, rng]
             if not self.is_distillation:
@@ -293,6 +309,14 @@ class CMFramework(DefaultModel):
                 new_state.target_model, new_state.params)
             new_state = new_state.replace(target_model = ema_updated_params)
 
+            '''
+            # Also do it for traj model
+            ema_updated_traj_params = jax.tree_map(
+                lambda x, y: self.target_model_ema_decay * x + (1 - self.target_model_ema_decay) * y,
+                new_traj_state.target_model, new_traj_state.params)
+            new_traj_state = new_traj_state.replace(target_model = ema_updated_traj_params)
+            '''
+
             # Update EMA for sampling
             new_state = self.ema_obj.ema_update(new_state)
             # new_traj_state = self.ema_obj.ema_update(new_traj_state) # unnecessary
@@ -303,6 +327,15 @@ class CMFramework(DefaultModel):
         # def heun_2nd_method(params, diffusion_model, x_cur, rng_key, gamma, step):
         def heun_2nd_method(params, diffusion_model, x_cur, rng_key, gamma, t_cur, t_next):
             rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
+
+            # t_cur = self.t_steps[step]
+            # t_next = jnp.where(
+            #     step == 0, 
+            #     jnp.zeros_like(t_cur), 
+            #     self.t_steps[step - 1])
+            # t_cur = t_cur[:, None, None, None]
+            # t_next = t_next[:, None, None, None]
+
 
             # Increase noise temporarily.
             t_hat = t_cur + gamma * t_cur
@@ -350,6 +383,44 @@ class CMFramework(DefaultModel):
 
         self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
         self.p_sample_jit = jax.pmap(p_sample_fn, axis_name=self.pmap_axis, in_axes=(0, 0, 0, None))
+        
+        '''
+        # For sampling with g_phi
+        def p_sample_jit(traj_params, x_cur, rng_key, gamma, t_cur, t_next):
+            rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
+
+            # Increase noise temporarily.
+            t_hat = t_cur + gamma * t_cur
+            noise = jax.random.normal(rng_key, x_cur.shape) * self.S_noise
+            x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
+
+            # Augment label
+            augment_dim = config.model.diffusion.get("augment_dim", None)
+            augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
+
+            # Euler step
+            denoised = self.traj_model.apply(
+                {'params': traj_params}, x=x_hat, sigma=t_hat, 
+                train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+            d_cur = (x_hat - denoised) / t_hat
+            x_next = x_hat + (t_next - t_hat) * d_cur
+
+            # Apply 2nd order correction.
+            def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
+                denoised = self.traj_model.apply(
+                    {'params': traj_params}, x=x_next, sigma=t_next, 
+                    train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
+                d_prime = (x_next - denoised) / t_next
+                x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
+                return x_next
+            x_result = jax.lax.cond(t_next != 0.0, 
+                                    second_order_corrections, 
+                                    lambda x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2: x_next, 
+                                    x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2)
+            return x_result
+
+        self.p_sample_jit = jax.pmap(p_sample_jit)
+        '''
     
     def p_sample(self, param, xt, t):
         # Sample from p_theta(x_{t-1}|x_t)
@@ -420,6 +491,36 @@ class CMFramework(DefaultModel):
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample
-  
+    
+    '''
+    # For sampling with g_phi
+    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
+        latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
+        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+
+        step_indices = jnp.arange(self.n_timestep)
+        t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
+        t_steps = jnp.append(t_steps, jnp.zeros_like(t_steps[0]))
+        pbar = tqdm(zip(t_steps[:-1], t_steps[1:]))
+
+        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * t_steps[0]
+        for t_cur, t_next in pbar:
+            rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+            gamma_val = jnp.minimum(jnp.sqrt(2) - 1, self.S_churn / self.n_timestep)
+            gamma = jnp.where(self.S_min <= t_cur and t_cur <= self.S_max,
+                            gamma_val, 0)
+
+            rng_key = jax.random.split(rng_key, jax.local_device_count())
+            t_cur = jnp.asarray([t_cur] * jax.local_device_count())
+            t_next = jnp.asarray([t_next] * jax.local_device_count())
+            gamma = jnp.asarray([gamma] * jax.local_device_count())
+            latent_sample = self.p_sample_jit(self.traj_model_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
+
+        if original_data is not None:
+            rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+            self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        return latent_sample
+    '''
+    
     def get_gamma(self, step):
         return jnp.zeros_like(step) # This is possible because consistency model only consider deterministic sampling

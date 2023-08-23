@@ -1,4 +1,5 @@
 type: "unetpp"
+model_class: diffusion.model.unetpp.CMPrecond
 
 image_channels: 3
 n_channels: 128

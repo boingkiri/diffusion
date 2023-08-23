@@ -41,10 +41,6 @@ class LDM(DefaultModel):
             return (img_size, img_size, self.z_dim)
         
     def diffusion_sampling(self, num_img, original_data=None):
-        # if original_data is not None:
-        #     original_data_encoding = self.first_stage_model.encoder_forward(original_data)
-        # else:
-        #     original_data_encoding = None
         original_data_encoding = None
         
         diffusion_img_size = self.get_sampling_size()
@@ -61,7 +57,6 @@ class LDM(DefaultModel):
             NotImplementedError("LDM has only 2 stages.")
     
     def init_model_state(self, config: DictConfig, model_type, model, rng):
-        # return super().init_model_state(config, model_type, model, rng)
         NotImplementedError("LDM do not use 'init_model_state' directly.")
     
     def get_train_order(self):
