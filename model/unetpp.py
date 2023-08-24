@@ -427,7 +427,7 @@ class TimeEmbedDependentHead(nn.Module):
             resample_proj=True,
             adaptive_scale=False
         )
-        # self.normalize1 = nn.GroupNorm(num_groups=self.image_channels)
+        
         self.normalize1 = nn.GroupNorm()
         head_channels = self.n_channels * self.last_ch_mult
         self.conv1 = CustomConv2d(in_channels=head_channels + self.image_channels * 2, 
@@ -447,7 +447,6 @@ class TimeEmbedDependentHead(nn.Module):
                                     init_mode=init)
 
     def __call__(self, x, x_pred, x_emb, t_emb, train):
-        # x = self.conv1(nn.silu(self.normalize1(x)))
         x_emb_norm = self.normalize1(x_emb)
         x_emb = self.conv1(nn.silu(jnp.concatenate([x, x_pred, x_emb_norm], axis=-1)))
         for block in self.blocks:
@@ -495,6 +494,8 @@ class CMPrecond(nn.Module):
     sigma_data : float = 0.5
     model_type : str = "unetpp"
     
+    t_emb_output : bool = True
+    
     @nn.compact
     def __call__(self, x, sigma, augment_labels, train):
         c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
@@ -505,13 +506,13 @@ class CMPrecond(nn.Module):
         # Predict F_x. There is only UNetpp case for now. 
         # Should add more cases. (ex, DhariwalUNet (ADM)) 
         if self.model_type == "unetpp":
-            net = UNetpp(**self.model_kwargs)
+            net = UNetpp(**self.model_kwargs, t_emb_output=self.t_emb_output)
         elif self.model_type == "unet":
             net = UNet(**self.model_kwargs)
         
-        F_x = net(c_in * x, c_noise.flatten(), train, augment_labels)
+        F_x, t_emb, last_x_emb = net(c_in * x, c_noise.flatten(), train, augment_labels)
         D_x = c_skip * x + c_out * F_x
-        return D_x
+        return D_x, (F_x, t_emb, last_x_emb)
 
 class CMDMPrecond(nn.Module):
     model_kwargs : dict
@@ -545,7 +546,6 @@ class CMDMPrecond(nn.Module):
             dropout_rate=self.model_kwargs['dropout_rate'],
             resample_filter=self.model_kwargs['resample_filter'],)
     
-    # @nn.compact
     def __call__(self, x, sigma, augment_labels, train):
         c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
         c_out = ((sigma - self.sigma_min) * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
@@ -620,3 +620,28 @@ class CMDMPrecond(nn.Module):
             consistency_result = c_skip * x + c_out * self.TimeEmbedDependentHead_0(c_in * x, F_x, last_x_emb, t_emb, train)
 
         return consistency_result
+
+class ScoreDistillPrecond(nn.Module):
+    model_kwargs : dict
+    image_channels: int
+
+    label_dim: int = 0
+    sigma_min : float = 0.0 # 0.002
+    sigma_max : float = float('inf') # 80
+    sigma_data : float = 0.5
+
+    def setup(self):        
+        self.TimeEmbedDependentHead = TimeEmbedDependentHead(
+            image_channels=self.image_channels, 
+            n_channels=self.model_kwargs['n_channels'],
+            n_heads=self.model_kwargs['n_heads'],
+            dropout_rate=self.model_kwargs['dropout_rate'],
+            resample_filter=self.model_kwargs['resample_filter'],)
+    
+    def __call__(self, x, sigma, F_x, t_emb, last_x_emb, augment_labels, train):
+        c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
+        c_out = ((sigma - self.sigma_min) * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
+        c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
+        c_noise = jnp.log(sigma) / 4
+        
+        return c_skip * x + c_out * self.TimeEmbedDependentHead(c_in * x, F_x, last_x_emb, t_emb, train)

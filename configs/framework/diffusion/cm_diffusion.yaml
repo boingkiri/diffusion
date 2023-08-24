@@ -15,8 +15,9 @@ sigma_min: 0.002
 sigma_max: 80
 rho: 7
 
-beta: 9
-traj_scale: 1e+5
+dsm_ratio: 1
+one_step_sampling: True
+distill_step: 10
 
 deterministic_sampling: True
 S_churn: 30
@@ -32,7 +33,7 @@ train:
   # warmup: 5000
   # warmup: 19532 # int(10e6 / ${.batch_size})
   batch_size: 512
-  total_step: 1600000
+  total_step: 800000
   sampling_step: 10000
   saving_step: 100000
   optimizer:

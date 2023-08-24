@@ -6,8 +6,8 @@ defaults:
     # - diffusion/improved_ddpm
     # - diffusion/edm
     # - diffusion/cm
-    # - diffusion/cm_diffusion
-    - diffusion/cm_dm
+    - diffusion/cm_diffusion
+    # - diffusion/cm_dm
   - model: 
     # - autoencoder/autoencoder_kl
     # - discriminator/discriminator_kl
@@ -23,7 +23,7 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: cm_dm_230603_encoder_head_w_time_emb_2
+exp_name: score_distillation_230823
 do_training: true
 do_sampling: true
 num_sampling: 50000
@@ -34,13 +34,10 @@ n_jitted_steps: 10
 
 framework:
   diffusion:
-    distillation_path: experiments/cm_dm_230603_encoder_head_with_time_emb_1 # Exp name or pretrained model file name
-    step_idx : 1 # starts with index 0
-    alpha: 1
+    distillation_path: None # experiments/cm_dm_230603_encoder_head_with_time_emb_1 # Exp name or pretrained model file name
     t_emb_output: True
 
   train_idx: 2
-  # pretrained_ae: "ldm_vq_cifar10_with_gan"
 
 hydra:  
   output_subdir: null  

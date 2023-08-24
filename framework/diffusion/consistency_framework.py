@@ -4,12 +4,11 @@ import jax.numpy as jnp
 import flax
 from flax.training import checkpoints
 
-from model.unetpp import CMPrecond, EDMPrecond, CMDMPrecond
+from model.unetpp import CMPrecond, ScoreDistillPrecond
 from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
 from utils.ema.ema_cm import CMEMA
-from utils.ema.ema_edm import EDMEMA
 from utils.augment_utils import AugmentPipe
 from framework.default_diffusion import DefaultModel
 # import lpips
@@ -31,9 +30,9 @@ class CMFramework(DefaultModel):
         self.learn_sigma = diffusion_framework['learn_sigma']
         self.rand_key = rand_key
         self.fs_obj = fs_obj
-        self.wandblog = wandblog
-        
+        self.wandblog = wandblog        
         self.pmap_axis = "batch"
+
 
         # Create UNet and its state
         model_config = {**config.model.diffusion}
@@ -44,425 +43,209 @@ class CMFramework(DefaultModel):
                                model_type=model_type, 
                                sigma_min=diffusion_framework['sigma_min'],
                                sigma_max=diffusion_framework['sigma_max'])
-        self.model_state = self.init_model_state(config)
+        self.head = ScoreDistillPrecond(model_config, 
+                               image_channels=model_config['image_channels'], 
+                               sigma_min=diffusion_framework['sigma_min'],
+                               sigma_max=diffusion_framework['sigma_max'])
+        
+        self.model_state, self.head_state = self.init_model_state(config)
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
+        self.head_state = fs_obj.load_model_state("diffusion", self.head_state)
+        self.model_state = flax.jax_utils.replicate(self.model_state)
+        self.head_state = flax.jax_utils.replicate(self.head_state)
         
 
         # Parameters
         self.sigma_min = diffusion_framework['sigma_min']
         self.sigma_max = diffusion_framework['sigma_max']
-        
-        self.beta = diffusion_framework['beta']
-        self.scale = diffusion_framework['traj_scale']
-        
         self.rho = diffusion_framework['rho']
         self.S_churn = 0 
         self.S_min = 0 
         self.S_max = float('inf') 
         self.S_noise = 1
-        
         self.mu_0 = diffusion_framework.params_ema_for_training[0]
         self.s_0 = diffusion_framework.params_ema_for_training[1]
         self.s_1 = diffusion_framework.params_ema_for_training[2]
+        self.one_step_sampling = diffusion_framework.one_step_sampling
+        self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
+        self.dsm_ratio = diffusion_framework.dsm_ratio
+        self.distill_step = diffusion_framework.distill_step
 
-        # Distillation or Training
-        self.is_distillation = diffusion_framework.is_distillation
-        self.is_progressive_training = diffusion_framework.is_progressive_training
-        self.step_idx = diffusion_framework.step_idx
-        if self.is_distillation:
-            teacher_model_path = diffusion_framework.distillation_path
-            prefix = fs_obj.get_state_prefix("diffusion")
-            if prefix not in teacher_model_path: # It means teacher_model_path is indicating exp name 
-                checkpoint_dir = config.exp.checkpoint_dir.split("/")[-1]
-                teacher_model_path = os.path.join(teacher_model_path, checkpoint_dir)
-            ## TODO: need to implement various pretrained model
-            ## For now, I just write code to execute our EDM pretrained model
-            self.teacher_model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
-            self.teacher_model_state = checkpoints.restore_checkpoint(teacher_model_path, None, prefix=prefix)
+        # Set step indices for distillation
+        step_indices = jnp.arange(self.n_timestep)
+        self.t_steps = (self.sigma_min ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
 
-            # Set step indices for distillation
-            step_indices = jnp.arange(self.n_timestep)
-            self.t_steps = (self.sigma_min ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
-            
-            # Initialize model 
-            if self.model_state.step == 0:
-                frozened_params = flax.core.frozen_dict.freeze(self.teacher_model_state["params_ema"])
-                self.model_state = self.model_state.replace(params=frozened_params)
-                self.model_state = self.model_state.replace(params_ema=frozened_params)
-                self.model_state = self.model_state.replace(target_model=frozened_params)
-                self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
-
-        elif self.is_progressive_training:
-            self.n_timestep_fn = lambda k: jnp.ceil(jnp.sqrt((k / diffusion_framework.train.total_step) * ((self.s_1 + 1) ** 2 - self.s_0 ** 2) + self.s_0 ** 2) - 1) + 1
-            # input parameter changed from "k" to "n_timestep"
-            self.ema_power_fn = lambda n_timestep: jnp.exp(self.s_0 * jnp.log(self.mu_0) / jnp.maximum(n_timestep - 1, 1))
-            self.t_steps_fn = lambda idx, n_timestep: (self.sigma_min ** (1 / self.rho) + idx / (n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
-
-            self.model = CMDMPrecond(model_config, 
-                               image_channels=model_config['image_channels'], 
-                               model_type=model_type, 
-                               sigma_min=diffusion_framework['sigma_min'],
-                               sigma_max=diffusion_framework['sigma_max'],
-                               t_emb_output = diffusion_framework['t_emb_output'],)
-            self.model_state = self.init_model_state(config)
-            self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
-
-            pretrained_model_path = diffusion_framework.distillation_path
-            prefix = fs_obj.get_state_prefix("diffusion")
-            
-            if pretrained_model_path is not None: 
-                if prefix not in pretrained_model_path: # It means teacher_model_path is indicating exp name 
-                    checkpoint_dir = config.exp.checkpoint_dir.split("/")[-1]
-                    pretrained_model_path = os.path.join(pretrained_model_path, checkpoint_dir)
-
-                # Restore pretrained model state
-                pretrained_model_state = checkpoints.restore_checkpoint(pretrained_model_path, None, prefix=prefix)
-            
-                # Initialize model
-                if self.model_state.step == 0:
-                    frozened_params = flax.core.frozen_dict.freeze(pretrained_model_state["params_ema"])
-                    self.model_state = self.model_state.replace(params=frozened_params)
-                    self.model_state = self.model_state.replace(params_ema=frozened_params)
-                    self.model_state = self.model_state.replace(target_model=frozened_params)
-                    self.target_model_ema_decay = diffusion_framework.target_model_ema_decay
-
-        else:
-            self.n_timestep_fn = lambda k: jnp.ceil(jnp.sqrt((k / diffusion_framework.train.total_step) * ((self.s_1 + 1) ** 2 - self.s_0 ** 2) + self.s_0 ** 2) - 1) + 1
-            self.ema_power_fn = lambda n_timestep: jnp.exp(self.s_0 * jnp.log(self.mu_0) / jnp.maximum(n_timestep - 1, 1))
-            self.t_steps_fn = lambda idx, n_timestep: (self.sigma_min ** (1 / self.rho) + idx / (n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
-        
-        # Replicate model state to use multiple computation units 
-        self.model_state = flax.jax_utils.replicate(self.model_state)
 
         # Create ema obj
         ema_config = config.ema
         self.ema_obj = CMEMA(**ema_config)
-        # self.ema_obj = EDMEMA(**ema_config)
 
-        # Augmentation pipeline
-        augment_rng, self.rand_key = jax.random.split(self.rand_key)
-        self.augment_rate = diffusion_framework.get("augment_rate", None)
-        if self.augment_rate is not None:
-            self.augmentation_pipeline = AugmentPipe(
-                rng_key=augment_rng, p=self.augment_rate, xflip=1e8, 
-                yflip=1, scale=1, rotate_frac=1, 
-                aniso=1, translate_frac=1)
 
-        # Distillation and Training loss function are different.
+        # Define loss functions
         self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16', replicate=False)
-        if self.is_distillation:
-            @jax.jit
-            def loss_fn(params, target_model, y, rng_key):
-                rng_key, step_key, solver_key, dropout_key = jax.random.split(rng_key, 4)
-
-                # Sample n ~ U[0, N-2]
-                idx = jax.random.randint(step_key, (y.shape[0], ), minval=0, maxval=self.n_timestep-1)
-                sigma = self.t_steps[idx][:, None, None, None]
-                next_sigma = self.t_steps[idx+1][:, None, None, None]
-
-                gamma = self.get_gamma(idx)[:, None, None, None]
-                noise = jax.random.normal(rng_key, y.shape)
-                perturbed_x = y + next_sigma * noise
-
-                # Calculate heun 2nd method
-                target_xn = heun_2nd_method(
-                    self.teacher_model_state['params_ema'], 
-                    self.teacher_model,
-                    perturbed_x, solver_key, gamma, next_sigma, sigma)
-
-                augment_dim = config.model.diffusion.get("augment_dim", None)
-                augment_labels = jnp.zeros((*perturbed_x.shape[:-3], augment_dim)) if augment_dim is not None else None
-
-                # Get consistency function values
-                online_consistency = self.model.apply(
-                    {'params': params}, x=perturbed_x,
-                    sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-                
-                target_consistency = self.model.apply(
-                    {'params': target_model}, x=target_xn, 
-                    sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-
-                if diffusion_framework.loss == "lpips":
-                    output_shape = (y.shape[0], 224, 224, y.shape[-1])
-                    online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
-                    target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
-                    online_consistency = (online_consistency + 1) / 2.0
-                    target_consistency = (target_consistency + 1) / 2.0
-                    loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
-                elif diffusion_framework.loss == "l2":
-                    loss = jnp.mean((online_consistency - target_consistency) ** 2)
-                elif diffusion_framework.loss == "l1":
-                    loss = jnp.mean(jnp.abs(online_consistency - target_consistency))
-                else:
-                    NotImplementedError("Consistency model is only support lpips, l2, and l1 loss.")
-
-                loss_dict = {}
-                loss_dict['total_loss'] = loss
-                return loss, loss_dict
         
-        elif self.is_progressive_training:
-            @jax.jit
-            def loss_fn(params, target_params, y, rng_key, n_timestep):
-                loss_dict = {}
-
-                rng_key, step_key, solver_key, dropout_key, diffusion_key = jax.random.split(rng_key, 5)
-                
-                # Sample n ~ U[0, N-2]
-                idx = jax.random.randint(step_key, (y.shape[0], ), minval=0, maxval=n_timestep-1)
-                
-                sigma = self.t_steps_fn(idx, n_timestep)[:, None, None, None]
-                next_sigma = self.t_steps_fn(idx+1, n_timestep)[:, None, None, None]
-                
-                noise = jax.random.normal(rng_key, y.shape)
-                
-                perturbed_x = y + sigma * noise
-                next_perturbed_x = y + next_sigma * noise
-                
-                augment_dim = config.model.diffusion.get("augment_dim", None)
-                augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
-
-                if self.step_idx != 0:
-                    online_consistency = self.model.apply(
-                        {'params': params}, x= next_perturbed_x,
-                        sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key},
-                        method=self.model.consistency_output)
-                    
-                    target_consistency = self.model.apply(
-                        {'params': target_params}, x= perturbed_x, 
-                        sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key},
-                        method=self.model.consistency_output)
-
-                if diffusion_framework.loss == "lpips":
-                    # Add denoising loss
-                    diffusion_loss, diffusion_loss_dict = diffusion_loss_fn(params, y, diffusion_key)
-                    loss_dict.update(diffusion_loss_dict)
-                    # diffusion_loss = jnp.mean((online_diffusion - y) ** 2)
-
-                    # Original lpips loss
-                    output_shape = (y.shape[0], 224, 224, y.shape[-1])
-                    
-                    online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
-                    target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
-                    online_consistency = (online_consistency + 1) / 2.0
-                    target_consistency = (target_consistency + 1) / 2.0
-
-                    perceptual_loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
-                    
-                    if self.step_idx != 0:
-                        alpha = diffusion_framework.alpha
-                        loss = perceptual_loss + alpha * diffusion_loss
-                    else:
-                        loss = diffusion_loss
-                    loss = perceptual_loss + diffusion_loss
-                elif diffusion_framework.loss == "l2":
-                    loss = jnp.mean((online_consistency - target_consistency) ** 2)
-                elif diffusion_framework.loss == "l1":
-                    loss = jnp.mean(jnp.abs(online_consistency - target_consistency))
-                else:
-                    NotImplementedError("Consistency model is only support lpips, l2, and l1 loss.")
-                
-                loss_dict['total_loss'] = loss
-                return loss, loss_dict
-        else:
-            @jax.jit
-            # def loss_fn(params, traj_params, params_ema, y, rng_key, n_timestep):
-            def loss_fn(params, target_params, y, rng_key, n_timestep):
-                loss_dict = {}
-
-                rng_key, step_key, solver_key, dropout_key, diffusion_key = jax.random.split(rng_key, 5)
-                
-                # Sample n ~ U[0, N-2]
-                idx = jax.random.randint(step_key, (y.shape[0], ), minval=0, maxval=n_timestep-1)
-                
-                sigma = self.t_steps_fn(idx, n_timestep)[:, None, None, None]
-                next_sigma = self.t_steps_fn(idx+1, n_timestep)[:, None, None, None]
-                
-                noise = jax.random.normal(rng_key, y.shape)
-                
-                perturbed_x = y + sigma * noise
-                next_perturbed_x = y + next_sigma * noise
-                
-                augment_dim = config.model.diffusion.get("augment_dim", None)
-                augment_labels = jnp.zeros((*y.shape[:-3], augment_dim)) if augment_dim is not None else None
-
-                online_consistency = self.model.apply(
-                    {'params': params}, x= next_perturbed_x,
-                    sigma=next_sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-                
-                target_consistency = self.model.apply(
-                    {'params': target_params}, x= perturbed_x, 
-                    sigma=sigma, train=True, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-
-                if diffusion_framework.loss == "lpips":
-                    # Add denoising loss
-                    diffusion_loss, diffusion_loss_dict = diffusion_loss_fn(params, y, diffusion_key)
-                    loss_dict.update(diffusion_loss_dict)
-
-                    # Original lpips loss
-                    output_shape = (y.shape[0], 224, 224, y.shape[-1])
-                    
-                    online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
-                    target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
-                    online_consistency = (online_consistency + 1) / 2.0
-                    target_consistency = (target_consistency + 1) / 2.0
-                    
-                    loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency)) + diffusion_loss
-                elif diffusion_framework.loss == "l2":
-                    loss = jnp.mean((online_consistency - target_consistency) ** 2)
-                elif diffusion_framework.loss == "l1":
-                    loss = jnp.mean(jnp.abs(online_consistency - target_consistency))
-                else:
-                    NotImplementedError("Consistency model is only support lpips, l2, and l1 loss.")
-
-                # loss += self.beta * jnp.mean((traj_g_phi - perturbed_x) ** 2)
-
-                loss_dict = {}
-                loss_dict['total_loss'] = loss
-                return loss, loss_dict
-            
         @jax.jit
-        def diffusion_loss_fn(params, y, rng_key):
-            p_mean = -1.2
-            p_std = 1.2
-            sigma_data = 0.5
-
-            rng_key, sigma_key, dropout_key = jax.random.split(rng_key, 3)
-            rnd_normal = jax.random.normal(sigma_key, (y.shape[0], 1, 1, 1))
-            sigma = jnp.exp(rnd_normal * p_std + p_mean)
-            weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
-            # TODO: Implement augmented pipe 
-            y, augment_label = self.augmentation_pipeline(y) if self.augment_rate is not None else (y, None)
-            n = jax.random.normal(rng_key, y.shape) * sigma
+        def joint_loss_fn(params, target_params, head_params, y, rng_key):
+            # head_params not updated during this phase
+            head_params = jax.lax.stop_gradient(head_params)
             
-            # Network will predict D_yn (denoised dataset rather than epsilon) directly.
-            # encoder_value, consistency_value, diffusion_value = self.model.apply(
-            #     {'params': params}, x=(y + n), sigma=sigma, 
-            #     train=True, augment_labels=augment_label, rngs={'dropout': dropout_key})
-            diffusion_value = self.model.apply(
-                {'params': params}, x=(y + n), sigma=sigma,
-                train=True, augment_labels=augment_label, rngs={'dropout': dropout_key},
-                method=self.model.diffusion_output)
-            # loss = weight * ((D_yn - y) ** 2)
-            loss = weight * ((diffusion_value - y) ** 2)
-            loss = jnp.mean(loss)
+            rng_key, step_key, solver_key, dropout_key = jax.random.split(rng_key, 4)
+
+            # Sample n ~ U[0, N-2]
+            idx = jax.random.randint(step_key, (y.shape[0], ), minval=0, maxval=self.n_timestep-1)
+            sigma = self.t_steps[idx][:, None, None, None]
+            next_sigma = self.t_steps[idx+1][:, None, None, None]
+
+            noise = jax.random.normal(rng_key, y.shape)
+            perturbed_x = y + next_sigma * noise
+
+            # Get consistency function values
+            online_consistency, aux = self.model.apply(
+                {'params': params}, x = perturbed_x, sigma=next_sigma, 
+                train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            
+            F_x, t_emb, last_x_emb = aux
+            
+            # Apply Heun's 2nd order method to obtain the previous sample point
+            delta_t = next_sigma - sigma
+            
+            distill_output = self.head.apply(
+                {'params': head_params}, x=perturbed_x, sigma=next_sigma, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+            
+            target_euler = perturbed_x + delta_t * distill_output
+            
+            _, aux = self.model.apply(
+                {'params': params}, x = target_euler, sigma=sigma, 
+                train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            
+            prev_F_x, prev_t_emb, prev_last_x_emb = aux
+            
+            distill_output_prime = self.head.apply(
+                {'params': head_params}, x=target_euler, sigma=sigma, F_x=prev_F_x, t_emb=prev_t_emb, last_x_emb=prev_last_x_emb,
+                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+
+            target_heun = perturbed_x + 0.5 * delta_t * (distill_output + distill_output_prime)
+            
+            target_consistency, _ = self.model.apply(
+                {'params': target_params}, x = target_heun, sigma=sigma, 
+                train=True, augment_labels=None, rngs={'dropout': dropout_key})
+
+            assert diffusion_framework.loss == "lpips"
+            
+            output_shape = (y.shape[0], 224, 224, y.shape[-1])
+            online_consistency = jax.image.resize(online_consistency, output_shape, "bilinear")
+            target_consistency = jax.image.resize(target_consistency, output_shape, "bilinear")
+            online_consistency = (online_consistency + 1) / 2.0
+            target_consistency = (target_consistency + 1) / 2.0
+            
+            target_consistency = jax.lax.stop_gradient(target_consistency)
+            
+            perceptual_loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
+            dsm_loss = jnp.mean((distill_output + noise) ** 2)
+            joint_loss = perceptual_loss + self.dsm_ratio * dsm_loss
 
             loss_dict = {}
-            loss_dict['diffusion_loss'] = loss
-            return loss, loss_dict
+            loss_dict['perceptual_loss'] = perceptual_loss
+            loss_dict['dsm_loss'] = dsm_loss
+            loss_dict['joint_loss'] = joint_loss
+            return joint_loss, loss_dict
         
+        
+        @jax.jit
+        def distill_loss_fn(head_params, params, y, rng_key):
+            # params not updated during this phase
+            params = jax.lax.stop_gradient(params)
+            
+            rng_key, step_key, solver_key, dropout_key = jax.random.split(rng_key, 4)
+
+            # Sample n ~ U[0, N-1]
+            idx = jax.random.randint(step_key, (y.shape[0], ), minval=0, maxval=self.n_timestep)
+            sigma = self.t_steps[idx][:, None, None, None]
+
+            noise = jax.random.normal(rng_key, y.shape)
+            perturbed_x = y + sigma * noise
+
+            # Get consistency function values
+            D_x, aux = self.model.apply(
+                {'params': params}, x=perturbed_x, sigma=sigma,
+                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+            
+            F_x, t_emb, last_x_emb = aux
+            
+            distill_output = self.head.apply(
+                {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            
+            model_fn = lambda x, t: self.model.apply(
+                {'params': params}, x=x, sigma=t, 
+                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+            
+            _, distill_loss, _ = jax.jvp(model_fn, (perturbed_x, sigma), (distill_output, -jnp.ones_like(sigma)), has_aux=True)
+            distill_loss = jnp.mean(distill_loss ** 2)
+
+            loss_dict = {}
+            loss_dict['distill_loss'] = distill_loss
+            return distill_loss, loss_dict
+        
+        
+        # Define update function
         def update(carry_state, x0):
-            # (rng, state, traj_state) = carry_state
-            (rng, state) = carry_state
+            (rng, state, head_state) = carry_state
             rng, new_rng = jax.random.split(rng)
             
-            # args = [state.params, diffusion_state.params, jax.lax.stop_gradient(state.target_model), 
-            #         x0, rng]     
-            args = [state.params, jax.lax.stop_gradient(state.target_model),
-                    x0, rng]
-            if not self.is_distillation:
-                # state.step is incremented by every call to 'apply.gradients'
-                n_timestep = self.n_timestep_fn(state.step)
-                self.target_model_ema_decay = self.ema_power_fn(n_timestep)
-                args += [n_timestep.astype(float)]
+            # Update CM
+            (_, joint_loss_dict), cm_grad = jax.value_and_grad(joint_loss_fn, has_aux=True)(state.params, state.target_model, head_state.params, x0, rng)
+            cm_grad = jax.lax.pmean(cm_grad, axis_name=self.pmap_axis)
+            new_state = state.apply_gradients(grads=cm_grad)
             
-            # (_, loss_dict), grad = jax.value_and_grad(loss_fn, argnums=(0, 1) ,has_aux=True)(*args)
-            (_, loss_dict), grad = jax.value_and_grad(loss_fn, has_aux=True)(*args)
+            # Update head (for multiple times)
+            (_, distill_loss_dict), head_grad = jax.value_and_grad(distill_loss_fn, has_aux=True)(head_state.params, new_state.params, x0, rng)
+            head_grad = jax.lax.pmean(head_grad, axis_name=self.pmap_axis)
+            new_head_state = head_state.apply_gradients(grads=head_grad)
+            for _ in range(self.distill_step-1):
+                (_, distill_loss_dict), head_grad = jax.value_and_grad(distill_loss_fn, has_aux=True)(new_head_state.params, new_state.params, x0, rng)
+                head_grad = jax.lax.pmean(head_grad, axis_name=self.pmap_axis)
+                new_head_state = new_head_state.apply_gradients(grads=head_grad)
 
-            grad = jax.lax.pmean(grad, axis_name=self.pmap_axis)
+            # Merge two loss dictionaries 
+            for loss_key in joint_loss_dict:
+                joint_loss_dict[loss_key] = jax.lax.pmean(joint_loss_dict[loss_key], axis_name=self.pmap_axis)
+            
+            for loss_key in distill_loss_dict:
+                distill_loss_dict[loss_key] = jax.lax.pmean(distill_loss_dict[loss_key], axis_name=self.pmap_axis)
 
-            # consistency_grad, traj_grad = grad
-            consistency_grad = grad
-            new_state = state.apply_gradients(grads=consistency_grad)
-            # new_diffusion_state = traj_state.apply_gradients(grads=diffusion_grad)
-            # new_traj_state = traj_state.apply_gradients(grads=traj_grad)
+            loss_dict = {**joint_loss_dict, **distill_loss_dict}
 
-            for loss_key in loss_dict:
-                loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
-
-            # Update EMA for training (update target model)
+            # Update EMA for target model
             ema_updated_params = jax.tree_map(
                 lambda x, y: self.target_model_ema_decay * x + (1 - self.target_model_ema_decay) * y,
                 new_state.target_model, new_state.params)
-            new_state = new_state.replace(target_model = ema_updated_params)
-
-            '''
-            # Also do it for traj model
-            ema_updated_traj_params = jax.tree_map(
-                lambda x, y: self.target_model_ema_decay * x + (1 - self.target_model_ema_decay) * y,
-                new_traj_state.target_model, new_traj_state.params)
-            new_traj_state = new_traj_state.replace(target_model = ema_updated_traj_params)
-            '''
+            new_state = new_state.replace(target_model=ema_updated_params)
 
             # Update EMA for sampling
             new_state = self.ema_obj.ema_update(new_state)
-            # new_traj_state = self.ema_obj.ema_update(new_traj_state) # unnecessary
+            new_head_state = self.ema_obj.ema_update(new_head_state)
 
-            # new_carry_state = (new_rng, new_state, new_traj_state)
-            new_carry_state = (new_rng, new_state)
+            new_carry_state = (new_rng, new_state, new_head_state)
             return new_carry_state, loss_dict
-        
-        # def heun_2nd_method(params, diffusion_model, x_cur, rng_key, gamma, step):
-        def heun_2nd_method(params, diffusion_model, x_cur, rng_key, gamma, t_cur, t_next):
-            rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
-
-            # t_cur = self.t_steps[step]
-            # t_next = jnp.where(
-            #     step == 0, 
-            #     jnp.zeros_like(t_cur), 
-            #     self.t_steps[step - 1])
-            # t_cur = t_cur[:, None, None, None]
-            # t_next = t_next[:, None, None, None]
 
 
-            # Increase noise temporarily.
-            t_hat = t_cur + gamma * t_cur
-            noise = jax.random.normal(rng_key, x_cur.shape) * self.S_noise
-            x_hat = x_cur + noise * jnp.sqrt(t_hat ** 2 - t_cur ** 2)
-
-            # Augment label
-            augment_dim = config.model.diffusion.get("augment_dim", None)
-            augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
-
-            # Euler step
-            denoised = diffusion_model.apply(
-                {'params': params}, x=x_hat, sigma=t_hat, 
-                train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-            d_cur = (x_hat - denoised) / t_hat
-            x_next = x_hat + (t_next - t_hat) * d_cur
-
-            # Apply 2nd order correction.
-            # def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key, step):
-            def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
-                denoised = diffusion_model.apply(
-                    {'params': params}, x=x_next, sigma=t_next, 
-                    train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
-                d_prime = (x_next - denoised) / t_next
-                x_corrected_one = x_hat + (0.5 * d_cur + 0.5 * d_prime) * (t_next - t_hat)
-                # return_val = jnp.where(step[:, None, None, None] == 0, x_next, x_corrected_one)
-                return_val = x_corrected_one
-                return return_val
-            
-            # x_result = second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2, step)
-            x_result = second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2)
-            
-            return x_result
-
-        if self.step_idx != 0:
+        # Define p_sample_jit functions for sampling
+        # One step sampling using CM
+        if self.one_step_sampling:
             def p_sample_jit(params, x_cur, rng_key, step):
                 dropout_key = rng_key
-                # Augment label
-                augment_dim = config.model.diffusion.get("augment_dim", None)
-                augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
-
-                encoder_output, consistency_output, diffusion_output = self.model.apply(
+                
+                consistency_output, _ = self.model.apply(
                     {'params': params}, x=x_cur, sigma=step, 
-                    train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-                # return denoised
+                    train=False, augment_labels=None, rngs={'dropout': dropout_key})
+                
                 return consistency_output
-        
-        # For sampling with g_phi
+        # Multistep sampling using the distilled score
+        # Progress one step towards the sample
         else:
-            def p_sample_jit(params, x_cur, rng_key, gamma, t_cur, t_next):
+            def p_sample_jit(params, head_params, x_cur, rng_key, gamma, t_cur, t_prev):
                 rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
 
                 # Increase noise temporarily.
@@ -470,79 +253,45 @@ class CMFramework(DefaultModel):
                 noise = jax.random.normal(rng_key, x_cur.shape) * self.S_noise
                 x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
 
-                # Augment label
-                augment_dim = config.model.diffusion.get("augment_dim", None)
-                augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
-
                 # Euler step
-                _, _, denoised = self.model.apply(
+                _, aux = self.model.apply(
                     {'params': params}, x=x_hat, sigma=t_hat, 
-                    train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-                d_cur = (x_hat - denoised) / t_hat
-                x_next = x_hat + (t_next - t_hat) * d_cur
+                    train=False, augment_labels=None, rngs={'dropout': dropout_key})
+                
+                F_x, t_emb, last_x_emb = aux
+                
+                t_score = self.head.apply(
+                    {'params': head_params}, x=x_hat, sigma=t_hat, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                    train=False, augment_labels=None, rngs={'dropout': dropout_key}
+                )
+                
+                euler_x_prev = x_hat + (t_hat - t_prev) * t_score
 
                 # Apply 2nd order correction.
-                def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
-                    _, _, denoised = self.model.apply(
-                        {'params': params}, x=x_next, sigma=t_next, 
-                        train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
-                    d_prime = (x_next - denoised) / t_next
-                    x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
-                    return x_next
-                x_result = jax.lax.cond(t_next != 0.0, 
-                                        second_order_corrections, 
-                                        lambda x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2: x_next, 
-                                        x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2)
-                return x_result
+                def second_order_corrections(euler_x_prev, t_prev, x_hat, t_hat, t_score, rng_key):
+                    _, aux = self.model.apply(
+                        {'params': params}, x=euler_x_prev, sigma=t_prev,
+                        train=False, augment_labels=None, rngs={'dropout': rng_key})
+                    
+                    F_x, t_emb, last_x_emb = aux
+                    
+                    t_score_prime = self.head.apply(
+                        {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                        train=False, augment_labels=None, rngs={'dropout': dropout_key}
+                    )
+                    
+                    heun_x_prev = x_hat + 0.5 * (t_hat - t_prev) * (t_score + t_score_prime)
+                    return heun_x_prev
+                
+                heun_x_prev = jax.lax.cond(t_prev != 0.0,
+                                        second_order_corrections,
+                                        lambda euler_x_prev, t_prev, x_hat, t_hat, t_score, rng_key: euler_x_prev,
+                                        euler_x_prev, t_prev, x_hat, t_hat, t_score, dropout_key_2)
+                return heun_x_prev
 
         self.p_sample_jit = jax.pmap(p_sample_jit)
-        # self.p_sample_jit = jax.pmap(p_sample_fn, axis_name=self.pmap_axis, in_axes=(0, 0, 0, None))
-
-
         self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
-        
-        '''
-        # For sampling with g_phi
-        def p_sample_jit(traj_params, x_cur, rng_key, gamma, t_cur, t_next):
-            rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
-
-            # Increase noise temporarily.
-            t_hat = t_cur + gamma * t_cur
-            noise = jax.random.normal(rng_key, x_cur.shape) * self.S_noise
-            x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
-
-            # Augment label
-            augment_dim = config.model.diffusion.get("augment_dim", None)
-            augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
-
-            # Euler step
-            denoised = self.traj_model.apply(
-                {'params': traj_params}, x=x_hat, sigma=t_hat, 
-                train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
-            d_cur = (x_hat - denoised) / t_hat
-            x_next = x_hat + (t_next - t_hat) * d_cur
-
-            # Apply 2nd order correction.
-            def second_order_corrections(x_next, t_next, x_hat, t_hat, d_cur, rng_key):
-                denoised = self.traj_model.apply(
-                    {'params': traj_params}, x=x_next, sigma=t_next, 
-                    train=False, augment_labels= augment_labels, rngs={'dropout': rng_key})
-                d_prime = (x_next - denoised) / t_next
-                x_next = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
-                return x_next
-            x_result = jax.lax.cond(t_next != 0.0, 
-                                    second_order_corrections, 
-                                    lambda x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2: x_next, 
-                                    x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2)
-            return x_result
-
-        self.p_sample_jit = jax.pmap(p_sample_jit)
-        '''
     
-    def p_sample(self, param, xt, t):
-        # Sample from p_theta(x_{t-1}|x_t)
-        self.rand_key, normal_key, dropout_key = jax.random.split(self.rand_key, 3)
-        return self.p_sample_jit(param, xt, t, normal_key, dropout_key)
     
     def init_model_state(self, config: DictConfig):
         class TrainState(jax_utils.TrainState):
@@ -551,24 +300,41 @@ class CMFramework(DefaultModel):
         self.rand_key, param_rng, dropout_rng = jax.random.split(self.rand_key, 3)
         rng_dict = {"params": param_rng, 'dropout': dropout_rng}
         input_format = jnp.ones([1, *config.dataset.data_size])
+        t_emb_format = jnp.ones([512,])
+        last_x_emb_format = jnp.ones([1, 32, 32, 256])
+        
 
-        augment_dim = config.model.diffusion.get("augment_dim", None)
-        augment_labels = jnp.zeros([1, augment_dim]) if augment_dim is not None else None
-        params = self.model.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), train=False, augment_labels=augment_labels)['params']
+        model_params = self.model.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), train=False, augment_labels=None)['params']
+        
+        _, aux = self.model.apply(
+                {'params': model_params}, x=input_format, sigma=jnp.ones([1,]), 
+                train=False, augment_labels=None, rngs={'dropout': self.rand_key})
+        
+        F_x, t_emb, last_x_emb = aux
+        
+        head_params = self.head.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), F_x=F_x, last_x_emb=last_x_emb, t_emb=t_emb,
+                                     train=False, augment_labels=None)['params']
 
-        # state: jax_utils.TrainState = jax_utils.create_train_state(config, 'diffusion', self.model.apply, params)
         tx = jax_utils.create_optimizer(config, "diffusion")
-        new_state = TrainState.create(
+        new_model_state = TrainState.create(
             apply_fn=self.model.apply,
-            params=params,
-            params_ema=params,
-            target_model=params, # NEW!
+            params=model_params,
+            params_ema=model_params,
+            target_model=model_params, # NEW!
             tx=tx
         )
-        return new_state
+        new_head_state = TrainState.create(
+            apply_fn=self.head.apply,
+            params=head_params,
+            params_ema=head_params,
+            tx=tx
+        )
+        return new_model_state, new_head_state
+
 
     def get_model_state(self):
         return [flax.jax_utils.unreplicate(self.model_state)]
+    
     
     def fit(self, x0, cond=None, step=0):
         key, dropout_key = jax.random.split(self.rand_key, 2)
@@ -577,45 +343,25 @@ class CMFramework(DefaultModel):
         # Apply pmap
         dropout_key = jax.random.split(dropout_key, jax.local_device_count())
         dropout_key = jnp.asarray(dropout_key)
-        # new_carry, loss_dict_stack = self.update_fn((dropout_key, self.model_state, self.traj_model_state), x0)
-        new_carry, loss_dict_stack = self.update_fn((dropout_key, self.model_state), x0)
-        # (_, new_state, new_traj_state) = new_carry
-        (_, new_state) = new_carry
+        new_carry, loss_dict_stack = self.update_fn((dropout_key, self.model_state, self.head_state), x0)
+        (_, new_state, new_head_state) = new_carry
 
         loss_dict = flax.jax_utils.unreplicate(loss_dict_stack)
         for loss_key in loss_dict:
             loss_dict[loss_key] = jnp.mean(loss_dict[loss_key])
 
         self.model_state = new_state
-        # self.traj_model_state = new_traj_state
+        self.head_state = new_head_state
 
         return_dict = {}
         return_dict.update(loss_dict)
         self.wandblog.update_log(return_dict)
         return return_dict
     
-    # def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
-    #     latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
-    #     sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-
-    #     # One-step generation
-    #     latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
-        
-    #     rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
-    #     rng_key = jax.random.split(rng_key, jax.local_device_count())
-    #     # latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.sigma_max)
-    #     latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.sigma_max)
-
-    #     if original_data is not None:
-    #         rec_loss = jnp.mean((latent_sample - original_data) ** 2)
-    #         self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
-    #     return latent_sample
     
-    
-    # For sampling with g_phi
     def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
-
-        if self.step_idx != 0:
+        # One step sampling using CM
+        if self.one_step_sampling:
             latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
             sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
@@ -625,14 +371,14 @@ class CMFramework(DefaultModel):
             rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
             rng_key = jax.random.split(rng_key, jax.local_device_count())
             sigma_max =  jnp.asarray([self.sigma_max] * jax.local_device_count())
-            # latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, self.sigma_max)
             latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, sigma_max)
 
             if original_data is not None:
                 rec_loss = jnp.mean((latent_sample - original_data) ** 2)
                 self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
             return latent_sample
-        
+        # Multistep sampling using the distilled score
+        # Progress one step towards the sample
         else:
             latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
             sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
@@ -653,13 +399,9 @@ class CMFramework(DefaultModel):
                 t_cur = jnp.asarray([t_cur] * jax.local_device_count())
                 t_next = jnp.asarray([t_next] * jax.local_device_count())
                 gamma = jnp.asarray([gamma] * jax.local_device_count())
-                latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
+                latent_sample = self.p_sample_jit(self.model_state.params_ema, self.head_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
 
             if original_data is not None:
                 rec_loss = jnp.mean((latent_sample - original_data) ** 2)
                 self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
             return latent_sample
-    
-    
-    def get_gamma(self, step):
-        return jnp.zeros_like(step) # This is possible because consistency model only consider deterministic sampling
