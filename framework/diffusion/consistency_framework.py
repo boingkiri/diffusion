@@ -97,38 +97,42 @@ class CMFramework(DefaultModel):
             next_sigma = self.t_steps[idx+1][:, None, None, None]
 
             noise = jax.random.normal(rng_key, y.shape)
-            perturbed_x = y + next_sigma * noise
+            next_perturbed_x = y + next_sigma * noise
 
             # Get consistency function values
             online_consistency, aux = self.model.apply(
-                {'params': params}, x = perturbed_x, sigma=next_sigma, 
+                {'params': params}, x = next_perturbed_x, sigma=next_sigma, 
                 train=True, augment_labels=None, rngs={'dropout': dropout_key})
             
             F_x, t_emb, last_x_emb = aux
             
             # Apply Heun's 2nd order method to obtain the previous sample point
-            delta_t = next_sigma - sigma
+            delta_t = sigma - next_sigma
             
-            distill_output = self.head.apply(
-                {'params': head_params}, x=perturbed_x, sigma=next_sigma, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
+            dx_dt = self.head.apply(
+                {'params': head_params}, x=next_perturbed_x, sigma=next_sigma, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
                 train=False, augment_labels=None, rngs={'dropout': dropout_key})
             
-            target_euler = perturbed_x + delta_t * distill_output
+            target_euler = next_perturbed_x + delta_t * dx_dt
             
-            _, aux = self.model.apply(
-                {'params': params}, x = target_euler, sigma=sigma, 
-                train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            # _, aux = self.model.apply(
+            #     {'params': params}, x = target_euler, sigma=sigma, 
+            #     train=True, augment_labels=None, rngs={'dropout': dropout_key})
             
-            prev_F_x, prev_t_emb, prev_last_x_emb = aux
+            # prev_F_x, prev_t_emb, prev_last_x_emb = aux
             
-            distill_output_prime = self.head.apply(
-                {'params': head_params}, x=target_euler, sigma=sigma, F_x=prev_F_x, t_emb=prev_t_emb, last_x_emb=prev_last_x_emb,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+            # dx_dt_prime = self.head.apply(
+            #     {'params': head_params}, x=target_euler, sigma=sigma, F_x=prev_F_x, t_emb=prev_t_emb, last_x_emb=prev_last_x_emb,
+            #     train=False, augment_labels=None, rngs={'dropout': dropout_key})
 
-            target_heun = perturbed_x + 0.5 * delta_t * (distill_output + distill_output_prime)
+            # target_heun = perturbed_x + 0.5 * delta_t * (dx_dt + dx_dt_prime)
+            
+            # target_consistency, _ = self.model.apply(
+            #     {'params': target_params}, x=target_heun, sigma=sigma, 
+            #     train=True, augment_labels=None, rngs={'dropout': dropout_key})
             
             target_consistency, _ = self.model.apply(
-                {'params': target_params}, x = target_heun, sigma=sigma, 
+                {'params': target_params}, x=target_euler, sigma=sigma, 
                 train=True, augment_labels=None, rngs={'dropout': dropout_key})
 
             assert diffusion_framework.loss == "lpips"
@@ -142,7 +146,7 @@ class CMFramework(DefaultModel):
             target_consistency = jax.lax.stop_gradient(target_consistency)
             
             perceptual_loss = jnp.mean(self.perceptual_loss(online_consistency, target_consistency))
-            dsm_loss = jnp.mean((distill_output + noise) ** 2)
+            dsm_loss = jnp.mean((dx_dt - noise) ** 2)
             joint_loss = perceptual_loss + self.dsm_ratio * dsm_loss
 
             loss_dict = {}
@@ -173,7 +177,7 @@ class CMFramework(DefaultModel):
             
             F_x, t_emb, last_x_emb = aux
             
-            distill_output = self.head.apply(
+            dx_dt = self.head.apply(
                 {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key})
             
@@ -181,7 +185,7 @@ class CMFramework(DefaultModel):
                 {'params': params}, x=x, sigma=t, 
                 train=False, augment_labels=None, rngs={'dropout': dropout_key})
             
-            _, distill_loss, _ = jax.jvp(model_fn, (perturbed_x, sigma), (distill_output, -jnp.ones_like(sigma)), has_aux=True)
+            _, distill_loss, _ = jax.jvp(model_fn, (perturbed_x, sigma), (dx_dt, jnp.ones_like(sigma)), has_aux=True)
             distill_loss = jnp.mean(distill_loss ** 2)
 
             loss_dict = {}
