@@ -23,7 +23,7 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: score_distillation_230823
+exp_name: dsm_score_distill_230825
 do_training: true
 do_sampling: true
 num_sampling: 50000

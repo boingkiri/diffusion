@@ -13,3 +13,4 @@ outputs
 main.log
 
 pretrained_models
+cd_checkpoint

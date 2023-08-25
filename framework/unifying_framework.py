@@ -143,12 +143,13 @@ class UnifyingFramework():
                 loss_ema = log["train/total_loss"]
             else:
                 # loss_ema = log["total_loss"]
-                joint_loss = log['joint_loss']
+                # joint_loss = log['joint_loss']
                 distill_loss = log['distill_loss']
-            datasets_bar.set_description("Step: {step} joint_loss: {joint_loss:.4f} distill_loss: {distill_loss:.4f}  lr*1e4: {lr:.4f}".format(
+                dsm_loss = log['dsm_loss']
+            datasets_bar.set_description("Step: {step} distill_loss: {distill_loss:.4f} dsm_loss: {dsm_loss:.4f}  lr*1e4: {lr:.4f}".format(
                 step=self.step,
-                joint_loss=joint_loss,
                 distill_loss=distill_loss,
+                dsm_loss=dsm_loss,
                 lr=self.learning_rate_schedule(self.step)*(1e+4)
             ))
 
@@ -178,9 +179,9 @@ class UnifyingFramework():
                         ########### This works only for cm-diffusion! ############
                         ##########################################################
                         
-                        jax_utils.save_best_state([model_state[0], ], best_checkpoint_dir, self.step, "cm_")
-                        if len(model_state) >= 1:
-                            jax_utils.save_best_state([model_state[1], ], best_checkpoint_dir, self.step, "diffusion_")
+                        # jax_utils.save_best_state([model_state[0], ], best_checkpoint_dir, self.step, "cm_")
+                        # if len(model_state) > 1:
+                        #     jax_utils.save_best_state([model_state[1], ], best_checkpoint_dir, self.step, "diffusion_")
                         ##########################################################
                         ##########################################################
                         ##########################################################
