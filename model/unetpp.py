@@ -436,8 +436,16 @@ class TimeEmbedDependentHead(nn.Module):
                                   init_mode=init)
         
         blocks = []
-        for _ in range(self.n_blocks):
+        for _ in range(self.n_blocks-1):
             blocks.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, **block_kwargs))
+        blocks.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, attention=True, **block_kwargs))
+        
+        self.normalize3 = nn.GroupNorm()
+        
+        blocks2 = []
+        for _ in range(self.n_blocks-1):
+            blocks2.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, **block_kwargs))
+        blocks2.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, attention=True, **block_kwargs))
         
         self.blocks = blocks
         self.normalize2 = nn.GroupNorm()
@@ -449,8 +457,15 @@ class TimeEmbedDependentHead(nn.Module):
     def __call__(self, x, x_pred, x_emb, t_emb, train):
         x_emb_norm = self.normalize1(x_emb)
         x_emb = self.conv1(nn.silu(jnp.concatenate([x, x_pred, x_emb_norm], axis=-1)))
+        
         for block in self.blocks:
             x_emb = block(x_emb, t_emb, train)
+        
+        x_emb = nn.silu(self.normalize2(x_emb))
+        
+        for block in self.blocks2:
+            x_emb = block(x_emb, t_emb, train)
+        
         x = self.conv2(nn.silu(self.normalize2(x_emb)))
         return x
 
