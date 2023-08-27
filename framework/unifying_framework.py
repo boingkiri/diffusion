@@ -65,11 +65,13 @@ class UnifyingFramework():
         sample = jnp.reshape(sample, (num_img, *sample.shape[-3:]))
         return sample
     
-    def save_model_state(self, state_dict:dict):
+    def save_model_state(self, state_dict:dict, checkpoint_dir: str=None):
+        if checkpoint_dir is None:
+            checkpoint_dir = self.config.exp.checkpoint_dir
         for state_name, state in state_dict.items():
             jax_utils.save_train_state(
                 state, 
-                self.config.exp.checkpoint_dir, 
+                checkpoint_dir, 
                 self.step, 
                 prefix=state_name)
 
@@ -83,7 +85,8 @@ class UnifyingFramework():
         first_step = True
         
         for x, _ in datasets_bar:
-            log = self.framework.fit(x, step=self.step)
+            random_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+            log = self.framework.fit(x0=x, rng=random_rng, step=self.step)
             
             if self.current_model_type == "ldm" and self.train_idx == 1:
                 loss_ema = log["train/total_loss"]
@@ -124,16 +127,7 @@ class UnifyingFramework():
                         batch_size=128)
                     if best_fid >= fid_score:
                         best_checkpoint_dir = self.config.exp.best_dir
-                        
-                        ##########################################################
-                        ########### This works only for cm-diffusion! ############
-                        ##########################################################
-                        jax_utils.save_best_state([model_state[0], ], best_checkpoint_dir, self.step, "cm_")
-                        if len(model_state) >= 1:
-                            jax_utils.save_best_state([model_state[1], ], best_checkpoint_dir, self.step, "diffusion_")
-                        ##########################################################
-                        ##########################################################
-                        ##########################################################
+                        self.save_model_state(model_state, best_checkpoint_dir)
                         best_fid = fid_score
                     self.wandblog.update_log({"FID score": fid_score})
                     self.wandblog.flush(step=self.step)
@@ -164,7 +158,8 @@ class UnifyingFramework():
         current_num = 0
         for x, _ in datasets_bar:
             batch_size = x.shape[0]
-            samples = self.sampling(batch_size, img_size, original_data=x)
+            self.random_rng, rng = jax.random.split(self.random_rng, 2)
+            samples = self.sampling(batch_size, rng, img_size, original_data=x)
             self.fs_utils.save_images_to_dir(samples, starting_pos = current_num)
             current_num += batch_size
             if current_num >= total_num:
