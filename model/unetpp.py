@@ -448,6 +448,7 @@ class TimeEmbedDependentHead(nn.Module):
         blocks2.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, attention=True, **block_kwargs))
         
         self.blocks = blocks
+        self.blocks2 = blocks2
         self.normalize2 = nn.GroupNorm()
         self.conv2 = CustomConv2d(in_channels=head_channels,
                                     out_channels=self.image_channels,
@@ -461,7 +462,7 @@ class TimeEmbedDependentHead(nn.Module):
         for block in self.blocks:
             x_emb = block(x_emb, t_emb, train)
         
-        x_emb = nn.silu(self.normalize2(x_emb))
+        x_emb = nn.silu(self.normalize3(x_emb))
         
         for block in self.blocks2:
             x_emb = block(x_emb, t_emb, train)

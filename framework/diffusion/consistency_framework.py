@@ -78,7 +78,9 @@ class CMFramework(DefaultModel):
         self.ema_obj = CMEMA(**ema_config)
 
 
-        # # Define loss functions
+        # Define loss functions
+        self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16', replicate=False)
+        
         @jax.jit
         def distill_loss_fn(head_params, y, rng_key):
             rng_key, step_key, solver_key, dropout_key = jax.random.split(rng_key, 4)
@@ -87,8 +89,9 @@ class CMFramework(DefaultModel):
             #                            minval=self.sigma_min ** (1 / self.rho), maxval=self.sigma_max ** (1 / self.rho)) ** self.rho
             # sigma = sigma[:, None, None, None]
             
-            idx = jax.random.randint(step_key, (y.shape[0], ), minval=0, maxval=self.n_timestep)
+            idx = jax.random.randint(step_key, (y.shape[0], ), minval=1, maxval=self.n_timestep)
             sigma = self.t_steps[idx][:, None, None, None]
+            prev_sigma = self.t_steps[idx-1][:, None, None, None]
             
             noise = jax.random.normal(rng_key, y.shape)
             perturbed_x = y + sigma * noise
@@ -104,16 +107,35 @@ class CMFramework(DefaultModel):
                 {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key})
             
-            model_fn = lambda x, t: self.model.apply(
-                {'params': self.model_state.params}, x=x, sigma=t, 
+            # model_fn = lambda x, t: self.model.apply(
+            #     {'params': self.model_state.params}, x=x, sigma=t, 
+            #     train=False, augment_labels=None, rngs={'dropout': dropout_key})
+            
+            # _, distill_loss, _ = jax.jvp(model_fn, (perturbed_x, sigma), (dx_dt, jnp.ones_like(sigma)), has_aux=True)
+            # distill_loss = jnp.mean(distill_loss ** 2)
+            
+            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * dx_dt
+            
+            prev_D_x, aux = self.model.apply(
+                {'params': self.model_state.params}, x=prev_perturbed_x, sigma=prev_sigma,
                 train=False, augment_labels=None, rngs={'dropout': dropout_key})
             
-            _, distill_loss, _ = jax.jvp(model_fn, (perturbed_x, sigma), (dx_dt, jnp.ones_like(sigma)), has_aux=True)
-            distill_loss = jnp.mean(distill_loss ** 2)
+            # Monitor distillation loss
+            l2_dist = jnp.mean((D_x - prev_D_x) ** 2)
+            
+            output_shape = (y.shape[0], 224, 224, y.shape[-1])
+            D_x = jax.image.resize(D_x, output_shape, "bilinear")
+            prev_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
+            D_x = (D_x + 1) / 2.0
+            prev_D_x = (prev_D_x + 1) / 2.0
+            lpips_dist = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
+            
+            # Optimize DSM loss
             dsm_loss = jnp.mean((dx_dt - noise) ** 2)
 
             loss_dict = {}
-            loss_dict['distill_loss'] = distill_loss
+            loss_dict['l2_dist'] = l2_dist
+            loss_dict['lpips_dist'] = lpips_dist
             loss_dict['dsm_loss'] = dsm_loss
             return dsm_loss, loss_dict
         
