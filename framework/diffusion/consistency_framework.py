@@ -49,9 +49,9 @@ class CMFramework(DefaultModel):
                                sigma_max=diffusion_framework['sigma_max'])
         
         self.model_state, self.head_state = self.init_model_state(config)
-        # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
-        checkpoint_dir =  "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
-        self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir=checkpoint_dir)
+        self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
+        # checkpoint_dir =  "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
+        # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir=checkpoint_dir)
         # self.head_state = fs_obj.load_model_state("diffusion", self.head_state)
         # self.model_state = flax.jax_utils.replicate(self.model_state)
         self.head_state = flax.jax_utils.replicate(self.head_state)
@@ -120,8 +120,9 @@ class CMFramework(DefaultModel):
             # distill_loss = jnp.mean(distill_loss ** 2)
             
             # prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * dx_dt
-            predicted_score = - (perturbed_x - denoised) ** 2 / (sigma ** 2)
-            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * predicted_score
+            # predicted_score = - (perturbed_x - denoised) ** 2 / (sigma ** 2)
+            dx_dt = (perturbed_x - denoised) / sigma
+            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * dx_dt
             
             prev_D_x, aux = self.model.apply(
                 {'params': self.model_state.params}, x=prev_perturbed_x, sigma=prev_sigma,
