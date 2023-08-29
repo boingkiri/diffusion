@@ -49,7 +49,9 @@ class CMFramework(DefaultModel):
                                sigma_max=diffusion_framework['sigma_max'])
         
         self.model_state, self.head_state = self.init_model_state(config)
-        self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
+        # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
+        checkpoint_dir =  "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
+        self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir=checkpoint_dir)
         # self.head_state = fs_obj.load_model_state("diffusion", self.head_state)
         # self.model_state = flax.jax_utils.replicate(self.model_state)
         self.head_state = flax.jax_utils.replicate(self.head_state)
@@ -103,7 +105,10 @@ class CMFramework(DefaultModel):
             
             F_x, t_emb, last_x_emb = aux
             
-            dx_dt = self.head.apply(
+            # dx_dt = self.head.apply(
+            #     {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
+            #     train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            denoised = self.head.apply(
                 {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key})
             
@@ -114,7 +119,9 @@ class CMFramework(DefaultModel):
             # _, distill_loss, _ = jax.jvp(model_fn, (perturbed_x, sigma), (dx_dt, jnp.ones_like(sigma)), has_aux=True)
             # distill_loss = jnp.mean(distill_loss ** 2)
             
-            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * dx_dt
+            # prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * dx_dt
+            predicted_score = - (perturbed_x - denoised) ** 2 / (sigma ** 2)
+            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * predicted_score
             
             prev_D_x, aux = self.model.apply(
                 {'params': self.model_state.params}, x=prev_perturbed_x, sigma=prev_sigma,
@@ -131,7 +138,8 @@ class CMFramework(DefaultModel):
             lpips_dist = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
             
             # Optimize DSM loss
-            dsm_loss = jnp.mean((dx_dt - noise) ** 2)
+            # dsm_loss = jnp.mean((dx_dt - noise) ** 2)
+            dsm_loss = jnp.mean((denoised - y) ** 2)
 
             loss_dict = {}
             loss_dict['l2_dist'] = l2_dist
@@ -178,33 +186,49 @@ class CMFramework(DefaultModel):
             
             F_x, t_emb, last_x_emb = aux
             
-            dx_dt = self.head.apply(
+            # dx_dt = self.head.apply(
+            #     {'params': head_params}, x=x_hat, sigma=t_hat, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
+            #     train=False, augment_labels=None, rngs={'dropout': dropout_key}
+            # )
+            # euler_x_prev = x_hat + (t_prev - t_hat) * dx_dt
+
+            denoised = self.head.apply(
                 {'params': head_params}, x=x_hat, sigma=t_hat, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
                 train=False, augment_labels=None, rngs={'dropout': dropout_key}
             )
-            
-            euler_x_prev = x_hat + (t_prev - t_hat) * dx_dt
+
+            # predicted_score = - (x_hat - denoised) ** 2 / (t_hat ** 2)
+            d_cur = (x_hat - denoised) / t_hat
+            euler_x_prev = x_hat + (t_prev - t_hat) * d_cur
 
             # Apply 2nd order correction.
-            def second_order_corrections(euler_x_prev, t_prev, x_hat, t_hat, dx_dt, rng_key):
+            def second_order_corrections(euler_x_prev, t_prev, x_hat, t_hat, d_cur, rng_key):
                 _, aux = self.model.apply(
                     {'params': self.model_state.params_ema}, x=euler_x_prev, sigma=t_prev,
                     train=False, augment_labels=None, rngs={'dropout': rng_key})
                 
                 F_x, t_emb, last_x_emb = aux
                 
-                dx_dt_prime = self.head.apply(
+                # dx_dt_prime = self.head.apply(
+                #     {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                #     train=False, augment_labels=None, rngs={'dropout': dropout_key}
+                # )
+                denoised = self.head.apply(
                     {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
                     train=False, augment_labels=None, rngs={'dropout': dropout_key}
                 )
-                
-                heun_x_prev = x_hat + 0.5 * (t_prev - t_hat) * (dx_dt + dx_dt_prime)
+                d_prime = (euler_x_prev - denoised) / t_prev
+                heun_x_prev = x_hat + 0.5 * (t_prev - t_hat) * (d_cur + d_prime)
                 return heun_x_prev
             
+            # heun_x_prev = jax.lax.cond(t_prev != 0.0,
+            #                         second_order_corrections,
+            #                         lambda euler_x_prev, t_prev, x_hat, t_hat, dx_dt, rng_key: euler_x_prev,
+            #                         euler_x_prev, t_prev, x_hat, t_hat, dx_dt, dropout_key_2)
             heun_x_prev = jax.lax.cond(t_prev != 0.0,
                                     second_order_corrections,
                                     lambda euler_x_prev, t_prev, x_hat, t_hat, dx_dt, rng_key: euler_x_prev,
-                                    euler_x_prev, t_prev, x_hat, t_hat, dx_dt, dropout_key_2)
+                                    euler_x_prev, t_prev, x_hat, t_hat, d_cur, dropout_key_2)
             return heun_x_prev
 
         self.p_sample_jit = jax.pmap(p_sample_jit)
