@@ -42,7 +42,7 @@ class CMFramework(DefaultModel):
 
         head_config = {**config.model.head}
         head_type = head_config.pop("type")
-        
+        self.head_type = head_type
         self.model = CMPrecond(model_config, 
                                image_channels=model_config['image_channels'], 
                                model_type=model_type, 
@@ -56,7 +56,6 @@ class CMFramework(DefaultModel):
         
         self.model_state, self.head_state = self.init_model_state(config)
         # print(parameter_overview.get_parameter_overview(self.head_state.params))
-        # breakpoint()
         # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
         checkpoint_dir =  "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir=checkpoint_dir)
@@ -107,15 +106,23 @@ class CMFramework(DefaultModel):
             perturbed_x = y + sigma * noise
 
             # Get consistency function values
+            # D_x, aux = self.model.apply(
+            #     {'params': self.model_state.params}, x=perturbed_x, sigma=sigma,
+            #     train=False, augment_labels=None, rngs={'dropout': dropout_key})
+            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
             D_x, aux = self.model.apply(
-                {'params': self.model_state.params}, x=perturbed_x, sigma=sigma,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+                {'params': self.model_state.params_ema}, x=perturbed_x, sigma=sigma,
+                train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
             
             F_x, t_emb, last_x_emb = aux
-            
+
+            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
             denoised = self.head.apply(
                 {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
-                train=True, augment_labels=None, rngs={'dropout': dropout_key})
+                train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
+        
+            if self.head_type == 'score_pde':
+                denoised, dh_dx_inv, dh_dt = denoised
             
             # model_fn = lambda x, t: self.model.apply(
             #     {'params': self.model_state.params}, x=x, sigma=t, 
@@ -145,13 +152,59 @@ class CMFramework(DefaultModel):
             
             # Optimize DSM loss
             # dsm_loss = jnp.mean((dx_dt - noise) ** 2)
-            dsm_loss = jnp.mean((denoised - y) ** 2)
+            # Weight to be uniform across noise level
 
+            weight = None
+            if self.head_type == 'score_pde':
+                weight = 1 / (sigma ** 2) 
+            else:
+                sigma_data = 0.5
+                weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
+            dsm_loss = jnp.mean(weight * (denoised - y) ** 2)
+
+            # Loss and loss dict construction
+            total_loss = dsm_loss
+            
             loss_dict = {}
             loss_dict['l2_dist'] = l2_dist
             loss_dict['lpips_dist'] = lpips_dist
             loss_dict['dsm_loss'] = dsm_loss
-            return dsm_loss, loss_dict
+
+            if self.head_type == 'score_pde':
+                # Get dh_dx_inv loss
+                dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+                primals, pseudo_identity = jax.jvp(
+                    partial(
+                        self.model.apply,
+                        {'params': self.model_state.params_ema}, sigma=sigma,
+                        train=False, augment_labels=None, rngs={'dropout': dropout_key_2}
+                    ),
+                    (perturbed_x, ), (dh_dx_inv, )
+                )
+                pseudo_identity = pseudo_identity[0]
+                dh_dx_inv_loss = jnp.mean((pseudo_identity - jnp.ones_like(pseudo_identity)) ** 2)
+
+                # Get dh_dt loss
+                dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+                primals, target_dh_dt = jax.jvp(
+                    lambda sigma: self.model.apply(
+                        {'params': self.model_state.params_ema}, x=perturbed_x, sigma=sigma,
+                        train=False, augment_labels=None, rngs={'dropout': dropout_key_2}
+                    ),   
+                    (sigma, ), (jnp.ones_like(sigma), )
+                )
+                target_dh_dt = target_dh_dt[0]
+                dh_dt_loss = jnp.mean((dh_dt - target_dh_dt) ** 2)
+
+                # Add to total_loss
+                dh_dx_inv_weight = 1.0
+                dh_dt_weight = 1.0
+                total_loss += dh_dx_inv_weight * dh_dx_inv_loss
+                total_loss += dh_dt_weight * dh_dt_loss
+                loss_dict['dh_dx_inv_loss'] = dh_dx_inv_loss
+                loss_dict['dh_dt_loss'] = dh_dt_loss
+            # return dsm_loss, loss_dict
+            return total_loss, loss_dict
         
         
         # Define update function
@@ -203,6 +256,9 @@ class CMFramework(DefaultModel):
                 train=False, augment_labels=None, rngs={'dropout': dropout_key}
             )
 
+            if self.head_type == 'score_pde':
+                denoised, dh_dx_inv, dh_dt = denoised
+
             # predicted_score = - (x_hat - denoised) ** 2 / (t_hat ** 2)
             d_cur = (x_hat - denoised) / t_hat
             euler_x_prev = x_hat + (t_prev - t_hat) * d_cur
@@ -223,6 +279,10 @@ class CMFramework(DefaultModel):
                     {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
                     train=False, augment_labels=None, rngs={'dropout': dropout_key}
                 )
+
+                if self.head_type == 'score_pde':
+                    denoised, dh_dx_inv, dh_dt = denoised
+
                 d_prime = (euler_x_prev - denoised) / t_prev
                 heun_x_prev = x_hat + 0.5 * (t_prev - t_hat) * (d_cur + d_prime)
                 return heun_x_prev

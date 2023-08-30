@@ -1,0 +1,44 @@
+# Type of score
+# - baseline: stack of UNetblock. Not encoder-decoder model.
+# - unet: Encdoer-decoder model with UNetBlock.
+
+type: "score_pde"
+
+model_type: "unetpp" # baseline, unetpp
+
+baseline:
+  image_channels: 3
+  n_channels: 128
+
+  last_ch_mult:  2
+  n_blocks: 4
+  n_heads: 1
+  n_groups: 32
+  dropout_rate: 0.1
+
+  resample_filter: [1, 1]
+
+unetpp:
+  image_channels: 3
+  n_channels: 128
+  label_dim:  0
+  # augment_dim: 0
+  augment_dim: 9
+
+  # ch_mults: [2, 2, 2]
+  ch_mults: [2, 2]
+  is_atten: [False, True]
+  # n_blocks: 4
+  n_blocks: 1 #2
+  n_heads: 1
+  n_groups: 32
+  dropout_rate: 0.13
+  label_dropout_rate: 0.0
+  input_channels: 256
+  input_t_embed: True
+
+  embedding_type: positional
+  encoder_type : standard
+  decoder_type : standard
+  resample_filter: [1, 1]
+  learn_sigma: False

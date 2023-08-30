@@ -3,6 +3,7 @@ from flax import linen as nn
 
 from typing import Tuple, Union, List, Any
 from collections import OrderedDict
+from dataclasses import field
 
 from model.modules import *
 
@@ -138,19 +139,6 @@ class AttentionModule(nn.Module):
         a = jnp.transpose(a, (0, 2, 3, 1))
         
         x = self.proj(a) + orig_x
-        # orig_x = x
-        # x = self.norm2(x)
-        # qkv = self.qkv(x)
-        # qkv = qkv.reshape(x.shape[0] * self.num_heads, -1, 3, x.shape[-1] // self.num_heads)
-        # q, k, v = jnp.split(qkv, 3, axis=2)
-        # k = k / jnp.sqrt(k.shape[-1])
-        
-        # w = jnp.einsum('bqnc,bknc->bqkn', q, k)
-        # w = nn.softmax(w, axis=2)
-
-        # a = jnp.einsum('bqkn,bknc->bqnc', w, v)
-        # a = a.reshape(*x.shape)
-        # x = self.proj(a) + orig_x
         return x
 
 class UNetBlock(nn.Module):
@@ -452,6 +440,64 @@ class UNetppHead(UNetpp):
         head_conv_input = nn.silu(jnp.concatenate([x, x_pred, x_emb_norm], axis=-1))
         x_input_for_unetpp = self.conv1(head_conv_input)
         return super().__call__(x_input_for_unetpp, c_noise, train, t_emb=t_emb)
+
+class PDEScoreHead(nn.Module):
+    model_type: str = "baseline" # baseline, unetpp
+    baseline: dict = field(default_factory= lambda:{
+        "image_channels": 3,
+        "n_channels": 128,
+        "last_ch_mult": 2,
+        "n_blocks": 4,
+        "n_heads": 1,
+        "n_groups": 32,
+        "dropout_rate": 0.1,
+        "resample_filter": (1, 1),
+    })
+    unetpp: dict = field(default_factory= lambda:{
+        "image_channels":  3,
+        "n_channels": 128,
+        "label_dim": 0,
+        "augment_dim": 0,
+        
+        "ch_mults": (1, 2, 2, 2),
+        "is_atten": (False, True, False, False),
+        "n_blocks": 4,
+        "n_heads": 1,
+        "n_groups": 32,
+        "dropout_rate": 0.1,
+        "label_dropout_rate": 0.0,
+
+        "embedding_type": "positional",
+        "encoder_type" : "standard",
+        "decoder_type" : "standard",
+        "resample_filter": (1, 1),
+        "learn_sigma": False,
+
+        "t_emb_output": False,
+        "input_channels": 256,
+        "input_t_embed": True,
+    })
+
+    def setup(self):
+        if self.model_type == "baseline":
+            self.dh_dx_inv_model = TimeEmbedDependentHead(**self.baseline)
+            self.dh_dt_model = TimeEmbedDependentHead(**self.baseline)
+        elif self.model_type == "unetpp":
+            self.dh_dx_inv_model = UNetppHead(**self.unetpp)
+            self.dh_dt_model = UNetppHead(**self.unetpp)
+        else:
+            raise NotImplementedError
+    
+    def __call__(self, x, c_noise, x_pred, x_emb, t_emb, train):
+        if self.model_type == "baseline":
+            dh_dx_inv = self.dh_dx_inv_model(x, x_pred, x_emb, t_emb, train)
+            dh_dt = self.dh_dt_model(x, x_pred, x_emb, t_emb, train)
+        elif self.model_type == "unetpp":
+            dh_dx_inv = self.dh_dx_inv_model(x, c_noise, x_pred, x_emb, t_emb, train)
+            dh_dt = self.dh_dt_model(x, c_noise, x_pred, x_emb, t_emb, train)
+        score = dh_dx_inv * dh_dt
+        return score, dh_dx_inv, dh_dt
+
     
 
 class TimeEmbedDependentHead(nn.Module):
@@ -696,6 +742,8 @@ class ScoreDistillPrecond(nn.Module):
                 resample_filter=self.model_kwargs['resample_filter'],)
         elif self.model_type == "unetpp":
             self.head = UNetppHead(**self.model_kwargs)
+        elif self.model_type == "score_pde":
+            self.head = PDEScoreHead(**self.model_kwargs)
     
     def __call__(self, x, sigma, F_x, t_emb, last_x_emb, augment_labels, train):
         c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
@@ -707,3 +755,9 @@ class ScoreDistillPrecond(nn.Module):
             return c_skip * x + c_out * self.head(c_in * x, F_x, last_x_emb, t_emb, train)
         elif self.model_type == "unetpp":
             return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train)
+        elif self.model_type == "score_pde": 
+            # Use tweedie formula for modeling x_0
+            # self.head = sigma * (score function) for simplicity
+            sigma_score, dh_dx_inv, dh_dt = self.head(x, c_noise, x, last_x_emb, t_emb, train)
+            return x + sigma * sigma_score, dh_dx_inv, dh_dt
+            # return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train)
