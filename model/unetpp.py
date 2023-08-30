@@ -256,8 +256,8 @@ class UNetpp(nn.Module):
     label_dim: int = 0
     augment_dim: int = 0
     
-    ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 2, 2)# (1, 2, 4, 4) # (1, 2, 2, 4)
-    is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False) # (False, True, True, True) # (False, False, True, True)
+    ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 2, 2)
+    is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False)
     n_blocks: int = 4
     n_heads: int = 1
     n_groups: int = 32
@@ -271,6 +271,7 @@ class UNetpp(nn.Module):
     learn_sigma: bool = False
 
     t_emb_output: bool = False
+    input_channels: int = None
 
     def setup(self):
         emb_channels = self.n_channels * 4
@@ -308,7 +309,7 @@ class UNetpp(nn.Module):
         for level, mult in enumerate(self.ch_mults):
             res = img_res >> level
             if level == 0:
-                cin = cout
+                cin = cout if self.input_channels is None else self.input_channels
                 cout = self.n_channels
                 enc_modules[f'{res}x{res}_conv'] = CustomConv2d(in_channels=cin, out_channels=cout, kernel_channels=3, init_mode=init)
                 skips.append(cout)
@@ -404,12 +405,53 @@ class UNetpp(nn.Module):
         else:
             return aux
 
+class UNetppHead(UNetpp):
+    image_channels: int = 3
+    n_channels: int = 128
+    label_dim: int = 0
+    augment_dim: int = 0
+    
+    ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 2, 2)
+    is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False)
+    n_blocks: int = 4
+    n_heads: int = 1
+    n_groups: int = 32
+    dropout_rate: float = 0.1
+    label_dropout_rate: float = 0.0
+
+    embedding_type: str = "positional"
+    encoder_type : str = "standard"
+    decoder_type : str = "standard"
+    resample_filter: Union[Tuple[int, ...], List[int]] = (1, 1)
+    learn_sigma: bool = False
+
+    t_emb_output: bool = False
+    input_channels: int = 256
+
+    def setup(self):
+        init = create_initializer("xavier_uniform")
+        self.normalize1 = nn.GroupNorm()
+        head_channels = self.n_channels * self.ch_mults[0]
+        self.conv1 = CustomConv2d(in_channels=head_channels + self.image_channels * 2, 
+                                  out_channels=head_channels, 
+                                  kernel_channels=3,
+                                  init_mode=init)
+        super().setup()
+    
+    def __call__(self, x, c_noise, x_pred, x_emb, train):
+        x_emb_norm = self.normalize1(x_emb)
+        head_conv_input = nn.silu(jnp.concatenate([x, x_pred, x_emb_norm], axis=-1))
+        x_input_for_unetpp = self.conv1(head_conv_input)
+        return super().__call__(x_input_for_unetpp, c_noise, train)
+    
+
 class TimeEmbedDependentHead(nn.Module):
     image_channels: int = 3
     n_channels: int = 128
     last_ch_mult: int = 2
     n_blocks: int = 4
     n_heads: int = 1
+    n_groups: int = 32
     dropout_rate: float = 0.1
     resample_filter: Union[Tuple[int, ...], List[int]] = (1, 1)
     
@@ -436,6 +478,7 @@ class TimeEmbedDependentHead(nn.Module):
                                   init_mode=init)
         
         blocks = []
+
         for _ in range(self.n_blocks-1):
             blocks.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, **block_kwargs))
         blocks.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, attention=True, **block_kwargs))
@@ -498,6 +541,8 @@ class EDMPrecond(nn.Module):
         F_x = net(c_in * x, c_noise.flatten(), train, augment_labels)
         D_x = c_skip * x + c_out * F_x
         return D_x
+
+
 
 class CMPrecond(nn.Module):
     model_kwargs : dict
@@ -577,22 +622,6 @@ class CMDMPrecond(nn.Module):
 
         init_zero = create_initializer('xavier_zero')
         
-        # D_x = c_skip * x + c_out * F_x
-        # return D_x
-        # consistency_head = TimeEmbedDependentHead(
-        #     image_channels=self.image_channels, 
-        #     n_channels=self.model_kwargs['n_channels'],
-        #     last_ch_mult=self.model_kwargs['ch_mults'][0],
-        #     n_heads=self.model_kwargs['n_heads'],
-        #     dropout_rate=self.model_kwargs['dropout_rate'],
-        #     resample_filter=self.model_kwargs['resample_filter'],)
-        # diffusion_head = TimeEmbedDependentHead(
-        #     image_channels=self.image_channels, 
-        #     n_channels=self.model_kwargs['n_channels'],
-        #     last_ch_mult=self.model_kwargs['ch_mults'][0],
-        #     n_heads=self.model_kwargs['n_heads'],
-        #     dropout_rate=self.model_kwargs['dropout_rate'],
-        #     resample_filter=self.model_kwargs['resample_filter'],)
         if not self.t_emb_output:
             F_x = self.UNetpp_0(c_in * x, c_noise.flatten(), train, augment_labels)
             t_emb = jnp.zeros((x.shape[0], self.model_kwargs['n_channels'] * 4))
@@ -646,13 +675,18 @@ class ScoreDistillPrecond(nn.Module):
     sigma_max : float = float('inf') # 80
     sigma_data : float = 0.5
 
-    def setup(self):        
-        self.TimeEmbedDependentHead = TimeEmbedDependentHead(
-            image_channels=self.image_channels, 
-            n_channels=self.model_kwargs['n_channels'],
-            n_heads=self.model_kwargs['n_heads'],
-            dropout_rate=self.model_kwargs['dropout_rate'],
-            resample_filter=self.model_kwargs['resample_filter'],)
+    model_type: str = "baseline"
+
+    def setup(self):
+        if self.model_type == "baseline":
+            self.head = TimeEmbedDependentHead(
+                image_channels=self.image_channels, 
+                n_channels=self.model_kwargs['n_channels'],
+                n_heads=self.model_kwargs['n_heads'],
+                dropout_rate=self.model_kwargs['dropout_rate'],
+                resample_filter=self.model_kwargs['resample_filter'],)
+        elif self.model_type == "unetpp":
+            self.head = UNetppHead(**self.model_kwargs)
     
     def __call__(self, x, sigma, F_x, t_emb, last_x_emb, augment_labels, train):
         c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
@@ -660,4 +694,7 @@ class ScoreDistillPrecond(nn.Module):
         c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
         c_noise = jnp.log(sigma) / 4
         
-        return c_skip * x + c_out * self.TimeEmbedDependentHead(c_in * x, F_x, last_x_emb, t_emb, train)
+        if self.model_type == "baseline":
+            return c_skip * x + c_out * self.head(c_in * x, F_x, last_x_emb, t_emb, train)
+        elif self.model_type == "unetpp":
+            return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, train)

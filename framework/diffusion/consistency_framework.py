@@ -22,6 +22,8 @@ from functools import partial
 import os
 from typing import Any
 
+from clu import parameter_overview
+
 class CMFramework(DefaultModel):
     def __init__(self, config: DictConfig, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
         diffusion_framework: DictConfig = config.framework.diffusion
@@ -37,21 +39,27 @@ class CMFramework(DefaultModel):
         # Create UNet and its state
         model_config = {**config.model.diffusion}
         model_type = model_config.pop("type")
+
+        head_config = {**config.model.head}
+        head_type = head_config.pop("type")
         
         self.model = CMPrecond(model_config, 
                                image_channels=model_config['image_channels'], 
                                model_type=model_type, 
                                sigma_min=diffusion_framework['sigma_min'],
                                sigma_max=diffusion_framework['sigma_max'])
-        self.head = ScoreDistillPrecond(model_config, 
+        self.head = ScoreDistillPrecond(head_config, 
                                image_channels=model_config['image_channels'], 
                                sigma_min=diffusion_framework['sigma_min'],
-                               sigma_max=diffusion_framework['sigma_max'])
+                               sigma_max=diffusion_framework['sigma_max'],
+                               model_type=head_type)
         
         self.model_state, self.head_state = self.init_model_state(config)
-        self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
-        # checkpoint_dir =  "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
-        # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir=checkpoint_dir)
+        # print(parameter_overview.get_parameter_overview(self.head_state.params))
+        # breakpoint()
+        # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
+        checkpoint_dir =  "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
+        self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir=checkpoint_dir)
         # self.head_state = fs_obj.load_model_state("diffusion", self.head_state)
         # self.model_state = flax.jax_utils.replicate(self.model_state)
         self.head_state = flax.jax_utils.replicate(self.head_state)
@@ -105,11 +113,8 @@ class CMFramework(DefaultModel):
             
             F_x, t_emb, last_x_emb = aux
             
-            # dx_dt = self.head.apply(
-            #     {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
-            #     train=True, augment_labels=None, rngs={'dropout': dropout_key})
             denoised = self.head.apply(
-                {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key})
             
             # model_fn = lambda x, t: self.model.apply(
@@ -122,7 +127,7 @@ class CMFramework(DefaultModel):
             # prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * dx_dt
             # predicted_score = - (perturbed_x - denoised) ** 2 / (sigma ** 2)
             dx_dt = (perturbed_x - denoised) / sigma
-            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * dx_dt
+            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * dx_dt # Euler step
             
             prev_D_x, aux = self.model.apply(
                 {'params': self.model_state.params}, x=prev_perturbed_x, sigma=prev_sigma,
@@ -181,7 +186,7 @@ class CMFramework(DefaultModel):
             x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
 
             # Euler step
-            _, aux = self.model.apply(
+            D_x, aux = self.model.apply(
                 {'params': self.model_state.params_ema}, x=x_hat, sigma=t_hat, 
                 train=False, augment_labels=None, rngs={'dropout': dropout_key})
             
@@ -194,7 +199,7 @@ class CMFramework(DefaultModel):
             # euler_x_prev = x_hat + (t_prev - t_hat) * dx_dt
 
             denoised = self.head.apply(
-                {'params': head_params}, x=x_hat, sigma=t_hat, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                {'params': head_params}, x=x_hat, sigma=t_hat, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
                 train=False, augment_labels=None, rngs={'dropout': dropout_key}
             )
 
@@ -204,7 +209,7 @@ class CMFramework(DefaultModel):
 
             # Apply 2nd order correction.
             def second_order_corrections(euler_x_prev, t_prev, x_hat, t_hat, d_cur, rng_key):
-                _, aux = self.model.apply(
+                D_x, aux = self.model.apply(
                     {'params': self.model_state.params_ema}, x=euler_x_prev, sigma=t_prev,
                     train=False, augment_labels=None, rngs={'dropout': rng_key})
                 
@@ -215,7 +220,7 @@ class CMFramework(DefaultModel):
                 #     train=False, augment_labels=None, rngs={'dropout': dropout_key}
                 # )
                 denoised = self.head.apply(
-                    {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=F_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                    {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
                     train=False, augment_labels=None, rngs={'dropout': dropout_key}
                 )
                 d_prime = (euler_x_prev - denoised) / t_prev

@@ -8,13 +8,10 @@ defaults:
     # - diffusion/cm
     - diffusion/cm_diffusion
     # - diffusion/cm_dm
-  - model: 
-    # - autoencoder/autoencoder_kl
-    # - discriminator/discriminator_kl
-    # - diffusion/dit_b
-    # - diffusion/unet
-    # - diffusion/unetpp
+  - model@_group_.diffusion: 
     - diffusion/unetpp_cm
+  - model@_group_.head: 
+    - diffusion/score_head
   # - ema: ema_edm
   - ema: ema
   - dataset: cifar10
@@ -23,7 +20,7 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: denoised_230829
+exp_name: 0830_verification_mini_unet
 do_training: true
 do_sampling: true
 num_sampling: 50000
