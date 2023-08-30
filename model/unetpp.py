@@ -272,6 +272,7 @@ class UNetpp(nn.Module):
 
     t_emb_output: bool = False
     input_channels: int = None
+    input_t_embed: bool = False
 
     def setup(self):
         emb_channels = self.n_channels * 4
@@ -296,6 +297,8 @@ class UNetpp(nn.Module):
         self.map_augment = Linear(self.augment_dim, noise_channels, use_bias=False, init_mode=init) if self.augment_dim else None
         self.map_layer0 = Linear(noise_channels, emb_channels, init_mode=init)
         self.map_layer1 = Linear(emb_channels, emb_channels, init_mode=init)
+
+        self.map_noise_proj = Linear(2 * emb_channels, emb_channels, init_mode=init) if self.input_t_embed else None
 
         # Encoder
         enc_modules = {}
@@ -351,7 +354,7 @@ class UNetpp(nn.Module):
         self.enc = enc_modules
         self.dec = dec_modules
 
-    def __call__(self, x, noise_labels, train, augment_labels=None):
+    def __call__(self, x, noise_labels, train, augment_labels=None, t_emb=None):
         emb = self.map_noise(noise_labels)
 
         # Swap sin/cos
@@ -367,6 +370,11 @@ class UNetpp(nn.Module):
         # TODO: Add conditional stuffs in here
         emb = nn.silu(self.map_layer0(emb))
         emb = nn.silu(self.map_layer1(emb))
+
+        # Add t_embd if exists
+        if self.input_t_embed:
+            t_emb = self.map_noise_proj(jnp.concatenate([emb, t_emb], axis=-1))
+            emb = t_emb
 
         # Encoder
         skips = []
@@ -427,6 +435,7 @@ class UNetppHead(UNetpp):
 
     t_emb_output: bool = False
     input_channels: int = 256
+    input_t_embed: bool = True
 
     def setup(self):
         init = create_initializer("xavier_uniform")
@@ -438,11 +447,11 @@ class UNetppHead(UNetpp):
                                   init_mode=init)
         super().setup()
     
-    def __call__(self, x, c_noise, x_pred, x_emb, train):
+    def __call__(self, x, c_noise, x_pred, x_emb, t_emb, train):
         x_emb_norm = self.normalize1(x_emb)
         head_conv_input = nn.silu(jnp.concatenate([x, x_pred, x_emb_norm], axis=-1))
         x_input_for_unetpp = self.conv1(head_conv_input)
-        return super().__call__(x_input_for_unetpp, c_noise, train)
+        return super().__call__(x_input_for_unetpp, c_noise, train, t_emb=t_emb)
     
 
 class TimeEmbedDependentHead(nn.Module):
@@ -697,4 +706,4 @@ class ScoreDistillPrecond(nn.Module):
         if self.model_type == "baseline":
             return c_skip * x + c_out * self.head(c_in * x, F_x, last_x_emb, t_emb, train)
         elif self.model_type == "unetpp":
-            return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, train)
+            return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train)

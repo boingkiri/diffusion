@@ -20,7 +20,7 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 0830_verification_mini_unet
+exp_name: 0830_verification_mini_unet_t_emb_plus_c_noise
 do_training: true
 do_sampling: true
 num_sampling: 50000

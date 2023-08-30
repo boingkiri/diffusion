@@ -2,7 +2,7 @@
 # - baseline: stack of UNetblock. Not encoder-decoder model.
 # - unet: Encdoer-decoder model with UNetBlock.
 
-type: "baseline" 
+type: "baseline"
 
 image_channels: 3
 n_channels: 128
