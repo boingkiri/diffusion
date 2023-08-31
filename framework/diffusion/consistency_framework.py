@@ -170,7 +170,7 @@ class CMFramework(DefaultModel):
             loss_dict['lpips_dist'] = lpips_dist
             loss_dict['dsm_loss'] = dsm_loss
 
-            if self.head_type == 'score_pde':
+            if self.head_type == 'score_pde' and diffusion_framework['score_pde_regularizer']:
                 # Get dh_dx_inv loss
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
                 primals, pseudo_identity = jax.jvp(
@@ -197,8 +197,8 @@ class CMFramework(DefaultModel):
                 dh_dt_loss = jnp.mean((dh_dt - target_dh_dt) ** 2)
 
                 # Add to total_loss
-                dh_dx_inv_weight = 1.0
-                dh_dt_weight = 1.0
+                dh_dx_inv_weight = diffusion_framework['dh_dx_inv_weight']
+                dh_dt_weight = diffusion_framework['dh_dt_weight']
                 total_loss += dh_dx_inv_weight * dh_dx_inv_loss
                 total_loss += dh_dt_weight * dh_dt_loss
                 loss_dict['dh_dx_inv_loss'] = dh_dx_inv_loss
