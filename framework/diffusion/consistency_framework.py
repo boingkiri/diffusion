@@ -122,7 +122,8 @@ class CMFramework(DefaultModel):
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
         
             if self.head_type == 'score_pde':
-                denoised, dh_dx_inv, dh_dt = denoised
+                denoised, aux = denoised
+                dh_dx_inv, dh_dt = aux
             
             # model_fn = lambda x, t: self.model.apply(
             #     {'params': self.model_state.params}, x=x, sigma=t, 
@@ -173,16 +174,36 @@ class CMFramework(DefaultModel):
             if self.head_type == 'score_pde' and diffusion_framework['score_pde_regularizer']:
                 # Get dh_dx_inv loss
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-                primals, pseudo_identity = jax.jvp(
-                    partial(
-                        self.model.apply,
-                        {'params': self.model_state.params_ema}, sigma=sigma,
+                # primals, pseudo_identity = jax.jvp(
+                #     lambda data: self.model.apply(
+                #             {'params': self.model_state.params_ema}, x=data, sigma=sigma,
+                #             train=False, augment_labels=None, rngs={'dropout': dropout_key_2}
+                #         ),
+                #     (perturbed_x, ), (dh_dx_inv, )
+                # )
+                def egrad(g): # diagonal of jacobian can be calculated by egrad (elementwise grad)
+                    def wrapped(x, *rest):
+                        y, g_vjp = jax.vjp(lambda x: g(x, *rest)[0], x)
+                        x_bar, = g_vjp(jnp.ones_like(y))
+                        return x_bar
+                    return wrapped
+
+                target_dh_dx_diag = egrad(
+                    lambda data: self.model.apply(
+                        {'params': self.model_state.params_ema}, x=data, sigma=sigma,
                         train=False, augment_labels=None, rngs={'dropout': dropout_key_2}
-                    ),
-                    (perturbed_x, ), (dh_dx_inv, )
-                )
-                pseudo_identity = pseudo_identity[0]
-                dh_dx_inv_loss = jnp.mean((pseudo_identity - jnp.ones_like(pseudo_identity)) ** 2)
+                    )
+                )(perturbed_x, )
+                # _, target_dh_dx_diag = jax.jvp(
+                #     lambda data: self.model.apply(
+                #         {'params': self.model_state.params_ema}, x=data, sigma=sigma,
+                #         train=False, augment_labels=None, rngs={'dropout': dropout_key_2}
+                #     ),
+                #     (perturbed_x, ), (jnp.ones_like(dh_dx_inv), )
+                # )
+                # target_dh_dx_diag = target_dh_dx_diag[0]
+                # pseudo_identity = pseudo_identity[0]
+                dh_dx_inv_loss = jnp.mean((dh_dx_inv * target_dh_dx_diag - jnp.ones_like(dh_dx_inv)) ** 2)
 
                 # Get dh_dt loss
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
@@ -190,8 +211,8 @@ class CMFramework(DefaultModel):
                     lambda sigma: self.model.apply(
                         {'params': self.model_state.params_ema}, x=perturbed_x, sigma=sigma,
                         train=False, augment_labels=None, rngs={'dropout': dropout_key_2}
-                    ),   
-                    (sigma, ), (jnp.ones_like(sigma), )
+                    ),
+                    (sigma, ), (jnp.ones_like(sigma), ),
                 )
                 target_dh_dt = target_dh_dt[0]
                 dh_dt_loss = jnp.mean((dh_dt - target_dh_dt) ** 2)
@@ -257,7 +278,8 @@ class CMFramework(DefaultModel):
             )
 
             if self.head_type == 'score_pde':
-                denoised, dh_dx_inv, dh_dt = denoised
+                denoised, aux = denoised
+                dh_dx_inv, dh_dt = aux
 
             # predicted_score = - (x_hat - denoised) ** 2 / (t_hat ** 2)
             d_cur = (x_hat - denoised) / t_hat
@@ -281,7 +303,8 @@ class CMFramework(DefaultModel):
                 )
 
                 if self.head_type == 'score_pde':
-                    denoised, dh_dx_inv, dh_dt = denoised
+                    denoised, aux = denoised
+                    dh_dx_inv, dh_dt = aux
 
                 d_prime = (euler_x_prev - denoised) / t_prev
                 heun_x_prev = x_hat + 0.5 * (t_prev - t_hat) * (d_cur + d_prime)

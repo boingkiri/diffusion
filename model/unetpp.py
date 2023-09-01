@@ -759,5 +759,5 @@ class ScoreDistillPrecond(nn.Module):
             # Use tweedie formula for modeling x_0
             # self.head = sigma * (score function) for simplicity
             sigma_score, dh_dx_inv, dh_dt = self.head(x, c_noise, F_x, last_x_emb, t_emb, train)
-            return x + sigma * sigma_score, dh_dx_inv, dh_dt
+            return x + sigma * sigma_score, (dh_dx_inv, dh_dt)
             # return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train)
