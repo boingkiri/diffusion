@@ -93,7 +93,7 @@ class CMFramework(DefaultModel):
         
         @jax.jit
         def model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key):
-            model_params = params.get('model_state', None)
+            model_params = params.get('model_state', self.model_state.params_ema)
             head_params = params['head_state']
 
             rng_key, dropout_key = jax.random.split(rng_key, 2)
@@ -121,7 +121,7 @@ class CMFramework(DefaultModel):
 
         @jax.jit
         def monitor_metric_fn(params, y, rng_key):
-            model_params = params.get('model_state', None)
+            model_params = params.get('model_state', self.model_state.params_ema)
             # head_params = params['head_state']
 
             rng_key, step_key, solver_key, dropout_key = jax.random.split(rng_key, 4)
@@ -170,8 +170,7 @@ class CMFramework(DefaultModel):
 
         @jax.jit
         def distill_loss_fn(params, y, rng_key, has_aux=False):
-            # model_params = params.get('model_state', self.model_state.params_ema)
-            model_params = params.get('model_state', None)
+            model_params = params.get('model_state', self.model_state.params_ema)
             head_params = params['head_state']
 
             rng_key, step_key, solver_key, dropout_key = jax.random.split(rng_key, 4)
@@ -283,7 +282,11 @@ class CMFramework(DefaultModel):
         # Define p_sample_jit functions for sampling
         # Multistep sampling using the distilled score
         # Progress one step towards the sample
-        def sample_edm_fn(head_params, x_cur, rng_key, gamma, t_cur, t_prev):
+        def sample_edm_fn(params, x_cur, rng_key, gamma, t_cur, t_prev):
+            # model_params = params.get('model_state', None)
+            model_params = params.get('model_state', self.model_state.params_ema)
+            head_params = params['head_state']
+
             rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
 
             # Increase noise temporarily.
@@ -293,7 +296,7 @@ class CMFramework(DefaultModel):
 
             # Euler step
             D_x, aux = self.model.apply(
-                {'params': self.model_state.params_ema}, x=x_hat, sigma=t_hat, 
+                {'params': model_params}, x=x_hat, sigma=t_hat, 
                 train=False, augment_labels=None, rngs={'dropout': dropout_key})
             
             F_x, t_emb, last_x_emb = aux
@@ -314,10 +317,11 @@ class CMFramework(DefaultModel):
             # Apply 2nd order correction.
             def second_order_corrections(euler_x_prev, t_prev, x_hat, t_hat, d_cur, rng_key):
                 D_x, aux = self.model.apply(
-                    {'params': self.model_state.params_ema}, x=euler_x_prev, sigma=t_prev,
+                    {'params': model_params}, x=euler_x_prev, sigma=t_prev,
                     train=False, augment_labels=None, rngs={'dropout': rng_key})
                 
                 F_x, t_emb, last_x_emb = aux
+
                 denoised = self.head.apply(
                     {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
                     train=False, augment_labels=None, rngs={'dropout': dropout_key}
@@ -451,8 +455,9 @@ class CMFramework(DefaultModel):
             t_next = jnp.asarray([t_next] * jax.local_device_count())
             gamma = jnp.asarray([gamma] * jax.local_device_count())
             # latent_sample = self.p_sample_edm(self.head_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
-            latent_sample = self.p_sample_edm(self.training_states['head_state'].params_ema,
-                                              latent_sample, rng_key, gamma, t_cur, t_next)
+            latent_sample = self.p_sample_edm(
+                {state_name: state_content.params_ema for state_name, state_content in self.training_states.items()},
+                latent_sample, rng_key, gamma, t_cur, t_next)
 
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
