@@ -83,49 +83,22 @@ class UnifyingFramework():
             self.total_step = config['framework']['diffusion']['train']['total_step']
             self.checkpoint_prefix = config.exp.diffusion_prefix
 
-    def sampling(self, num_img, original_data=None):
-        sample = self.framework.sampling(num_img, original_data=original_data)
+    def sampling(self, num_img, original_data=None, mode=None):
+        if mode is None:
+            sample = self.framework.sampling(num_img, original_data=original_data)
+        else:
+            sample = self.framework.sampling(num_img, original_data=original_data, mode=mode)
         sample = jnp.reshape(sample, (num_img, *sample.shape[-3:]))
         return sample
     
-    def save_model_state(self, state:list):
-        if self.current_model_type in self.diffusion_model_type or \
-            (self.current_model_type == "ldm" and self.train_idx == 2):
-            assert len(state) == 1
-            diffusion_prefix = self.config.exp.diffusion_prefix
+    def save_model_state(self, states:dict):
+        for state_key in states:
             jax_utils.save_train_state(
-                state[0], 
-                self.config.exp.checkpoint_dir, 
-                self.step, 
-                prefix=diffusion_prefix)
-        elif self.current_model_type == "cm_diffusion":
-            assert len(state) == 2
-            cm_prefix = self.config.exp.cm_prefix
-            diffusion_prefix = self.config.exp.diffusion_prefix
-            jax_utils.save_train_state(
-                state[0], 
-                self.config.exp.checkpoint_dir, 
-                self.step, 
-                prefix=cm_prefix)
-            jax_utils.save_train_state(
-                state[1], 
-                self.config.exp.checkpoint_dir, 
-                self.step, 
-                prefix=diffusion_prefix)
-        elif self.current_model_type == "ldm" and self.train_idx == 1:
-            assert len(state) == 2
-            autoencoder_prefix = self.config.exp.autoencoder_prefix
-            discriminator_prefix = self.config.exp.discriminator_prefix
-            jax_utils.save_train_state(
-                state[0], 
-                self.config.exp.checkpoint_dir, 
-                self.step, 
-                prefix=autoencoder_prefix)
-            jax_utils.save_train_state(
-                state[1], 
-                self.config.exp.checkpoint_dir, 
-                self.step, 
-                prefix=discriminator_prefix)
+                states[state_key],
+                self.config.exp.checkpoint_dir,
+                self.step,
+                prefix=state_key + "_"
+            )
 
     def train(self):
         datasets = common_utils.load_dataset_from_tfds(n_jitted_steps=self.n_jitted_steps, x_flip=self.dataset_x_flip)
@@ -137,29 +110,54 @@ class UnifyingFramework():
         first_step = True
         
         for x, _ in datasets_bar:
-            log = self.framework.fit(x, step=self.step)
+            eval_during_training = self.step % 1000 == 0
+            log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
+
             
             if self.current_model_type == "ldm" and self.train_idx == 1:
                 loss_ema = log["train/total_loss"]
             else:
                 # loss_ema = log["total_loss"]
-                l2_dist = log['l2_dist']
-                lpips_dist = log['lpips_dist']
-                dsm_loss = log['dsm_loss']
-            datasets_bar.set_description("Step: {step} l2_dist: {l2_dist:.4f} lpips_dist: {lpips_dist:.4f} dsm_loss: {dsm_loss:.4f}  lr*1e4: {lr:.4f}".format(
+                # l2_dist = log['l2_dist']
+                # lpips_dist = log['lpips_dist']
+                dsm_loss = log['train/dsm_loss']
+            # datasets_bar.set_description("Step: {step} l2_dist: {l2_dist:.4f} lpips_dist: {lpips_dist:.4f} dsm_loss: {dsm_loss:.4f}  lr*1e4: {lr:.4f}".format(
+            #     step=self.step,
+            #     l2_dist=l2_dist,
+            #     lpips_dist=lpips_dist,
+            #     dsm_loss=dsm_loss,
+            #     lr=self.learning_rate_schedule(self.step)*(1e+4)
+            # ))
+            datasets_bar.set_description("Step: {step} dsm_loss: {dsm_loss:.4f}  lr*1e4: {lr:.4f}".format(
                 step=self.step,
-                l2_dist=l2_dist,
-                lpips_dist=lpips_dist,
                 dsm_loss=dsm_loss,
                 lr=self.learning_rate_schedule(self.step)*(1e+4)
             ))
 
             if self.step % 1000 == 0:
                 batch_data = x[0, 0, :8] # (device_idx, n_jitted_steps, batch_size)
-                sample = self.sampling(8, original_data=batch_data)
+
+                # Change of the sample quality is tracked to know how much the CM model is corrupted.
+                # Sample generated image for EDM
+                sample = self.sampling(8, original_data=batch_data, mode="edm")
                 xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_path = self.fs_utils.save_comparison(xset, self.step, in_process_dir)
                 log['Sampling'] = wandb.Image(sample_path, caption=f"Step: {self.step}")
+
+                # Sample generated image for training CM
+                sample = self.sampling(8, original_data=batch_data, mode="cm_training")
+                xset = jnp.concatenate([sample[:8], batch_data], axis=0)
+                sample_image = self.fs_utils.get_pil_from_np(xset)
+                log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
+                sample_image.close()
+
+                # Sample generated image for original CM 
+                sample = self.sampling(8, original_data=batch_data, mode="cm_not_training")
+                xset = jnp.concatenate([sample[:8], batch_data], axis=0)
+                sample_image = self.fs_utils.get_pil_from_np(xset)
+                log['Original CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
+                sample_image.close()
+
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
 

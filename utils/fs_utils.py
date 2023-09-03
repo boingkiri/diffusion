@@ -11,6 +11,8 @@ from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 
+import io
+
 class FSUtils():
     def __init__(self, config: DictConfig) -> None:
         self.config = config
@@ -96,10 +98,7 @@ class FSUtils():
                     max_num = num
         return max_num
     
-    def save_comparison(self, images, steps, savepath):
-        # Make in process dir first
-        self.verify_and_create_dir(savepath)
-
+    def make_image_grid(self, images):
         images = common_utils.unnormalize_minus_one_to_one(images)
         n_images = len(images)
         f, axes = plt.subplots(n_images // 4, 4)
@@ -109,6 +108,23 @@ class FSUtils():
         for img, axis in zip(images, axes):
             axis.imshow(img)
             axis.axis('off')
+        return f
+    
+    def get_pil_from_np(self, images):
+        f = self.make_image_grid(images)
+        img_buf = io.BytesIO()
+        f.savefig(img_buf, format='png')
+
+        im = Image.open(img_buf)
+        # img_buf.close()
+        return im
+        # return Image.frombytes('RGB', f.canvas.get_width_height(),f.canvas.tostring_rgb())
+
+    def save_comparison(self, images, steps, savepath):
+        # Make in process dir first
+        self.verify_and_create_dir(savepath)
+
+        f = self.make_image_grid(images)
         
         save_filename = os.path.join(savepath, f"{steps}.png")
         f.savefig(save_filename)
