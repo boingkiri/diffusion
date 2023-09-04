@@ -116,7 +116,7 @@ class FSUtils():
         f.savefig(img_buf, format='png')
 
         im = Image.open(img_buf)
-        # img_buf.close()
+        plt.close()
         return im
         # return Image.frombytes('RGB', f.canvas.get_width_height(),f.canvas.tostring_rgb())
 
