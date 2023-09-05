@@ -60,7 +60,6 @@ class CMFramework(DefaultModel):
         checkpoint_dir = "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
         for checkpoint in os.listdir(config.exp.checkpoint_dir):
             if "diffusion" in checkpoint:
-                # checkpoint_dir = os.path.join(config.exp.checkpoint_dir, "checkpoints")
                 checkpoint_dir = config.exp.checkpoint_dir
                 break
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir=checkpoint_dir)
@@ -68,7 +67,8 @@ class CMFramework(DefaultModel):
 
         # Replicate states for training with pmap
         self.training_states = {"head_state": self.head_state}
-        if not diffusion_framework['CM_freeze']:
+        self.CM_freeze = diffusion_framework['CM_freeze']
+        if not self.CM_freeze:
             self.training_states["model_state"] = self.model_state
         self.training_states = flax.jax_utils.replicate(self.training_states)
 
@@ -132,13 +132,13 @@ class CMFramework(DefaultModel):
             model_params = params.get('model_state', self.model_state.params_ema)
             # head_params = params['head_state']
 
-            rng_key, step_key, solver_key, dropout_key = jax.random.split(rng_key, 4)
+            rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
 
             idx = jax.random.randint(step_key, (y.shape[0], ), minval=1, maxval=self.n_timestep)
             sigma = self.t_steps[idx][:, None, None, None]
             prev_sigma = self.t_steps[idx-1][:, None, None, None]
             
-            noise = jax.random.normal(rng_key, y.shape)
+            noise = jax.random.normal(noise_key, y.shape)
             perturbed_x = y + sigma * noise
 
             denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key, eval_mode=True)
@@ -181,12 +181,12 @@ class CMFramework(DefaultModel):
             model_params = params.get('model_state', self.model_state.params_ema)
             head_params = params['head_state']
 
-            rng_key, step_key, solver_key, dropout_key = jax.random.split(rng_key, 4)
+            rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
 
             idx = jax.random.randint(step_key, (y.shape[0], ), minval=1, maxval=self.n_timestep)
             sigma = self.t_steps[idx][:, None, None, None]
             prev_sigma = self.t_steps[idx-1][:, None, None, None]
-            noise = jax.random.normal(rng_key, y.shape)
+            noise = jax.random.normal(noise_key, y.shape)
 
             denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key)
             perturbed_x = y + sigma * noise
@@ -243,7 +243,7 @@ class CMFramework(DefaultModel):
 
                 # Get dh_dt loss
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-                primals, target_dh_dt = jax.jvp(
+                _, target_dh_dt = jax.jvp(
                     lambda sigma: self.model.apply(
                         {'params': self.model_state.params_ema}, x=perturbed_x, sigma=sigma,
                         train=False, augment_labels=None, rngs={'dropout': dropout_key_2}
@@ -268,11 +268,9 @@ class CMFramework(DefaultModel):
             rng, new_rng = jax.random.split(rng)
             
             # Update head (for multiple times)
-            # params = jax.tree_util.tree_map(lambda state: state.params, states)
             params = {state_name: state_content.params for state_name, state_content in states.items()}
             (_, loss_dict), grads = jax.value_and_grad(distill_loss_fn, has_aux=True)(params, x0, rng)
             grads = jax.lax.pmean(grads, axis_name=self.pmap_axis)
-            # new_head_state = states.apply_gradients(grads=grads)
             new_states = {state_name: state_content.apply_gradients(grads=grads[state_name]) 
                           for state_name, state_content in states.items()}
             
@@ -280,9 +278,17 @@ class CMFramework(DefaultModel):
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
 
             # Update EMA for sampling
-            # new_head_state = self.ema_obj.ema_update(new_head_state)
             new_states = {state_name: self.ema_obj.ema_update(state_content)
                             for state_name, state_content in new_states.items()}
+
+            # TODO: idk whether the target model of cm is used for training.
+            if not self.CM_freeze:
+                model_state = new_states['model_state']
+                ema_updated_params = jax.tree_map(
+                    lambda x, y: self.target_model_ema_decay * x + (1 - self.target_model_ema_decay) * y,
+                    model_state.target_model, model_state.params)
+                model_state = model_state.replace(target_model = ema_updated_params)
+                new_states['model_state'] = model_state
 
             new_carry_state = (new_rng, new_states)
             return new_carry_state, loss_dict
