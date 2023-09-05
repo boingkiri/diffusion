@@ -20,7 +20,7 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 0903_verification_both_training_test
+exp_name: 0905_verification_score_pde_layernorm
 do_training: true
 do_sampling: true
 num_sampling: 50000
