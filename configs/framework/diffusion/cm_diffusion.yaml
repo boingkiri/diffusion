@@ -22,8 +22,8 @@ S_max: 1
 S_noise: 1.007
 
 # Option for freezing CM during training
-CM_freeze: False
-lpips_loss_training: True # True
+CM_freeze: True
+lpips_loss_training: False # True
 
 # augment_rate: 0.12
 # loss weight for scoe_pde_head: dh_dx, dh_dt
