@@ -438,10 +438,13 @@ class CMFramework(DefaultModel):
 
     def get_model_state(self):
         # return [flax.jax_utils.unreplicate(self.head_state)]
-        return {
-            "diffusion": flax.jax_utils.unreplicate(self.training_states['model_state']), 
-            "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
-        }
+        if self.CM_freeze:
+            return {"head": flax.jax_utils.unreplicate(self.training_states['head_state'])}
+        else:
+            return {
+                "diffusion": flax.jax_utils.unreplicate(self.training_states['model_state']), 
+                "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
+            }
     
     
     def fit(self, x0, cond=None, step=0, eval_during_training=False):
