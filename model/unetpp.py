@@ -744,17 +744,26 @@ class ScoreDistillPrecond(nn.Module):
             self.head = UNetppHead(**self.model_kwargs)
         elif self.model_type == "score_pde":
             self.head = PDEScoreHead(**self.model_kwargs)
+        self.layer_norm_for_last_x_emb = nn.LayerNorm()
+        self.layer_norm_for_t_emb = nn.LayerNorm()
     
     def __call__(self, x, sigma, F_x, t_emb, last_x_emb, augment_labels, train):
         c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
         c_out = ((sigma - self.sigma_min) * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
         c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
         c_noise = jnp.log(sigma) / 4
+
+        # Layernorm for last_x_emb and t_emb
+        last_x_emb = self.layer_norm_for_last_x_emb(last_x_emb)
+        t_emb = self.layer_norm_for_t_emb(t_emb)
+        F_x = c_in * F_x # TMP
+        x = c_in * x # TMP
         
         if self.model_type == "baseline":
-            return c_skip * x + c_out * self.head(c_in * x, F_x, last_x_emb, t_emb, train)
+            return c_skip * x + c_out * self.head(x, F_x, last_x_emb, t_emb, train)
         elif self.model_type == "unetpp":
-            return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train)
+            # return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train)
+            return c_skip * x + c_out * self.head(x, c_noise, F_x, last_x_emb, t_emb, train)
         elif self.model_type == "score_pde": 
             # Use tweedie formula for modeling x_0
             # self.head = sigma * (score function) for simplicity
