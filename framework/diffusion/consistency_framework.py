@@ -97,7 +97,7 @@ class CMFramework(DefaultModel):
         self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16', replicate=False)
         
         @jax.jit
-        def model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key):
+        def model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key, eval_mode=False):
             model_params = params.get('model_state', self.model_state.params_ema)
             head_params = params['head_state']
 
@@ -107,16 +107,19 @@ class CMFramework(DefaultModel):
 
             # Get consistency function values
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            model_train_flag = True if "model_state" in params else False ## NEW!
+            model_train_flag = model_train_flag and not eval_mode
             D_x, aux = self.model.apply(
                 {'params': model_params}, x=perturbed_x, sigma=sigma,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+                train=model_train_flag, augment_labels=None, rngs={'dropout': dropout_key_2})
             
             F_x, t_emb, last_x_emb = aux
 
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            head_train_flag = not eval_mode
             denoised = self.head.apply(
                 {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
-                train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
+                train=head_train_flag, augment_labels=None, rngs={'dropout': dropout_key_2})
 
             if self.head_type == 'score_pde':
                 denoised, head_aux = denoised
@@ -138,7 +141,7 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(rng_key, y.shape)
             perturbed_x = y + sigma * noise
 
-            denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key)
+            denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key, eval_mode=True)
 
             # Additional loss for monitoring training.
             dx_dt = (perturbed_x - denoised) / sigma
@@ -187,24 +190,9 @@ class CMFramework(DefaultModel):
 
             denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key)
             perturbed_x = y + sigma * noise
-
-            # Get consistency function values
-            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-            D_x, aux = self.model.apply(
-                {'params': model_params}, x=perturbed_x, sigma=sigma,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
-            
-            F_x, t_emb, last_x_emb = aux
-
-            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-            denoised = self.head.apply(
-                {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
-                train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
-        
             if self.head_type == 'score_pde':
-                denoised, aux = denoised
                 dh_dx_inv, dh_dt = aux
-            
+
             weight = None
             if self.head_type == 'score_pde':
                 weight = 1 / (sigma ** 2) 
@@ -212,13 +200,29 @@ class CMFramework(DefaultModel):
                 sigma_data = 0.5
                 weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
             dsm_loss = jnp.mean(weight * (denoised - y) ** 2)
-            
+
             # Loss and loss dict construction
             total_loss = dsm_loss
-            
             loss_dict = {}
             loss_dict['train/dsm_loss'] = dsm_loss
 
+            # Get consistency loss
+            if diffusion_framework['lpips_loss_training']:
+                # dx_dt = (perturbed_x - denoised) / sigma
+                prev_perturbed_x = perturbed_x + prev_sigma * noise # Euler step
+                prev_D_x, aux = self.model.apply(
+                    {'params': model_params}, x=prev_perturbed_x, sigma=prev_sigma,
+                    train=True, augment_labels=None, rngs={'dropout': dropout_key})
+                
+                output_shape = (y.shape[0], 224, 224, y.shape[-1])
+                D_x = jax.image.resize(D_x, output_shape, "bilinear")
+                prev_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
+                D_x = (D_x + 1) / 2.0
+                prev_D_x = (prev_D_x + 1) / 2.0
+                lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
+                total_loss += lpips_loss
+                loss_dict['train/lpips_loss'] = lpips_loss
+            
             if self.head_type == 'score_pde' and diffusion_framework['score_pde_regularizer']:
                 # Get dh_dx_inv loss
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
