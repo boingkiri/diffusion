@@ -35,7 +35,6 @@ class CMFramework(DefaultModel):
         self.wandblog = wandblog        
         self.pmap_axis = "batch"
 
-
         # Create UNet and its state
         model_config = {**config.model.diffusion}
         model_type = model_config.pop("type")
@@ -57,6 +56,7 @@ class CMFramework(DefaultModel):
         self.model_state, self.head_state = self.init_model_state(config)
         # print(parameter_overview.get_parameter_overview(self.head_state.params))
         # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
+        # breakpoint()
         checkpoint_dir = "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
         for checkpoint in os.listdir(config.exp.checkpoint_dir):
             if "diffusion" in checkpoint:
@@ -117,20 +117,16 @@ class CMFramework(DefaultModel):
 
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
             head_train_flag = not eval_mode
-            denoised = self.head.apply(
+            denoised, head_aux = self.head.apply(
                 {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
                 train=head_train_flag, augment_labels=None, rngs={'dropout': dropout_key_2})
 
-            if self.head_type == 'score_pde':
-                denoised, head_aux = denoised
-                aux = (*aux, *head_aux)
-            
-            return denoised, D_x, aux
+            return denoised, D_x, head_aux
 
         @jax.jit
         def monitor_metric_fn(params, y, rng_key):
             model_params = params.get('model_state', self.model_state.params_ema)
-            # head_params = params['head_state']
+            head_params = params['head_state']
 
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
 
@@ -141,7 +137,19 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
             perturbed_x = y + sigma * noise
 
-            denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key, eval_mode=True)
+            # denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key, eval_mode=True)
+            # Get consistency function values
+            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            D_x, aux = self.model.apply(
+                {'params': model_params}, x=perturbed_x, sigma=sigma,
+                train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+            
+            F_x, t_emb, last_x_emb = aux
+
+            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            denoised, head_aux = self.head.apply(
+                {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
 
             # Additional loss for monitoring training.
             dx_dt = (perturbed_x - denoised) / sigma
@@ -188,8 +196,27 @@ class CMFramework(DefaultModel):
             prev_sigma = self.t_steps[idx-1][:, None, None, None]
             noise = jax.random.normal(noise_key, y.shape)
 
-            denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key)
+            # denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key)
+            model_params = params.get('model_state', self.model_state.params_ema)
+            head_params = params['head_state']
+
+            rng_key, dropout_key = jax.random.split(rng_key, 2)
+
             perturbed_x = y + sigma * noise
+
+            # Get consistency function values
+            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            D_x, aux = self.model.apply(
+                {'params': model_params}, x=perturbed_x, sigma=sigma,
+                train=not self.CM_freeze, augment_labels=None, rngs={'dropout': dropout_key_2})
+            
+            F_x, t_emb, last_x_emb = aux
+
+            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            denoised, aux = self.head.apply(
+                {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
+
             if self.head_type == 'score_pde':
                 dh_dx_inv, dh_dt = aux
 
@@ -316,13 +343,12 @@ class CMFramework(DefaultModel):
             
             F_x, t_emb, last_x_emb = aux
 
-            denoised = self.head.apply(
+            denoised, aux = self.head.apply(
                 {'params': head_params}, x=x_hat, sigma=t_hat, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
                 train=False, augment_labels=None, rngs={'dropout': dropout_key}
             )
 
             if self.head_type == 'score_pde':
-                denoised, aux = denoised
                 dh_dx_inv, dh_dt = aux
 
             # predicted_score = - (x_hat - denoised) ** 2 / (t_hat ** 2)

@@ -37,8 +37,8 @@ unetpp:
   input_channels: 256
   input_t_embed: True
 
-  embedding_type: positional
-  encoder_type : standard
+  embedding_type: fourier
+  encoder_type : residual
   decoder_type : standard
-  resample_filter: [1, 1]
+  resample_filter: [1, 3, 3, 1]
   learn_sigma: False

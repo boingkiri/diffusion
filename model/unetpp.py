@@ -292,7 +292,8 @@ class UNetpp(nn.Module):
         enc_modules = {}
         skips = []
         cout = self.image_channels
-        caux = self.image_channels
+        # caux = self.image_channels
+        caux = self.input_channels if self.input_channels is not None else self.image_channels
 
         # TMP: for CIFAR10
         img_res = 32
@@ -760,10 +761,10 @@ class ScoreDistillPrecond(nn.Module):
         x = c_in * x # TMP
         
         if self.model_type == "baseline":
-            return c_skip * x + c_out * self.head(x, F_x, last_x_emb, t_emb, train)
+            return c_skip * x + c_out * self.head(x, F_x, last_x_emb, t_emb, train), ()
         elif self.model_type == "unetpp":
             # return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train)
-            return c_skip * x + c_out * self.head(x, c_noise, F_x, last_x_emb, t_emb, train)
+            return c_skip * x + c_out * self.head(x, c_noise, F_x, last_x_emb, t_emb, train), ()
         elif self.model_type == "score_pde": 
             # Use tweedie formula for modeling x_0
             # self.head = sigma * (score function) for simplicity
