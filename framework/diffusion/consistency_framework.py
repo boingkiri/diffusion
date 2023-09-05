@@ -57,9 +57,14 @@ class CMFramework(DefaultModel):
         self.model_state, self.head_state = self.init_model_state(config)
         # print(parameter_overview.get_parameter_overview(self.head_state.params))
         # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
-        checkpoint_dir =  "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
+        checkpoint_dir = "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
+        for checkpoint in os.listdir(config.exp.checkpoint_dir):
+            if "diffusion" in checkpoint:
+                # checkpoint_dir = os.path.join(config.exp.checkpoint_dir, "checkpoints")
+                checkpoint_dir = config.exp.checkpoint_dir
+                break
         self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir=checkpoint_dir)
-        # self.head_state = fs_obj.load_model_state("diffusion", self.head_state)
+        self.head_state = fs_obj.load_model_state("head", self.head_state)
 
         # Replicate states for training with pmap
         self.training_states = {"head_state": self.head_state}
@@ -367,13 +372,14 @@ class CMFramework(DefaultModel):
         model_params = self.model.init(
             rng_dict, x=input_format, sigma=jnp.ones([1,]), train=False, augment_labels=None)['params']
         
-        _, aux = self.model.apply(
+        D_x, aux = self.model.apply(
                 {'params': model_params}, x=input_format, sigma=jnp.ones([1,]), 
                 train=False, augment_labels=None, rngs={'dropout': self.rand_key})
         
         F_x, t_emb, last_x_emb = aux
-        
-        head_params = self.head.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), F_x=F_x, last_x_emb=last_x_emb, t_emb=t_emb,
+        self.rand_key, param_rng, dropout_rng = jax.random.split(self.rand_key, 3)
+        rng_dict = {"params": param_rng, 'dropout': dropout_rng}
+        head_params = self.head.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), F_x=D_x, last_x_emb=last_x_emb, t_emb=t_emb,
                                      train=False, augment_labels=None)['params']
 
         model_tx = jax_utils.create_optimizer(config, "diffusion")
@@ -397,7 +403,7 @@ class CMFramework(DefaultModel):
     def get_model_state(self):
         # return [flax.jax_utils.unreplicate(self.head_state)]
         return {
-            "cm": flax.jax_utils.unreplicate(self.training_states['model_state']), 
+            "diffusion": flax.jax_utils.unreplicate(self.training_states['model_state']), 
             "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
         }
     
