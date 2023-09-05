@@ -145,11 +145,12 @@ class UnifyingFramework():
                 log['Sampling'] = wandb.Image(sample_path, caption=f"Step: {self.step}")
 
                 # Sample generated image for training CM
-                sample = self.sampling(8, original_data=batch_data, mode="cm_training")
-                xset = jnp.concatenate([sample[:8], batch_data], axis=0)
-                sample_image = self.fs_utils.get_pil_from_np(xset)
-                log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
-                sample_image.close()
+                if not self.config.framework.diffusion.CM_freeze:
+                    sample = self.sampling(8, original_data=batch_data, mode="cm_training")
+                    xset = jnp.concatenate([sample[:8], batch_data], axis=0)
+                    sample_image = self.fs_utils.get_pil_from_np(xset)
+                    log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
+                    sample_image.close()
 
                 # Sample generated image for original CM 
                 sample = self.sampling(8, original_data=batch_data, mode="cm_not_training")
