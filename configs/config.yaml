@@ -47,8 +47,6 @@ steps:
 do_training: true
 do_sampling: true
 
-is_pmap: true
-
 hydra:  
   output_subdir: null  
   run:  

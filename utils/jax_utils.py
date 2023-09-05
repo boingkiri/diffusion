@@ -58,29 +58,19 @@ def create_optimizer(config: DictConfig, model_type):
   tx = optax.chain(
     *optax_chain
   )
+
+  # Setting gradient accumulation if necessary
+  if framework_config['train'].get("gradient_accumulation_step", 1) > 1:
+    tx = optax.MultiSteps(
+      tx, every_k_schedule=framework_config['train']['gradient_accumulation_step'])
   return tx
 
 def save_train_state(state, checkpoint_dir, prefix=None):
   ocp = orbax.checkpoint.PyTreeCheckpointer()
   if prefix is None:
-    prefix = "checkpoint_"
+    prefix = "checkpoint"
   checkpoint_dir = checkpoint_dir / f"{prefix}"
   ocp.save(checkpoint_dir, state)
   print(f"Saving {state.step} complete.")
-
-
-def load_state_from_checkpoint_dir(checkpoint_dir, state, step, checkpoint_prefix="checkpoint_"):
-    # state = checkpoints.restore_checkpoint(checkpoint_dir, state, prefix=checkpoint_prefix, step=step)
-    ocp = orbax.checkpoint.PyTreeCheckpointer()
-    checkpoint_dir = checkpoint_dir / f"{checkpoint_prefix}"
-    state = ocp.restore(checkpoint_dir)
-    print(f"Checkpoint {state.step} loaded")
-    return state
-
-def save_best_state(state, best_checkpoint_dir, step, checkpoint_prefix):
-  assert type(state) is list
-  state = state[0] # TODO: This code assume the state is give as list. Too naive.
-  checkpoints.save_checkpoint(best_checkpoint_dir, state, step, prefix=checkpoint_prefix, overwrite=True)
-  print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")
 
 

@@ -107,7 +107,7 @@ class UnifyingFramework():
                 sample = self.sampling(8, original_data=batch_data)
                 xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_path = self.fs_utils.save_comparison(xset, self.step, in_process_dir)
-                log['Sampling'] = wandb.Image(sample_path, caption=f"Step: {self.step}")
+                log['Samples'] = wandb.Image(sample_path, caption=f"Step: {self.step}")
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
 
@@ -121,14 +121,13 @@ class UnifyingFramework():
                 if self.do_fid_during_training and \
                     not (self.current_model_type == "ldm" and self.train_idx == 1):
                     fid_score = self.fid_utils.calculate_fid_in_step(
-                        self.step, 
-                        self.framework, 
-                        self.config['fid']['num_sampling_during_training'],
+                        self.step, self.framework, self.config['fid']['num_sampling_during_training'],
                         batch_size=128)
                     if best_fid >= fid_score:
+                        best_fid = fid_score
+                        print(f"{self.step} steps reaches the best score {fid_score}. Saving {self.step} in best checkpoint dir complete.")
                         best_checkpoint_dir = self.config.exp.best_dir
                         self.save_model_state(model_state, best_checkpoint_dir)
-                        best_fid = fid_score
                     self.wandblog.update_log({"FID score": fid_score})
                     self.wandblog.flush(step=self.step)
 
@@ -138,7 +137,6 @@ class UnifyingFramework():
             self.step += self.n_jitted_steps
             first_step = False
             datasets_bar.update(self.n_jitted_steps)
-            
 
     def sampling_and_save(self, total_num, img_size=None):
         if img_size is None:

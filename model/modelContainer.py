@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 import flax
+import orbax.checkpoint
 
 import inspect
 
@@ -19,7 +20,7 @@ class ModelContainer():
     def __init__(
             self, 
             config: dict, 
-            fs_obj: FSUtils,
+            rng_key: jax.random.PRNGKeyArray,
             train_state_template: flax.struct.dataclass = None) -> None:
         """
         Args:
@@ -29,7 +30,7 @@ class ModelContainer():
         model_configs = config['model']
 
         self.models: dict = {}
-        self.model_state: dict = {}
+        self.model_states: dict = {}
 
         # Create train state template
         self.train_state_template = TrainState if train_state_template is None else train_state_template
@@ -38,23 +39,20 @@ class ModelContainer():
         self.model_keys = model_configs.keys()
         for key in model_configs:
             model_config = model_configs[key]
-            model, model_state = self.create_model(model_config)
+            rng_key, create_model_key = jax.random.split(rng_key, 2)
+            model, model_state = self.create_model(model_config, create_model_key)
             self.models[key] = model
-            self.model_state[key] = model_state
+            self.model_states[key] = model_state
 
-            # Add model to self
+            # Add model to self as attributes
             setattr(self, key, model)
         
         # Load model state
-        checkpoint_dir = self.config.exp.checkpoint_dir
-        self.model_state = fs_obj.load_model_state("diffusion", self.model_state) 
+        # checkpoint_dir = self.config.exp.checkpoint_dir
+        for model_key in self.models:
+            self.model_states = self.load_model_state(model_key, self.model_states) 
         # FIXME: string "diffusion" should be replaced to model_type
 
-        # Pmap
-        self.is_pmap = config.get("is_pmap", False)
-        if self.is_pmap:
-            self.model_state = flax.jax_utils.replicate(self.model_state)
-        
     @property
     def model_keys(self):
         return self.model_keys
@@ -64,10 +62,23 @@ class ModelContainer():
         return self.models
 
     @property
+    def model_states(self):
+        return self.model_states
+
+    @model_states.setter
+    def model_states(self, model_states_dict):
+        self.model_states = model_states_dict
+
+
+    def model(self):
+        assert len(self.models) == 1, "Model Container has more than one model. Please use `models` instead of `model`"
+        return self.models[list(self.models.keys())[0]]
+
     def model_state(self):
-        return self.model_state if not self.is_pmap else flax.jax_utils.unreplicate(self.model_state)
+        assert len(self.model_states) == 1, "Model Container has more than one model state. Please use `model_states` instead of `model_state`"
+        return self.model_states[list(self.model_states.keys())[0]]
     
-    def create_model(self, model_config: DictConfig):
+    def create_model(self, model_config: DictConfig, rng_key: jax.random.PRNGKeyArray):
         # Prepare model class for inflate obj
         model_class = load_class_from_config_for_model(model_config)
 
@@ -78,19 +89,18 @@ class ModelContainer():
 
         # Create model
         model = model_class(**model_config)
-        model_state = self.init_model_state(model_config_dict)
+        model_state = self.init_model_state(model, model_config_dict, rng_key)
 
         return model, model_state
 
-    def load_model_state(self, model_type, state, checkpoint_dir=None):
-        prefix = self.get_state_prefix(model_type)
+    def load_model_state(self, model_key, state, checkpoint_dir=None):
         if checkpoint_dir is None:
             checkpoint_dir = self.config.exp.checkpoint_dir
-        state = jax_utils.load_state_from_checkpoint_dir(checkpoint_dir, state, None, prefix)
+        state = self.load_state_from_checkpoint_dir(checkpoint_dir, model_key, state, None)
         return state
 
-    def init_model_state(self, config: DictConfig):
-        self.rand_key, param_rng, dropout_rng = jax.random.split(self.rand_key, 3)
+    def init_model_state(self, model, config: DictConfig, rng_key: jax.random.PRNGKeyArray):
+        rng_key, param_rng, dropout_rng = jax.random.split(rng_key, 3)
         rng_dict = {"params": param_rng, 'dropout': dropout_rng}
         if config["type"] == "ldm" and config["framework"]['train_idx'] == 2:
             f_value = len(config['model']['autoencoder']['ch_mults'])
@@ -102,7 +112,7 @@ class ModelContainer():
                 input_format_shape[2] // f_value, 
                 z_dim])
         input_format = jnp.ones([1, *config.dataset.data_size])
-        params = self.model.init(rng_dict, x=input_format, t=jnp.ones([1,]), train=False)['params']
+        params = model.init(rng_dict, x=input_format, t=jnp.ones([1,]), train=False)['params']
 
         return self.create_train_state(config, 'diffusion', self.model.apply, params)
     
@@ -129,7 +139,7 @@ class ModelContainer():
             train_state (flax.struct.dataclass): initial train state
         """
         # TODO: Remove `model_type` from argument.
-        # I think `model_type` is not very necessary to make optimizer.
+        # I think `model_type` is not that necessary to make optimizer.
         tx = create_optimizer(config, model_type) 
 
         # FIXME: Value allocation of additional argument of train state is too naive in this implementation.
@@ -148,33 +158,12 @@ class ModelContainer():
                 create_argument[arg] = params
             elif arg == "target_model":
                 create_argument[arg] = params
+            else:
+                raise NotImplementedError(f"Additional argument {arg} is not implemented.")
 
         # Return the training state
         return self.train_state_template.create(**create_argument)
-    
-    # def apply(self, model_key, *args, **kwargs):
-    def apply(self, model_key: str, param_type: str, arguments: dict):
-        """
-        Apply input to model in order to get output. 
 
-        Args:
-            model_key (str): key to retrieve model
-            param_type (str): 
-                type of parameter to use to apply function. e.g.) 'params', 'params_ema'
-            arguments (dict): arguments for model.apply
-        Returns:
-            output of model.apply
-        """
-        return self.models[model_key].apply(
-            {"params": self.model_state[model_key][param_type]}, 
-            **arguments
-        )
-    
-    def update(self, )
-
-    def model(self):
-        assert len(self.models) == 1
-        return self.models[list(self.models.keys())[0]]
 
     def get_model_states(self):
         """
@@ -182,6 +171,13 @@ class ModelContainer():
             model_state (dict): unreplicated model state 
         """
         return_value = {}
-        for key in self.model_state:
-            return_value[key] = flax.jax_utils.unreplicate(self.model_state[key])
+        for key in self.model_states:
+            return_value[key] = flax.jax_utils.unreplicate(self.model_states[key])
         return return_value
+
+    def load_state_from_checkpoint_dir(self, model_key, checkpoint_dir, state):
+        ocp = orbax.checkpoint.PyTreeCheckpointer()
+        checkpoint_dir = checkpoint_dir / f"{model_key}"
+        state = ocp.restore(checkpoint_dir)
+        print(f"Checkpoint {state.step} loaded")
+        return state

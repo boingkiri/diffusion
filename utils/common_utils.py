@@ -10,7 +10,7 @@ import tensorflow_datasets as tfds
 
 
 if jax.devices()[0].device_kind == 'tpu':
-   os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  
+   os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 def check_device():
   if jax.devices()[0].device_kind == 'tpu':
@@ -109,7 +109,6 @@ def inflate_class(class_name):
   module = __import__(class_name)
   class_ = getattr(module, cls)
   return class_
-   
 
 if __name__=="__main__":
   sample = jnp.zeros((16, 32, 32, 3))
