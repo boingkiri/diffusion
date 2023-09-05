@@ -363,13 +363,12 @@ class CMFramework(DefaultModel):
                 
                 F_x, t_emb, last_x_emb = aux
 
-                denoised = self.head.apply(
+                denoised, aux = self.head.apply(
                     {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
                     train=False, augment_labels=None, rngs={'dropout': dropout_key}
                 )
 
                 if self.head_type == 'score_pde':
-                    denoised, aux = denoised
                     dh_dx_inv, dh_dt = aux
 
                 d_prime = (euler_x_prev - denoised) / t_prev
