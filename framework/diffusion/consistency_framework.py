@@ -54,7 +54,7 @@ class CMFramework(DefaultModel):
                                model_type=head_type)
         
         self.model_state, self.head_state = self.init_model_state(config)
-        # print(parameter_overview.get_parameter_overview(self.head_state.params))
+        print(parameter_overview.get_parameter_overview(self.head_state.params))
         # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
         # breakpoint()
         checkpoint_dir = "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
