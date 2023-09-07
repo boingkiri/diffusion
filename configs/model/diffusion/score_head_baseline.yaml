@@ -7,8 +7,9 @@ type: "baseline"
 image_channels: 3
 n_channels: 128
 
-last_ch_mult:  2
-n_blocks: 4
+last_ch_mult:  1
+# n_blocks: 4
+n_blocks: 1
 n_heads: 1
 n_groups: 32
 dropout_rate: 0.1

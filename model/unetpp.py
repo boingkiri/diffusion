@@ -525,10 +525,11 @@ class TimeEmbedDependentHead(nn.Module):
             resample_proj=True,
             adaptive_scale=False
         )
-        
         self.normalize1 = nn.GroupNorm()
         head_channels = self.n_channels * self.last_ch_mult
-        self.conv1 = CustomConv2d(in_channels=head_channels + self.image_channels * 2, 
+        first_head_channels = head_channels * 2
+        # self.conv1 = CustomConv2d(in_channels=head_channels + self.image_channels * 2, 
+        self.conv1 = CustomConv2d(in_channels=first_head_channels + self.image_channels * 2, 
                                   out_channels=head_channels, 
                                   kernel_channels=3,
                                   init_mode=init)
@@ -735,12 +736,7 @@ class ScoreDistillPrecond(nn.Module):
 
     def setup(self):
         if self.model_type == "baseline":
-            self.head = TimeEmbedDependentHead(
-                image_channels=self.image_channels, 
-                n_channels=self.model_kwargs['n_channels'],
-                n_heads=self.model_kwargs['n_heads'],
-                dropout_rate=self.model_kwargs['dropout_rate'],
-                resample_filter=self.model_kwargs['resample_filter'],)
+            self.head = TimeEmbedDependentHead(**self.model_kwargs)
         elif self.model_type == "unetpp":
             self.head = UNetppHead(**self.model_kwargs)
         elif self.model_type == "score_pde":
