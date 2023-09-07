@@ -11,7 +11,9 @@ defaults:
   - model@_group_.diffusion: 
     - diffusion/unetpp_cm
   - model@_group_.head: 
-    - diffusion/score_head_pde
+    # - diffusion/score_head_pde
+    - diffusion/score_head
+    # - diffusion/score_head_baseline
   # - ema: ema_edm
   - ema: ema
   - dataset: cifar10
@@ -20,7 +22,7 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 0905_verification_score_pde_layernorm
+exp_name: 0906_verification_unet_block_1
 do_training: true
 do_sampling: true
 num_sampling: 50000
