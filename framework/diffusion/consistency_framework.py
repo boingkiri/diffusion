@@ -191,10 +191,15 @@ class CMFramework(DefaultModel):
 
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
 
-            idx = jax.random.randint(step_key, (y.shape[0], ), minval=1, maxval=self.n_timestep)
-            sigma = self.t_steps[idx][:, None, None, None]
-            prev_sigma = self.t_steps[idx-1][:, None, None, None]
+            # idx = jax.random.randint(step_key, (y.shape[0], ), minval=1, maxval=self.n_timestep)
+            # sigma = self.t_steps[idx][:, None, None, None]
+            # prev_sigma = self.t_steps[idx-1][:, None, None, None]
             noise = jax.random.normal(noise_key, y.shape)
+            p_mean = -1.2
+            p_std = 1.2
+            sigma_data = 0.5
+            rnd_normal = jax.random.normal(step_key, (y.shape[0], 1, 1, 1))
+            sigma = jnp.exp(rnd_normal * p_std + p_mean)
 
             # denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key)
             model_params = params.get('model_state', self.model_state.params_ema)
