@@ -22,7 +22,7 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 0906_verification_unet_block_1
+exp_name: 0910_verification_unet_block_1_wo_cm
 do_training: true
 do_sampling: true
 num_sampling: 50000
