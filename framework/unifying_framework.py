@@ -120,7 +120,7 @@ class UnifyingFramework():
                 # loss_ema = log["total_loss"]
                 # l2_dist = log['l2_dist']
                 # lpips_dist = log['lpips_dist']
-                dsm_loss = log['train/dsm_loss']
+                dsm_loss = log['train/head_dsm_loss']
             # datasets_bar.set_description("Step: {step} l2_dist: {l2_dist:.4f} lpips_dist: {lpips_dist:.4f} dsm_loss: {dsm_loss:.4f}  lr*1e4: {lr:.4f}".format(
             #     step=self.step,
             #     l2_dist=l2_dist,
