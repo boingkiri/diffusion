@@ -755,11 +755,6 @@ class ScoreDistillPrecond(nn.Module):
         t_emb = self.layer_norm_for_t_emb(t_emb)
         F_x = c_in * F_x # TMP
         
-        # TMP
-        last_x_emb = jnp.zeros_like(last_x_emb)
-        t_emb = jnp.zeros_like(t_emb)
-        F_x = jnp.zeros_like(F_x)
-
         if self.model_type == "baseline":
             return c_skip * x + c_out * self.head(x, F_x, last_x_emb, t_emb, train), ()
         elif self.model_type == "unetpp":

@@ -62,7 +62,9 @@ class CMFramework(DefaultModel):
             if "torso" in checkpoint:
                 checkpoint_dir = config.exp.checkpoint_dir
                 break
-        self.torso_state = fs_obj.load_model_state("torso", self.torso_state, checkpoint_dir=checkpoint_dir)
+        # self.torso_state = fs_obj.load_model_state("torso", self.torso_state, checkpoint_dir=checkpoint_dir)
+        # FIXME: For now, "diffusion" prefix is used for torso_state because of convension. 
+        self.torso_state = fs_obj.load_model_state("diffusion", self.torso_state, checkpoint_dir=checkpoint_dir)
         self.head_state = fs_obj.load_model_state("head", self.head_state)
 
         # Replicate states for training with pmap
@@ -217,9 +219,12 @@ class CMFramework(DefaultModel):
 
             # Get consistency function values
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            # D_x, aux = self.model.apply(
+            #     {'params': torso_params}, x=perturbed_x, sigma=sigma,
+            #     train=not self.CM_freeze, augment_labels=None, rngs={'dropout': dropout_key_2})
             D_x, aux = self.model.apply(
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
-                train=not self.CM_freeze, augment_labels=None, rngs={'dropout': dropout_key_2})
+                train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
             
             F_x, t_emb, last_x_emb = aux
 
@@ -329,11 +334,12 @@ class CMFramework(DefaultModel):
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
             D_x, aux = self.model.apply(
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
-                train=not self.CM_freeze, augment_labels=None, rngs={'dropout': dropout_key_2})
+                train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
             
             # Get consistency loss
             # if diffusion_framework['lpips_loss_training']:
-            prev_perturbed_x = perturbed_x + prev_sigma * noise # Euler step
+            # prev_perturbed_x = perturbed_x + prev_sigma * noise # Euler step
+            prev_perturbed_x = y + prev_sigma * noise # TODO: Consistency Traning
             prev_D_x, aux = self.model.apply(
                 {'params': torso_params}, x=prev_perturbed_x, sigma=prev_sigma,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key})
