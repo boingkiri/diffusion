@@ -439,7 +439,10 @@ class CMFramework(DefaultModel):
 
                 # Target model EMA (for consistency model training procedure)
                 torso_state = states['torso_state']
-                target_model_ema_decay = self.target_model_ema_decay_fn(torso_state.step)
+                target_model_ema_decay = jnp.where(
+                    diffusion_framework['sigma_sampling_torso'] == "CT", 
+                    self.target_model_ema_decay_fn(torso_state.step),
+                    self.target_model_ema_decay)
                 ema_updated_params = jax.tree_map(
                     lambda x, y: target_model_ema_decay * x + (1 - target_model_ema_decay) * y,
                     torso_state.target_model, torso_state.params)
