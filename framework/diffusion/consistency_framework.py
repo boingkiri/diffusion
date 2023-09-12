@@ -98,9 +98,15 @@ class CMFramework(DefaultModel):
         step_indices = jnp.arange(self.n_timestep)
         self.t_steps = (self.sigma_min ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
 
-        # Add t_steps function to deal with EDM steps for CM.
+        # Add t_steps function to deal with EDM steps for CD.
         self.t_steps_inv_fn = lambda sigma: (sigma ** (1 / self.rho) - self.sigma_min ** (1 / self.rho)) / (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho)) * (self.n_timestep - 1)
         self.t_steps_fn = lambda idx: (self.sigma_min ** (1 / self.rho) + idx / (self.n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
+
+        # Add CT training steps for torso training
+        self.ct_steps_fn = lambda idx: jnp.ceil(jnp.sqrt(idx / diffusion_framework['train']["total_step"] * ((self.s_1 + 1) ** 2 - self.s_0 ** 2) + self.s_0 ** 2) - 1) + 1
+        self.target_model_ema_decay_fn = lambda idx: jnp.exp(self.s_0 * jnp.log(self.mu_0) / self.ct_steps_fn(idx))
+        self.ct_t_steps_fn = lambda idx, N_k: (self.sigma_min ** (1 / self.rho) + idx / (N_k - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
+
 
         # Create ema obj
         ema_config = config.ema
@@ -219,10 +225,15 @@ class CMFramework(DefaultModel):
                 sigma = jnp.exp(rnd_normal * p_std + p_mean)
                 sigma_idx = self.t_steps_inv_fn(sigma)
                 prev_sigma = self.t_steps_fn(jnp.where((sigma_idx - 1) > 0, sigma_idx - 1, 0))
-            elif diffusion_framework['sigma_sampling_head'] == "CM":
+            elif diffusion_framework['sigma_sampling_torso'] == "CD":
                 idx = jax.random.randint(step_key, (y.shape[0], ), minval=1, maxval=self.n_timestep)
                 sigma = self.t_steps[idx][:, None, None, None]
                 prev_sigma = self.t_steps[idx-1][:, None, None, None]
+            elif diffusion_framework['sigma_sampling_torso'] == "CT":
+                N_k = self.ct_steps_fn(total_states_dict['torso_state'].step)
+                idx = jax.random.randint(step_key, (y.shape[0], ), minval=1, maxval=N_k)
+                sigma = self.ct_t_steps_fn(idx, N_k)[:, None, None, None]
+                prev_sigma = sigma = self.ct_t_steps_fn(idx - 1, N_k)[:, None, None, None]
             else:
                 NotImplementedError("sigma_sampling_head should be either EDM or CM for now.")
 
@@ -337,10 +348,16 @@ class CMFramework(DefaultModel):
                 sigma = jnp.exp(rnd_normal * p_std + p_mean)
                 sigma_idx = self.t_steps_inv_fn(sigma)
                 prev_sigma = self.t_steps_fn(jnp.where((sigma_idx - 1) > 0, sigma_idx - 1, 0))
-            elif diffusion_framework['sigma_sampling_torso'] == "CM":
+            elif diffusion_framework['sigma_sampling_torso'] == "CD":
                 idx = jax.random.randint(step_key, (y.shape[0], ), minval=1, maxval=self.n_timestep)
                 sigma = self.t_steps[idx][:, None, None, None]
                 prev_sigma = self.t_steps[idx-1][:, None, None, None]
+            elif diffusion_framework['sigma_sampling_torso'] == "CT":
+                N_k = self.ct_steps_fn(total_states_dict['torso_state'].step)
+                idx = jax.random.randint(step_key, (y.shape[0], ), minval=1, maxval=N_k)
+                sigma = self.ct_t_steps_fn(idx, N_k)[:, None, None, None]
+                prev_sigma = sigma = self.ct_t_steps_fn(idx - 1, N_k)[:, None, None, None]
+
             else:
                 NotImplementedError("sigma_sampling_torso should be either EDM or CM for now.")
 
@@ -355,18 +372,17 @@ class CMFramework(DefaultModel):
 
             F_x, t_emb, last_x_emb = aux
             # Get score value with consistency function value
-            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-            denoised, aux = self.head.apply(
-                {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
-            score_mul_sigma = (denoised - perturbed_x) / sigma
+            # dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            # denoised, aux = self.head.apply(
+            #     {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+            #     train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+            # score_mul_sigma = (denoised - perturbed_x) / sigma
             # score_mul_sigma = (perturbed_x - denoised) / sigma # score * sigma
             
             # Get consistency loss
-            # if diffusion_framework['lpips_loss_training']:
             # prev_perturbed_x = perturbed_x + prev_sigma * noise # Euler step
-            # prev_perturbed_x = y + prev_sigma * noise # TODO: Consistency Traning
-            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * score_mul_sigma # Euler step
+            prev_perturbed_x = y + prev_sigma * noise # TODO: Consistency Traning
+            # prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * score_mul_sigma # Euler step
 
             prev_D_x, aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
@@ -423,8 +439,9 @@ class CMFramework(DefaultModel):
 
                 # Target model EMA (for consistency model training procedure)
                 torso_state = states['torso_state']
+                target_model_ema_decay = self.target_model_ema_decay_fn(torso_state.step)
                 ema_updated_params = jax.tree_map(
-                    lambda x, y: self.target_model_ema_decay * x + (1 - self.target_model_ema_decay) * y,
+                    lambda x, y: target_model_ema_decay * x + (1 - target_model_ema_decay) * y,
                     torso_state.target_model, torso_state.params)
                 torso_state = torso_state.replace(target_model = ema_updated_params)
                 
