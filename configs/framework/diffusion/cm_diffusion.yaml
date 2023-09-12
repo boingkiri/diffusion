@@ -27,8 +27,8 @@ CM_freeze: False
 lpips_loss_training: False # True
 
 # Option for sigma sampling for head, torso
-sigma_sampling_head: EDM # EDM, CM
-sigma_sampling_torso: CM # EDM, CM
+sigma_sampling_head: EDM # EDM, CD, CT
+sigma_sampling_torso: CT # EDM, CD, CT
 
 
 # augment_rate: 0.12
