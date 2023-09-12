@@ -58,14 +58,21 @@ class CMFramework(DefaultModel):
         # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
         # breakpoint()
         checkpoint_dir = "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
+        torso_prefix = "diffusion"
         for checkpoint in os.listdir(config.exp.checkpoint_dir):
             if "torso" in checkpoint:
                 checkpoint_dir = config.exp.checkpoint_dir
+                torso_prefix = "torso"
                 break
         # self.torso_state = fs_obj.load_model_state("torso", self.torso_state, checkpoint_dir=checkpoint_dir)
         # FIXME: For now, "diffusion" prefix is used for torso_state because of convension. 
-        self.torso_state = fs_obj.load_model_state("diffusion", self.torso_state, checkpoint_dir=checkpoint_dir)
-        self.head_state = fs_obj.load_model_state("head", self.head_state)
+        self.torso_state = fs_obj.load_model_state(torso_prefix, self.torso_state, checkpoint_dir=checkpoint_dir)
+        checkpoint_dir = "experiments/0906_verification_unet_block_1/checkpoints"
+        for checkpoint in os.listdir(config.exp.checkpoint_dir):
+            if "head" in checkpoint:
+                checkpoint_dir = config.exp.checkpoint_dir
+                break
+        self.head_state = fs_obj.load_model_state("head", self.head_state, checkpoint_dir=checkpoint_dir)
 
         # Replicate states for training with pmap
         self.training_states = {"head_state": self.head_state}
@@ -191,10 +198,15 @@ class CMFramework(DefaultModel):
             return loss_dict
 
         @jax.jit
-        def head_loss_fn(params, y, rng_key, has_aux=False):
-            torso_params = jax.lax.stop_gradient(params.get('torso_state', self.torso_state.params_ema))
-            head_params = params['head_state']
-
+        # def head_loss_fn(update_params, not_update_params, args, has_aux=False):
+        def head_loss_fn(update_params, total_states_dict, args, has_aux=False):
+            # Get params from update params
+            head_params = update_params['head_state']
+            # Get params from not update params
+            torso_params = jax.lax.stop_gradient(total_states_dict.get('torso_state', self.torso_state).params_ema)
+            # Unzip arguments for loss_fn
+            y, rng_key = args
+            
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
             noise = jax.random.normal(noise_key, y.shape)
             
@@ -219,9 +231,6 @@ class CMFramework(DefaultModel):
 
             # Get consistency function values
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-            # D_x, aux = self.model.apply(
-            #     {'params': torso_params}, x=perturbed_x, sigma=sigma,
-            #     train=not self.CM_freeze, augment_labels=None, rngs={'dropout': dropout_key_2})
             D_x, aux = self.model.apply(
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
                 train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
@@ -232,9 +241,6 @@ class CMFramework(DefaultModel):
             denoised, aux = self.head.apply(
                 {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
-
-            if self.head_type == 'score_pde':
-                dh_dx_inv, dh_dt = aux
 
             weight = None
             if self.head_type == 'score_pde':
@@ -267,6 +273,10 @@ class CMFramework(DefaultModel):
                 loss_dict['train/head_lpips_loss'] = lpips_loss
             
             if self.head_type == 'score_pde' and diffusion_framework['score_pde_regularizer']:
+                
+                # Extract dh_dx_inv, dh_dt
+                dh_dx_inv, dh_dt = aux
+
                 # Get dh_dx_inv loss
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
                 def egrad(g): # diagonal of jacobian can be calculated by egrad (elementwise grad)
@@ -306,8 +316,15 @@ class CMFramework(DefaultModel):
             return total_loss, loss_dict
         
         @jax.jit
-        def torso_loss_fn(params, y, rng_key, has_aux=False):
-            torso_params = params['torso_state']
+        # def torso_loss_fn(update_params, not_update_params, args, has_aux=False):
+        def torso_loss_fn(update_params, total_states_dict, args, has_aux=False):
+            # Get updating parameters from update params
+            torso_params = update_params['torso_state']
+            head_params = jax.lax.stop_gradient(total_states_dict['head_state'].params)
+            target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model)
+
+            # Unzip arguments for loss_fn
+            y, rng_key = args
 
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
             noise = jax.random.normal(noise_key, y.shape)
@@ -335,13 +352,24 @@ class CMFramework(DefaultModel):
             D_x, aux = self.model.apply(
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
+
+            F_x, t_emb, last_x_emb = aux
+            # Get score value with consistency function value
+            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            denoised, aux = self.head.apply(
+                {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+            score_mul_sigma = (denoised - perturbed_x) / sigma
+            # score_mul_sigma = (perturbed_x - denoised) / sigma # score * sigma
             
             # Get consistency loss
             # if diffusion_framework['lpips_loss_training']:
             # prev_perturbed_x = perturbed_x + prev_sigma * noise # Euler step
-            prev_perturbed_x = y + prev_sigma * noise # TODO: Consistency Traning
+            # prev_perturbed_x = y + prev_sigma * noise # TODO: Consistency Traning
+            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * score_mul_sigma # Euler step
+
             prev_D_x, aux = self.model.apply(
-                {'params': torso_params}, x=prev_perturbed_x, sigma=prev_sigma,
+                {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key})
             
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
@@ -358,6 +386,24 @@ class CMFramework(DefaultModel):
             
             return total_loss, loss_dict
 
+        def update_params_fn(
+                states_dict: dict, 
+                update_states_key_list: list, 
+                loss_fn, 
+                loss_fn_args, 
+                loss_dict_tail: dict = {}):
+            update_params_dict = {params_key: states_dict[params_key].params for params_key in update_states_key_list}
+            # all_params_dict = {params_key: states_dict[params_key].params for params_key in states_dict}
+            # (_, loss_dict), grads = jax.value_and_grad(loss_fn, has_aux=True)(update_params_dict, all_params_dict, loss_fn_args)
+            (_, loss_dict), grads = jax.value_and_grad(loss_fn, has_aux=True)(update_params_dict, states_dict, loss_fn_args)
+            grads = jax.lax.pmean(grads, axis_name=self.pmap_axis)
+            updated_states = {params_key: states_dict[params_key].apply_gradients(grads=grads[params_key]) 
+                              for params_key in update_states_key_list}
+            loss_dict_tail.update(loss_dict)
+            states_dict.update(updated_states)
+            return states_dict, loss_dict_tail
+            
+
         # Define update function
         def update(carry_state, x0):
             (rng, states) = carry_state
@@ -366,21 +412,16 @@ class CMFramework(DefaultModel):
             loss_dict = {}
 
             # Update head (for multiple times)
-            params = {states_name: state_content.params for states_name, state_content in states.items()}
-            (_, loss_dict_head), grads = jax.value_and_grad(head_loss_fn, has_aux=True)(params, x0, rng)
-            grads = jax.lax.pmean(grads, axis_name=self.pmap_axis)
-            states = {state_name: state_content.apply_gradients(grads=grads[state_name]) 
-                      for state_name, state_content in states.items()}
-            loss_dict.update(loss_dict_head)
+            head_key = ["head_state"]
+            rng, head_rng = jax.random.split(rng)
+            states, loss_dict = update_params_fn(states, head_key, head_loss_fn, (x0, head_rng), loss_dict)
             
             if not self.CM_freeze:
-                # TODO: Code refactoring - update state can use the same function for both torso and head.
-                params = {states_name: state_content.params for states_name, state_content in states.items()}
-                (_, loss_dict_torso), grads = jax.value_and_grad(torso_loss_fn, has_aux=True)(params, x0, rng)
-                # states = {state_name: state_content.apply_gradients(grads=grads) for state_name, state_content in states.items()}
-                states = {state_name: state_content.apply_gradients(grads=grads[state_name]) 
-                      for state_name, state_content in states.items()}
+                torso_key = ['torso_state']
+                rng, torso_rng = jax.random.split(rng)
+                states, loss_dict = update_params_fn(states, torso_key, torso_loss_fn, (x0, torso_rng), loss_dict)
 
+                # Target model EMA (for consistency model training procedure)
                 torso_state = states['torso_state']
                 ema_updated_params = jax.tree_map(
                     lambda x, y: self.target_model_ema_decay * x + (1 - self.target_model_ema_decay) * y,
@@ -388,7 +429,6 @@ class CMFramework(DefaultModel):
                 torso_state = torso_state.replace(target_model = ema_updated_params)
                 
                 states['torso_state'] = torso_state
-                loss_dict.update(loss_dict_torso)
             
             for loss_key in loss_dict:
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
