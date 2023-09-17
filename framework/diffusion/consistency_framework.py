@@ -64,9 +64,10 @@ class CMFramework(DefaultModel):
                 checkpoint_dir = config.exp.checkpoint_dir
                 torso_prefix = "torso"
                 break
-        self.torso_state = fs_obj.load_model_state("torso", self.torso_state, checkpoint_dir=checkpoint_dir)
+        # self.torso_state = fs_obj.load_model_state("torso", self.torso_state, checkpoint_dir=checkpoint_dir)
         # FIXME: For now, "diffusion" prefix is used for torso_state because of convension. 
-        # self.torso_state = fs_obj.load_model_state(torso_prefix, self.torso_state, checkpoint_dir=checkpoint_dir)
+        self.torso_state = fs_obj.load_model_state(torso_prefix, self.torso_state, checkpoint_dir=checkpoint_dir)
+        
         # checkpoint_dir = "experiments/0906_verification_unet_block_1/checkpoints"
         # for checkpoint in os.listdir(config.exp.checkpoint_dir):
         #     if "head" in checkpoint:
