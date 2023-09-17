@@ -419,12 +419,15 @@ class CMFramework(DefaultModel):
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
             
-            F_x, t_emb, last_x_emb = jax.lax.stop_gradient(aux)
-            denoising_D_x = D_x if diffusion_framework['gradient_flow_from_head'] else jax.lax.stop_gradient(D_x) 
+            if diffusion_framework['gradient_flow_from_head']:
+                D_x = jax.lax.stop_gradient(D_x)
+                F_x, t_emb, last_x_emb = jax.lax.stop_gradient(aux)
+            else:
+                F_x, t_emb, last_x_emb = aux
 
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
             denoised, aux = self.head.apply(
-                {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=denoising_D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
 
             if diffusion_framework['score_feedback']:
