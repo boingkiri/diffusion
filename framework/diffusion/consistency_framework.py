@@ -263,7 +263,8 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
             
             # Sigma sampling
-            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_head'], step_key, y)
+            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_head'], 
+                                                   step_key, y, total_states_dict['torso_state'].step)
 
             perturbed_x = y + sigma * noise
 
