@@ -23,13 +23,13 @@ S_noise: 1.007
 
 # Option for freezing CM during training
 CM_freeze: False
-joint_training: true
-alternative_training: False
+joint_training: False
+alternative_training: True
 # joint training and alternative training should be toggled together 
 
 # Option for sigma sampling for head, torso
-sigma_sampling_head: EDM # EDM, CD, CT
-sigma_sampling_torso: CT # EDM, CD, CT
+sigma_sampling_head: Bernoulli_TRACT # EDM, CD, CT
+sigma_sampling_torso: Bernoulli_TRACT # EDM, CD, CT
 sigma_sampling_joint: Bernoulli_TRACT # EDM, CD, CT, Bernoulli, Bernoulli_TRACT
 
 # 0917: Exploration

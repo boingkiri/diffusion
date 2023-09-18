@@ -22,7 +22,7 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 0917_verification_joint_training_TRACT_sampling
+exp_name: 0917_verification_alternative_training_TRACT_sampling
 do_training: true
 do_sampling: true
 num_sampling: 50000
