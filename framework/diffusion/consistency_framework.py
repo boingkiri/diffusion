@@ -420,7 +420,7 @@ class CMFramework(DefaultModel):
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
             
-            if diffusion_framework['gradient_flow_from_head']:
+            if not diffusion_framework['gradient_flow_from_head']:
                 D_x = jax.lax.stop_gradient(D_x)
                 F_x, t_emb, last_x_emb = jax.lax.stop_gradient(aux)
             else:
