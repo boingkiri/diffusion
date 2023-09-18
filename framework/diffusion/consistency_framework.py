@@ -362,17 +362,28 @@ class CMFramework(DefaultModel):
 
             F_x, t_emb, last_x_emb = aux
             # Get score value with consistency function value
-            # dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-            # denoised, aux = self.head.apply(
-            #     {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
-            #     train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
-            # score_mul_sigma = (denoised - perturbed_x) / sigma
-            # score_mul_sigma = (perturbed_x - denoised) / sigma # score * sigma
-            
-            # Get consistency loss
-            # prev_perturbed_x = perturbed_x + prev_sigma * noise # Euler step
-            prev_perturbed_x = y + prev_sigma * noise # TODO: Consistency Traning
-            # prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * score_mul_sigma # Euler step
+            if diffusion_framework['score_feedback']:
+                dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+                denoised, aux = self.head.apply(
+                    {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                    train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+                score_mul_sigma = (perturbed_x - denoised) / sigma # score * sigma
+                
+                score_feedback_ratio = total_states_dict['torso_state'].step / diffusion_framework['train']["total_step"]
+                unbiased_score_mul_sigma = (perturbed_x - y)  / sigma
+                if diffusion_framework['score_feedback_type'] == "interpolation":
+                    score_mul_sigma = score_feedback_ratio * score_mul_sigma + \
+                                        (1 - score_feedback_ratio) * unbiased_score_mul_sigma
+                    prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * score_mul_sigma # Euler step
+                elif diffusion_framework['score_feedback_type'] == "threshold":
+                    selected_score_mul_sigma = jnp.where(
+                        score_feedback_ratio <= diffusion_framework['score_feedback_threshold'],
+                        unbiased_score_mul_sigma,
+                        score_mul_sigma
+                    )
+                    prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * selected_score_mul_sigma # Euler step
+            else:
+                prev_perturbed_x = y + prev_sigma * noise # Unbiased score estimator
 
             prev_D_x, aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
