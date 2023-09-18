@@ -117,17 +117,7 @@ class UnifyingFramework():
             if self.current_model_type == "ldm" and self.train_idx == 1:
                 loss_ema = log["train/total_loss"]
             else:
-                # loss_ema = log["total_loss"]
-                # l2_dist = log['l2_dist']
-                # lpips_dist = log['lpips_dist']
                 dsm_loss = log['train/head_dsm_loss']
-            # datasets_bar.set_description("Step: {step} l2_dist: {l2_dist:.4f} lpips_dist: {lpips_dist:.4f} dsm_loss: {dsm_loss:.4f}  lr*1e4: {lr:.4f}".format(
-            #     step=self.step,
-            #     l2_dist=l2_dist,
-            #     lpips_dist=lpips_dist,
-            #     dsm_loss=dsm_loss,
-            #     lr=self.learning_rate_schedule(self.step)*(1e+4)
-            # ))
             datasets_bar.set_description("Step: {step} dsm_loss: {dsm_loss:.4f}  lr*1e4: {lr:.4f}".format(
                 step=self.step,
                 dsm_loss=dsm_loss,
@@ -168,27 +158,38 @@ class UnifyingFramework():
                     self.save_model_state(model_state)
 
                 # Calculate FID score with 1000 samples
-                if self.do_fid_during_training and \
-                    not (self.current_model_type == "ldm" and self.train_idx == 1):
-                    fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 5000, batch_size=128)
-                    if best_fid >= fid_score:
-                        best_checkpoint_dir = self.config.exp.best_dir
-                        jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "diffusion_")
-                        
-                        ##########################################################
-                        ########### This works only for cm-diffusion! ############
-                        ##########################################################
-                        
-                        # jax_utils.save_best_state([model_state[0], ], best_checkpoint_dir, self.step, "cm_")
-                        # if len(model_state) > 1:
-                        #     jax_utils.save_best_state([model_state[1], ], best_checkpoint_dir, self.step, "diffusion_")
-                        ##########################################################
-                        ##########################################################
-                        ##########################################################
-                        
-                        best_fid = fid_score
-                    self.wandblog.update_log({"FID score": fid_score})
+                # if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
+                #     fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 10000, batch_size=128)
+                #     if best_fid >= fid_score:
+                #         best_checkpoint_dir = self.config.exp.best_dir
+                #         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "diffusion_")
+
+                #         best_fid = fid_score
+                #     self.wandblog.update_log({"FID score": fid_score})
+                #     self.wandblog.flush(step=self.step)
+                
+                # TMP: Calculate FID score with 10000 samples for both EDM and CM, 
+                # which corresponds to the head and the torso, respectively.
+                sampling_modes = ['edm', 'cm_training'] if not self.config.framework.diffusion.CM_freeze else ['edm']
+                if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
+                    for mode in sampling_modes:
+                        fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 10000, batch_size=128, sampling_mode=mode)
+                        if best_fid >= fid_score:
+                            best_checkpoint_dir = self.config.exp.best_dir
+                            best_checkpoint_dir = os.path.join(best_checkpoint_dir, mode)
+                            os.makedirs(best_checkpoint_dir, exist_ok=True)
+                            if mode == "edm":
+                                jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "head_")
+                            else:
+                                jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "torso_")
+
+                            best_fid = fid_score
+                        if mode == "edm":
+                            self.wandblog.update_log({"Head FID score": fid_score})
+                        else:
+                            self.wandblog.update_log({"Torso FID score": fid_score})
                     self.wandblog.flush(step=self.step)
+
 
             if self.step >= self.total_step:
                 if not self.next_step():
