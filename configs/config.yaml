@@ -22,7 +22,7 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 0918_verification_alternative_training_TRACT_sampling_unbiased_score
+exp_name: 0919_verification_alternative_training_CD_sampling_score_feedback_only_dsm
 do_training: true
 do_sampling: true
 num_sampling: 50000

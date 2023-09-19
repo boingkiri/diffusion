@@ -57,23 +57,29 @@ class CMFramework(DefaultModel):
         print(parameter_overview.get_parameter_overview(self.head_state.params))
         # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
         # breakpoint()
-        checkpoint_dir = "experiments/cm_distillation_ported_from_torch_ve/checkpoints"
-        torso_prefix = "diffusion"
-        for checkpoint in os.listdir(config.exp.checkpoint_dir):
-            if "torso" in checkpoint:
-                checkpoint_dir = config.exp.checkpoint_dir
-                torso_prefix = "torso"
-                break
+        torso_checkpoint_dir = diffusion_framework['torso_checkpoint_path']
+        torso_prefix = "torso"
+        if torso_checkpoint_dir is not None:
+            torso_prefix = "diffusion"
+        else:
+            for checkpoint in os.listdir(config.exp.checkpoint_dir):
+                if torso_prefix in checkpoint:
+                    torso_checkpoint_dir = config.exp.checkpoint_dir
+                    break
         # self.torso_state = fs_obj.load_model_state("torso", self.torso_state, checkpoint_dir=checkpoint_dir)
         # FIXME: For now, "diffusion" prefix is used for torso_state because of convension. 
-        self.torso_state = fs_obj.load_model_state(torso_prefix, self.torso_state, checkpoint_dir=checkpoint_dir)
+        self.torso_state = fs_obj.load_model_state(torso_prefix, self.torso_state, 
+                                                   checkpoint_dir=torso_checkpoint_dir)
         
         # checkpoint_dir = "experiments/0906_verification_unet_block_1/checkpoints"
-        # for checkpoint in os.listdir(config.exp.checkpoint_dir):
-        #     if "head" in checkpoint:
-        #         checkpoint_dir = config.exp.checkpoint_dir
-        #         break
-        self.head_state = fs_obj.load_model_state("head", self.head_state, checkpoint_dir=checkpoint_dir)
+        head_checkpoint_dir = diffusion_framework['head_checkpoint_path']
+        head_prefix = "head"
+        for checkpoint in os.listdir(config.exp.checkpoint_dir):
+            if "head" in checkpoint:
+                head_checkpoint_dir = config.exp.checkpoint_dir
+                break
+        self.head_state = fs_obj.load_model_state(head_prefix, self.head_state, 
+                                                  checkpoint_dir=head_checkpoint_dir)
 
         # Replicate states for training with pmap
         self.training_states = {"head_state": self.head_state}
