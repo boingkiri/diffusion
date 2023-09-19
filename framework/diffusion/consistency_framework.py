@@ -140,6 +140,15 @@ class CMFramework(DefaultModel):
             prev_sigma = sigma = self.ct_t_steps_fn(idx - 1, N_k)[:, None, None, None]
             return sigma, prev_sigma
         
+        def cm_uniform_sigma_sampling_fn(rng_key, y):
+            sigma = jnp.random.uniform(
+                rng_key, (y.shape[0], 1, 1, 1), 
+                minval=self.sigma_min ** (1 / self.rho), maxval=self.sigma_max ** (1 / self.rho)) ** self.rho
+            sigma_idx = self.t_steps_inv_fn(sigma)
+            prev_sigma = self.t_steps_fn(jnp.where((sigma_idx - 1) > 0, sigma_idx - 1, 0))
+            return sigma, prev_sigma
+            
+        
         def bernoulli_sigma_sampling_fn(rng_key, y, step):
             bernoulli_key, step_key = jax.random.split(rng_key, 2)
             bernoulli_probability = 1 - step / diffusion_framework['train']["total_step"]
@@ -174,6 +183,28 @@ class CMFramework(DefaultModel):
             prev_sigma = jnp.where(bernoulli_idx == 1, cm_sigma_tuple[1], edm_sigma_tuple[1])
             return sigma, prev_sigma
 
+    
+        def bernoulli_uniform_TRACT_sigma_sampling_fn(rng_key, y, step):
+            bernoulli_key, step_key = jax.random.split(rng_key, 2)
+            bernoulli_probability = 1 - step / diffusion_framework['train']["total_step"]
+            bernoulli_idx = jax.random.bernoulli(bernoulli_key, p=bernoulli_probability, shape=(y.shape[0], 1, 1, 1))
+            
+            # if bernoulli == 1, use CD, else EDM
+            cm_sigma_tuple = cd_sigma_sampling_fn(step_key, y)
+            
+            # Extract EDM sigma
+            edm_sigma_tuple = cm_uniform_sigma_sampling_fn(step_key, y)
+            edm_sigma = edm_sigma_tuple[0]
+            edm_sigma_idx = self.t_steps_inv_fn(edm_sigma)
+            prev_edm_sigma_idx = jnp.floor(edm_sigma_idx).astype(int)
+            prev_edm_sigma = self.t_steps_fn(prev_edm_sigma_idx)
+            edm_sigma_tuple = (edm_sigma, prev_edm_sigma)
+
+            # result_sigmas = jnp.where(bernoulli_idx == 1, cm_sigma_tuple, edm_sigma_tuple)
+            sigma = jnp.where(bernoulli_idx == 1, cm_sigma_tuple[0], edm_sigma_tuple[0])
+            prev_sigma = jnp.where(bernoulli_idx == 1, cm_sigma_tuple[1], edm_sigma_tuple[1])
+            return sigma, prev_sigma
+
         def get_sigma_sampling(sigma_sampling, rng_key, y, step=None):
             if sigma_sampling == "EDM":
                 return edm_sigma_sampling_fn(rng_key, y)
@@ -185,6 +216,8 @@ class CMFramework(DefaultModel):
                 return bernoulli_sigma_sampling_fn(rng_key, y, step)
             elif sigma_sampling == "Bernoulli_TRACT":
                 return bernoulli_TRACT_sigma_sampling_fn(rng_key, y, step)
+            elif sigma_sampling == "Bernoulli_uniform_TRACT":
+                return bernoulli_uniform_TRACT_sigma_sampling_fn(rng_key, y, step)
             else:
                 NotImplementedError("sigma_sampling should be either EDM or CM for now.")
 
@@ -263,8 +296,10 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
             
             # Sigma sampling
-            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_head'], 
-                                                   step_key, y, total_states_dict['torso_state'].step)
+            # sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_head'], 
+            #                                        step_key, y, total_states_dict['torso_state'].step)
+            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_head'], step_key, y, None)
+
 
             perturbed_x = y + sigma * noise
 
@@ -409,7 +444,6 @@ class CMFramework(DefaultModel):
             head_params = update_params['head_state']
             target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model)
 
-            
             # Set loss dict and total loss
             loss_dict = {}
             total_loss = 0
