@@ -117,7 +117,8 @@ class UnifyingFramework():
             if self.current_model_type == "ldm" and self.train_idx == 1:
                 loss_ema = log["train/total_loss"]
             else:
-                dsm_loss = log['train/head_dsm_loss']
+                # dsm_loss = log['train/head_dsm_loss']
+                dsm_loss = log['train/torso_lpips_loss']
             datasets_bar.set_description("Step: {step} dsm_loss: {dsm_loss:.4f}  lr*1e4: {lr:.4f}".format(
                 step=self.step,
                 dsm_loss=dsm_loss,

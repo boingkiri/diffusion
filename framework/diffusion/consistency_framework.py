@@ -71,6 +71,7 @@ class CMFramework(DefaultModel):
         self.torso_state = fs_obj.load_model_state(torso_prefix, self.torso_state, 
                                                    checkpoint_dir=torso_checkpoint_dir)
         
+        
         # checkpoint_dir = "experiments/0906_verification_unet_block_1/checkpoints"
         head_checkpoint_dir = diffusion_framework['head_checkpoint_path']
         head_prefix = "head"
@@ -80,12 +81,20 @@ class CMFramework(DefaultModel):
                 break
         self.head_state = fs_obj.load_model_state(head_prefix, self.head_state, 
                                                   checkpoint_dir=head_checkpoint_dir)
+        
+        # Set optimizer newly if initialize_previous_training_step is True
+        if diffusion_framework['initialize_previous_training_step']:
+            torso_tx = jax_utils.create_optimizer(config, "diffusion")
+            head_tx = jax_utils.create_optimizer(config, "head")
+            self.torso_state.tx = torso_tx
+            self.head_state.tx = head_tx
 
         # Replicate states for training with pmap
         self.training_states = {"head_state": self.head_state}
         self.CM_freeze = diffusion_framework['CM_freeze']
         if not self.CM_freeze:
             self.training_states["torso_state"] = self.torso_state
+        
         self.training_states = flax.jax_utils.replicate(self.training_states)
 
         # Parameters
@@ -113,7 +122,6 @@ class CMFramework(DefaultModel):
         self.ct_steps_fn = lambda idx: jnp.ceil(jnp.sqrt(idx / diffusion_framework['train']["total_step"] * ((self.s_1 + 1) ** 2 - self.s_0 ** 2) + self.s_0 ** 2) - 1) + 1
         self.target_model_ema_decay_fn = lambda idx: jnp.exp(self.s_0 * jnp.log(self.mu_0) / self.ct_steps_fn(idx))
         self.ct_t_steps_fn = lambda idx, N_k: (self.sigma_min ** (1 / self.rho) + idx / (N_k - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
-
 
         # Create ema obj
         ema_config = config.ema
@@ -147,7 +155,7 @@ class CMFramework(DefaultModel):
             return sigma, prev_sigma
         
         def cm_uniform_sigma_sampling_fn(rng_key, y):
-            sigma = jnp.random.uniform(
+            sigma = jax.random.uniform(
                 rng_key, (y.shape[0], 1, 1, 1), 
                 minval=self.sigma_min ** (1 / self.rho), maxval=self.sigma_max ** (1 / self.rho)) ** self.rho
             sigma_idx = self.t_steps_inv_fn(sigma)
@@ -625,9 +633,9 @@ class CMFramework(DefaultModel):
 
             if diffusion_framework['alternative_training']:
                 # Update head (for multiple times)
-                head_key = ["head_state"]
-                rng, head_rng = jax.random.split(rng)
-                states, loss_dict = update_params_fn(states, head_key, head_loss_fn, (x0, head_rng), loss_dict)
+                # head_key = ["head_state"]
+                # rng, head_rng = jax.random.split(rng)
+                # states, loss_dict = update_params_fn(states, head_key, head_loss_fn, (x0, head_rng), loss_dict)
                 
                 if not self.CM_freeze:
                     torso_key = ['torso_state']

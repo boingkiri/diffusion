@@ -22,7 +22,8 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 0919_verification_alternative_training_CD_sampling_score_feedback_dsm_and_cm_loss
+exp_name: 0919_verification_only_cm_update_with_uniform_to_propagate
+# exp_name: 0919_verification_alternative_training_CD_sampling_score_feedback_dsm_recheck
 do_training: true
 do_sampling: true
 num_sampling: 50000

@@ -23,7 +23,8 @@ def get_framework_config(config: DictConfig, model_type):
     elif config['framework']['train_idx'] == 2:
       framework_config = config.framework.diffusion
   else:
-    framework_config = config.framework.diffusion
+    # framework_config = config.framework.diffusion
+    framework_config = config.framework[model_type]
   return framework_config
 
 def get_learning_rate_schedule(config: DictConfig, model_type):
