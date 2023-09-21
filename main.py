@@ -19,23 +19,17 @@ def start(config: DictConfig):
     print(OmegaConf.to_yaml(config))
     print("------------------------------------------------------")
     diffusion_framework = UnifyingFramework(model_type, config, rng)
-    
-    # if jax.devices
+
 
     if config.do_training:
-        if config.type == "ldm":
-            wandb.init(project="my-ldm-WIP", config={**config})
-        elif config.type == "ddpm":
-            wandb.init(project="my-ddpm-WIP", config={**config})
-        elif config.type == "ddim":
-            wandb.init(project="my-ddim-WIP", config={**config})
-        elif config.type == "edm":
-            wandb.init(project="my-edm-WIP", config={**config})
-        elif config.type == "cm":
-            wandb.init(project="my-cm-WIP", config={**config})
-        elif config.type == "cm_diffusion":
-            wandb.init(project="my-cm-diffusion-WIP", config={**config})
-
+        name = config.pop('exp_name')
+        project_name = f"my-{config.type}-WIP"
+        args ={
+            "project": project_name,
+            "name": name,
+            "config": {**config}
+        }
+        wandb.init(**args)
         print("Training selected")
         diffusion_framework.train()
 
