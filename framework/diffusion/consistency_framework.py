@@ -315,24 +315,16 @@ class CMFramework(DefaultModel):
             return loss_dict
 
         @jax.jit
-        # def head_loss_fn(update_params, not_update_params, args, has_aux=False):
         def head_loss_fn(update_params, total_states_dict, args, has_aux=False):
-            # Get params from update params
             head_params = update_params['head_state']
-            # Get params from not update params
             torso_params = jax.lax.stop_gradient(total_states_dict.get('torso_state', self.torso_state).params_ema)
-            # Unzip arguments for loss_fn
             y, rng_key = args
             
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
             noise = jax.random.normal(noise_key, y.shape)
             
             # Sigma sampling
-            # sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_head'], 
-            #                                        step_key, y, total_states_dict['torso_state'].step)
             sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_head'], step_key, y, None)
-
-
             perturbed_x = y + sigma * noise
 
             # Get consistency function values
@@ -422,11 +414,10 @@ class CMFramework(DefaultModel):
             return total_loss, loss_dict
         
         @jax.jit
-        # def torso_loss_fn(update_params, not_update_params, args, has_aux=False):
         def torso_loss_fn(update_params, total_states_dict, args, has_aux=False):
-            # Get updating parameters from update params
             torso_params = update_params['torso_state']
-            head_params = jax.lax.stop_gradient(total_states_dict['head_state'].params)
+            # head_params = jax.lax.stop_gradient(total_states_dict['head_state'].params)
+            head_params = jax.lax.stop_gradient(total_states_dict['head_state'].params_ema)
             target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model)
 
             # Unzip arguments for loss_fn
@@ -506,8 +497,6 @@ class CMFramework(DefaultModel):
             
             # Sigma sampling
             sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_joint'], step_key, y, total_states_dict['torso_state'].step)
-
-            # denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key)
             perturbed_x = y + sigma * noise
 
             # Get consistency function values
@@ -651,9 +640,9 @@ class CMFramework(DefaultModel):
 
             if diffusion_framework['alternative_training']:
                 # Update head (for multiple times)
-                # head_key = ["head_state"]
-                # rng, head_rng = jax.random.split(rng)
-                # states, loss_dict = update_params_fn(states, head_key, head_loss_fn, (x0, head_rng), loss_dict)
+                head_key = ["head_state"]
+                rng, head_rng = jax.random.split(rng)
+                states, loss_dict = update_params_fn(states, head_key, head_loss_fn, (x0, head_rng), loss_dict)
                 
                 if not self.CM_freeze:
                     torso_key = ['torso_state']
@@ -689,9 +678,27 @@ class CMFramework(DefaultModel):
                     torso_state.target_model, torso_state.params)
                 torso_state = torso_state.replace(target_model = ema_updated_params)
                 states['torso_state'] = torso_state
+            
+            elif diffusion_framework['only_cm_training']:
+                torso_key = ['torso_state']
+                rng, torso_rng = jax.random.split(rng)
+                states, loss_dict = update_params_fn(states, torso_key, torso_loss_fn, (x0, torso_rng), loss_dict)
+
+                # Target model EMA (for consistency model training procedure)
+                torso_state = states['torso_state']
+                target_model_ema_decay = jnp.where(
+                    diffusion_framework['sigma_sampling_torso'] == "CT", 
+                    self.target_model_ema_decay_fn(torso_state.step),
+                    self.target_model_ema_decay)
+                ema_updated_params = jax.tree_map(
+                    lambda x, y: target_model_ema_decay * x + (1 - target_model_ema_decay) * y,
+                    torso_state.target_model, torso_state.params)
+                torso_state = torso_state.replace(target_model = ema_updated_params)
+                
+                states['torso_state'] = torso_state
 
             else:
-                NotImplementedError("Training procedure should be either alternative training or joint training.")
+                NotImplementedError("Training procedure should be either alternative training, joint training or only_cm_training.")
             
             for loss_key in loss_dict:
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
