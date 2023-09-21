@@ -442,7 +442,8 @@ class CMFramework(DefaultModel):
             if diffusion_framework['score_feedback']:
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
                 denoised, aux = self.head.apply(
-                    {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                    {'params': head_params}, x=perturbed_x, sigma=sigma, 
+                    F_x=jax.lax.stop_gradient(D_x), t_emb=jax.lax.stop_gradient(t_emb), last_x_emb=jax.lax.stop_gradient(last_x_emb),
                     train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
                 score_mul_sigma = (perturbed_x - denoised) / sigma # score * sigma
                 
@@ -634,9 +635,9 @@ class CMFramework(DefaultModel):
 
             loss_dict = {}
 
-            assert diffusion_framework['alternative_training'] and not diffusion_framework['joint_training'] or \
-                not diffusion_framework['alternative_training'] and diffusion_framework['joint_training'], \
-                "Training procedure should be either alternative training or joint training."
+            # assert diffusion_framework['alternative_training'] and not diffusion_framework['joint_training'] or \
+            #     not diffusion_framework['alternative_training'] and diffusion_framework['joint_training'], \
+            #     "Training procedure should be either alternative training or joint training."
 
             if diffusion_framework['alternative_training']:
                 # Update head (for multiple times)

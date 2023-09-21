@@ -30,8 +30,8 @@ initialize_previous_training_step: True
 # Option for freezing CM during training
 CM_freeze: False
 joint_training: False
-alternative_training: True
-only_cm_training: False
+alternative_training: False
+only_cm_training: True
 # joint training and alternative training should be toggled together 
 
 # Option for sigma sampling for head, torso
@@ -39,7 +39,7 @@ only_cm_training: False
 # EDM_Quantization, uniform_Quantization
 # Bernoulli, Bernoulli_Quantization, Bernoulli_uniform_Quantization, 
 sigma_sampling_head: EDM
-sigma_sampling_torso: EDM  
+sigma_sampling_torso: EDM
 sigma_sampling_joint: EDM_Quantization 
 
 # 0917: Exploration
