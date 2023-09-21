@@ -86,8 +86,10 @@ class CMFramework(DefaultModel):
         if diffusion_framework['initialize_previous_training_step']:
             torso_tx = jax_utils.create_optimizer(config, "diffusion")
             head_tx = jax_utils.create_optimizer(config, "head")
-            self.torso_state.tx = torso_tx
-            self.head_state.tx = head_tx
+            self.torso_state = self.torso_state.replace(tx=torso_tx)
+            self.head_state = self.head_state.replace(tx=head_tx)
+            # self.torso_state.tx = torso_tx
+            # self.head_state.tx = head_tx
 
         # Replicate states for training with pmap
         self.training_states = {"head_state": self.head_state}
@@ -176,7 +178,27 @@ class CMFramework(DefaultModel):
             prev_sigma = jnp.where(bernoulli_idx == 1, cm_sigma_tuple[1], edm_sigma_tuple[1])
             return sigma, prev_sigma
 
-        def bernoulli_TRACT_sigma_sampling_fn(rng_key, y, step):
+        def quantization_edm_sigma_sampling_fn(rng_key, y):
+            # Extract EDM sigma 
+            edm_sigma_tuple = edm_sigma_sampling_fn(rng_key, y)
+            edm_sigma = edm_sigma_tuple[0]
+            edm_sigma_idx = self.t_steps_inv_fn(edm_sigma)
+            # Quantize it to get previous edm sigma
+            prev_edm_sigma_idx = jnp.floor(edm_sigma_idx).astype(int)
+            prev_edm_sigma = self.t_steps_fn(prev_edm_sigma_idx)
+            return edm_sigma, prev_edm_sigma
+        
+        def quantization_uniform_sigma_sampling_fn(rng_key, y):
+            # Extract EDM sigma 
+            cm_uniform_sigma_tuple = cm_uniform_sigma_sampling_fn(rng_key, y)
+            uniform_sigma = cm_uniform_sigma_tuple[0]
+            edm_sigma_idx = self.t_steps_inv_fn(uniform_sigma)
+            # Quantize it to get previous edm sigma
+            prev_uniform_sigma_idx = jnp.floor(edm_sigma_idx).astype(int)
+            prev_uniform_sigma = self.t_steps_fn(prev_uniform_sigma_idx)
+            return uniform_sigma, prev_uniform_sigma
+
+        def bernoulli_quantization_sigma_sampling_fn(rng_key, y, step):
             bernoulli_key, step_key = jax.random.split(rng_key, 2)
             bernoulli_probability = 1 - step / diffusion_framework['train']["total_step"]
             bernoulli_idx = jax.random.bernoulli(bernoulli_key, p=bernoulli_probability, shape=(y.shape[0], 1, 1, 1))
@@ -184,13 +206,8 @@ class CMFramework(DefaultModel):
             # if bernoulli == 1, use CD, else EDM
             cm_sigma_tuple = cd_sigma_sampling_fn(step_key, y)
             
-            # Extract EDM sigma
-            edm_sigma_tuple = edm_sigma_sampling_fn(step_key, y)
-            edm_sigma = edm_sigma_tuple[0]
-            edm_sigma_idx = self.t_steps_inv_fn(edm_sigma)
-            prev_edm_sigma_idx = jnp.floor(edm_sigma_idx).astype(int)
-            prev_edm_sigma = self.t_steps_fn(prev_edm_sigma_idx)
-            edm_sigma_tuple = (edm_sigma, prev_edm_sigma)
+            # Extract Quantization sigma
+            edm_sigma_tuple = quantization_edm_sigma_sampling_fn(step_key, y)
 
             # result_sigmas = jnp.where(bernoulli_idx == 1, cm_sigma_tuple, edm_sigma_tuple)
             sigma = jnp.where(bernoulli_idx == 1, cm_sigma_tuple[0], edm_sigma_tuple[0])
@@ -198,22 +215,19 @@ class CMFramework(DefaultModel):
             return sigma, prev_sigma
 
     
-        def bernoulli_uniform_TRACT_sigma_sampling_fn(rng_key, y, step):
+        def bernoulli_uniform_quantization_sigma_sampling_fn(rng_key, y, step):
             bernoulli_key, step_key = jax.random.split(rng_key, 2)
             bernoulli_probability = 1 - step / diffusion_framework['train']["total_step"]
             bernoulli_idx = jax.random.bernoulli(bernoulli_key, p=bernoulli_probability, shape=(y.shape[0], 1, 1, 1))
             
             # if bernoulli == 1, use CD, else EDM
+            cm_step_key, step_key = jax.random.split(step_key, 2)
             cm_sigma_tuple = cd_sigma_sampling_fn(step_key, y)
             
             # Extract EDM sigma
-            edm_sigma_tuple = cm_uniform_sigma_sampling_fn(step_key, y)
-            edm_sigma = edm_sigma_tuple[0]
-            edm_sigma_idx = self.t_steps_inv_fn(edm_sigma)
-            prev_edm_sigma_idx = jnp.floor(edm_sigma_idx).astype(int)
-            prev_edm_sigma = self.t_steps_fn(prev_edm_sigma_idx)
-            edm_sigma_tuple = (edm_sigma, prev_edm_sigma)
-
+            quantization_step_key, step_key = jax.random.split(step_key, 2)
+            edm_sigma_tuple = quantization_uniform_sigma_sampling_fn(quantization_step_key, y)
+            
             # result_sigmas = jnp.where(bernoulli_idx == 1, cm_sigma_tuple, edm_sigma_tuple)
             sigma = jnp.where(bernoulli_idx == 1, cm_sigma_tuple[0], edm_sigma_tuple[0])
             prev_sigma = jnp.where(bernoulli_idx == 1, cm_sigma_tuple[1], edm_sigma_tuple[1])
@@ -226,12 +240,16 @@ class CMFramework(DefaultModel):
                 return cd_sigma_sampling_fn(rng_key, y)
             elif sigma_sampling == "CT":
                 return ct_sigma_sampling_fn(rng_key, y, step)
+            elif sigma_sampling == "EDM_Quantization":
+                return quantization_edm_sigma_sampling_fn(rng_key, y)
+            elif sigma_sampling == "Uniform_Quantization":
+                return quantization_uniform_sigma_sampling_fn(rng_key, y)
             elif sigma_sampling == "Bernoulli":
                 return bernoulli_sigma_sampling_fn(rng_key, y, step)
-            elif sigma_sampling == "Bernoulli_TRACT":
-                return bernoulli_TRACT_sigma_sampling_fn(rng_key, y, step)
-            elif sigma_sampling == "Bernoulli_uniform_TRACT":
-                return bernoulli_uniform_TRACT_sigma_sampling_fn(rng_key, y, step)
+            elif sigma_sampling == "Bernoulli_Quantization":
+                return bernoulli_quantization_sigma_sampling_fn(rng_key, y, step)
+            elif sigma_sampling == "Bernoulli_uniform_Quantization":
+                return bernoulli_uniform_quantization_sigma_sampling_fn(rng_key, y, step)
             else:
                 NotImplementedError("sigma_sampling should be either EDM or CM for now.")
 

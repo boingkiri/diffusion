@@ -34,10 +34,12 @@ alternative_training: True
 # joint training and alternative training should be toggled together 
 
 # Option for sigma sampling for head, torso
-# EDM, CD, CT, Bernoulli, Bernoulli_TRACT, Bernoulli_uniform_TRACT
-sigma_sampling_head: Bernoulli_uniform_TRACT 
-sigma_sampling_torso: Bernoulli_uniform_TRACT  
-sigma_sampling_joint: Bernoulli_uniform_TRACT 
+# EDM, CD, CT, 
+# EDM_Quantization, uniform_Quantization
+# Bernoulli, Bernoulli_Quantization, Bernoulli_uniform_Quantization, 
+sigma_sampling_head: EDM_Quantization 
+sigma_sampling_torso: EDM_Quantization  
+sigma_sampling_joint: EDM_Quantization 
 
 # 0917: Exploration
 gradient_flow_from_head: False
