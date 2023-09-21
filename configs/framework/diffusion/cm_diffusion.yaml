@@ -44,7 +44,7 @@ sigma_sampling_joint: EDM_Quantization
 
 # 0917: Exploration
 gradient_flow_from_head: False
-score_feedback: False
+score_feedback: True
 score_feedback_type: "interpolation" # interpolation, threshold # for now, interpolation is not supported
 score_feedback_threshold: 0.0
 

@@ -22,11 +22,13 @@ def start(config: DictConfig):
 
 
     if config.do_training:
-        name = config.pop('exp_name')
+        name = config['exp_name']
+        tags = config["tags"]
         project_name = f"my-{config.type}-WIP"
         args ={
             "project": project_name,
             "name": name,
+            "tags": tags,
             "config": {**config}
         }
         wandb.init(**args)
