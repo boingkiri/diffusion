@@ -88,8 +88,8 @@ class CMFramework(DefaultModel):
             head_tx = jax_utils.create_optimizer(config, "head")
             self.torso_state = self.torso_state.replace(tx=torso_tx)
             self.head_state = self.head_state.replace(tx=head_tx)
-            # self.torso_state.tx = torso_tx
-            # self.head_state.tx = head_tx
+            self.torso_state = self.torso_state.replace(step=0)
+            self.head_state = self.head_state.replace(step=0)
 
         # Replicate states for training with pmap
         self.training_states = {"head_state": self.head_state}
