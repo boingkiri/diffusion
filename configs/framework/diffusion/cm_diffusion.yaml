@@ -24,14 +24,15 @@ S_noise: 1.007
 # Loading Checkpoint
 # torso_checkpoint: 'pretrained_models/cd_750k'
 torso_checkpoint_path: "experiments/cm_distillation_ported_from_torch_ve/checkpoints" # None
-head_checkpoint_path: "experiments/0906_verification_unet_block_1/checkpoints" # None
+# head_checkpoint_path: "experiments/0906_verification_unet_block_1/checkpoints" # None
+head_checkpoint_path: None
 initialize_previous_training_step: True
 
 # Option for freezing CM during training
-CM_freeze: False
+CM_freeze: True
 joint_training: False
-alternative_training: False
-only_cm_training: True
+alternative_training: True
+only_cm_training: False
 # joint training and alternative training should be toggled together 
 
 # Option for sigma sampling for head, torso
@@ -42,7 +43,10 @@ sigma_sampling_head: EDM
 sigma_sampling_torso: EDM
 sigma_sampling_joint: EDM_Quantization 
 
-# 0917: Exploration
+# Head training procedure
+head_martingale_loss_hyperparam: 0.1
+
+# Torso training procedure
 gradient_flow_from_head: False
 score_feedback: True
 score_feedback_type: "interpolation" # interpolation, threshold # for now, interpolation is not supported

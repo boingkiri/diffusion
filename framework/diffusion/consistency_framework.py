@@ -355,21 +355,22 @@ class CMFramework(DefaultModel):
 
             # TMP ADD: 0919
             # Add CM loss
-            learned_score_estimator = (denoised - perturbed_x) / sigma
-            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * learned_score_estimator # Euler step
-            target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model)
-            prev_D_x, prev_aux = self.model.apply(
-                {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-                train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            if diffusion_framework['head_martingale_loss_hyperparam'] != 0:
+                learned_score_estimator = (denoised - perturbed_x) / sigma
+                prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * learned_score_estimator # Euler step
+                target_model = jax.lax.stop_gradient(total_states_dict.get('torso_state', self.torso_state).target_model)
+                prev_D_x, prev_aux = self.model.apply(
+                    {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
+                    train=True, augment_labels=None, rngs={'dropout': dropout_key})
 
-            # Get consistency loss
-            output_shape = (y.shape[0], 224, 224, y.shape[-1])
-            D_x = (jax.image.resize(D_x, output_shape, "bilinear") + 1) / 2.0
-            prev_D_x = (jax.image.resize(prev_D_x, output_shape, "bilinear") + 1) / 2.0
-            lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
-            hyperparam = 0.1
-            total_loss += hyperparam * lpips_loss
-            loss_dict['train/head_lpips_loss'] = lpips_loss
+                # Get consistency loss
+                output_shape = (y.shape[0], 224, 224, y.shape[-1])
+                D_x = (jax.image.resize(D_x, output_shape, "bilinear") + 1) / 2.0
+                prev_D_x = (jax.image.resize(prev_D_x, output_shape, "bilinear") + 1) / 2.0
+                lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
+                hyperparam = 0.1
+                total_loss += hyperparam * lpips_loss
+                loss_dict['train/head_lpips_loss'] = lpips_loss
 
             if self.head_type == 'score_pde' and diffusion_framework['score_pde_regularizer']:
                 # Extract dh_dx_inv, dh_dt
@@ -462,7 +463,8 @@ class CMFramework(DefaultModel):
                     prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * selected_score_mul_sigma # Euler step
             else:
                 prev_perturbed_x = y + prev_sigma * noise # Unbiased score estimator
-
+            
+            prev_perturbed_x = jax.lax.stop_gradient(prev_perturbed_x)
             prev_D_x, aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key})
