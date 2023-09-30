@@ -329,7 +329,7 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
             
             # Sigma sampling
-            step = self.head_state.step if self.head_sigma_requires_current_step else None
+            step = total_states_dict['head_state'].step if self.head_sigma_requires_current_step else None
             sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_head'], step_key, y, step)
             perturbed_x = y + sigma * noise
 
@@ -339,6 +339,8 @@ class CMFramework(DefaultModel):
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
                 train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
             
+            D_x = jax.lax.stop_gradient(D_x)
+            aux = jax.lax.stop_gradient(aux)
             F_x, t_emb, last_x_emb = aux
 
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
@@ -433,7 +435,7 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
 
             # Sigma sampling
-            step = self.torso_state.step if self.torso_sigma_requires_current_step else None
+            step = total_states_dict['torso_state'].step if self.torso_sigma_requires_current_step else None
             sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_torso'], step_key, y, step)
 
             # denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key)
@@ -474,6 +476,7 @@ class CMFramework(DefaultModel):
             prev_D_x, aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            prev_D_x = jax.lax.stop_gradient(prev_D_x)
             
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
             D_x = jax.image.resize(D_x, output_shape, "bilinear")
