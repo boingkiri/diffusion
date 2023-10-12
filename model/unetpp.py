@@ -889,18 +889,9 @@ class DummyCTMScore(nn.Module):
         c_skip = (self.sigma_data ** 2) / (start_sigma ** 2 + self.sigma_data ** 2)
         c_out = (start_sigma * self.sigma_data) / jnp.sqrt(start_sigma ** 2 + self.sigma_data ** 2)
         c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + start_sigma ** 2)
-        # c_start_noise = jnp.log(start_sigma) / 4
-        # c_end_noise = jnp.log(target_sigma) / 4
-        c_start_noise = start_sigma
-        c_end_noise = target_sigma
+        c_start_noise = jnp.log(start_sigma) / 4
+        c_end_noise = jnp.log(target_sigma) / 4
 
-        # Predict F_x. There is only UNetpp case for now. 
-        # Should add more cases. (ex, DhariwalUNet (ADM)) 
-        # if self.model_type == "unetpp":
-        #     net = UNetpp(**self.model_kwargs)
-        # elif self.model_type == "unet":
-        #     net = UNet(**self.model_kwargs)
-        # net = UNetppTwoTimestep(**self.model_kwargs)
         F_x = self.UNetpp_0(c_in * x, c_start_noise.flatten(), c_end_noise.flatten(), train, augment_labels)
         g_x = c_skip * x + c_out * F_x
         ratio = target_sigma / start_sigma

@@ -178,8 +178,8 @@ class CTMFramework(DefaultModel):
 
             # Get L_CTM loss
             step_key, t_key, u_key, s_key = jax.random.split(step_key, 4)
-            t_sigma = jax.random.uniform(t_key, (y.shape[0], 1, 1, 1), maxval=self.sigma_max)
-            s_sigma = jax.random.uniform(s_key, (y.shape[0], 1, 1, 1), maxval=t_sigma)
+            t_sigma = jax.random.uniform(t_key, (y.shape[0], 1, 1, 1), minval=self.sigma_min, maxval=self.sigma_max)
+            s_sigma = jax.random.uniform(s_key, (y.shape[0], 1, 1, 1), minval=self.sigma_min, maxval=t_sigma)
             u_sigma = jax.random.uniform(u_key, (y.shape[0], 1, 1, 1), minval=s_sigma, maxval=t_sigma)
 
             x_t = y + t_sigma * noise
