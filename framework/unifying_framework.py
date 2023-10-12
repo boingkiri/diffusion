@@ -2,10 +2,13 @@
 from framework.diffusion.ddpm_framework import DDPMFramework
 from framework.diffusion.edm_framework import EDMFramework
 from framework.diffusion.consistency_framework import CMFramework
+from framework.diffusion.ctm_framework import CTMFramework
 from framework.LDM import LDM
 
 import jax
 import jax.numpy as jnp
+from flax.training import orbax_utils
+import orbax.checkpoint
 
 from utils.fs_utils import FSUtils
 from utils import jax_utils, common_utils
@@ -60,6 +63,9 @@ class UnifyingFramework():
         elif self.current_model_type == "ldm":
             ldm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
             self.framework = LDM(config, ldm_rng, self.fs_utils, self.wandblog)
+        elif self.current_model_type == "ctm":
+            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+            self.framework = CTMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
         else:
             NotImplementedError("Model Type cannot be identified. Please check model name.")
         
@@ -117,8 +123,9 @@ class UnifyingFramework():
             if self.current_model_type == "ldm" and self.train_idx == 1:
                 loss_ema = log["train/total_loss"]
             else:
+                dsm_loss = log["train/total_loss"]
                 # dsm_loss = log['train/head_dsm_loss']
-                dsm_loss = log['train/torso_lpips_loss']
+                # dsm_loss = log['train/torso_lpips_loss']
             datasets_bar.set_description("Step: {step} dsm_loss: {dsm_loss:.4f}  lr*1e4: {lr:.4f}".format(
                 step=self.step,
                 dsm_loss=dsm_loss,
@@ -130,25 +137,25 @@ class UnifyingFramework():
 
                 # Change of the sample quality is tracked to know how much the CM model is corrupted.
                 # Sample generated image for EDM
-                sample = self.sampling(8, original_data=batch_data, mode="edm")
+                sample = self.sampling(8, original_data=batch_data, mode="cm_training")
                 xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_path = self.fs_utils.save_comparison(xset, self.step, in_process_dir)
                 log['Sampling'] = wandb.Image(sample_path, caption=f"Step: {self.step}")
 
                 # Sample generated image for training CM
-                if not self.config.framework.diffusion.CM_freeze:
-                    sample = self.sampling(8, original_data=batch_data, mode="cm_training")
-                    xset = jnp.concatenate([sample[:8], batch_data], axis=0)
-                    sample_image = self.fs_utils.get_pil_from_np(xset)
-                    log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
-                    sample_image.close()
+                # if not self.config.framework.diffusion.CM_freeze:
+                #     sample = self.sampling(8, original_data=batch_data, mode="cm_training")
+                #     xset = jnp.concatenate([sample[:8], batch_data], axis=0)
+                #     sample_image = self.fs_utils.get_pil_from_np(xset)
+                #     log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
+                #     sample_image.close()
 
-                # Sample generated image for original CM 
-                sample = self.sampling(8, original_data=batch_data, mode="cm_not_training")
-                xset = jnp.concatenate([sample[:8], batch_data], axis=0)
-                sample_image = self.fs_utils.get_pil_from_np(xset)
-                log['Original CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
-                sample_image.close()
+                # # Sample generated image for original CM 
+                # sample = self.sampling(8, original_data=batch_data, mode="cm_not_training")
+                # xset = jnp.concatenate([sample[:8], batch_data], axis=0)
+                # sample_image = self.fs_utils.get_pil_from_np(xset)
+                # log['Original CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
+                # sample_image.close()
 
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
@@ -159,37 +166,37 @@ class UnifyingFramework():
                     self.save_model_state(model_state)
 
                 # Calculate FID score with 1000 samples
-                # if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
-                #     fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 10000, batch_size=128)
-                #     if best_fid >= fid_score:
-                #         best_checkpoint_dir = self.config.exp.best_dir
-                #         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "diffusion_")
+                if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
+                    fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 10000, batch_size=128)
+                    if best_fid >= fid_score:
+                        best_checkpoint_dir = self.config.exp.best_dir
+                        jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "diffusion_")
 
-                #         best_fid = fid_score
-                #     self.wandblog.update_log({"FID score": fid_score})
-                #     self.wandblog.flush(step=self.step)
+                        best_fid = fid_score
+                    self.wandblog.update_log({"FID score": fid_score})
+                    self.wandblog.flush(step=self.step)
                 
                 # TMP: Calculate FID score with 10000 samples for both EDM and CM, 
                 # which corresponds to the head and the torso, respectively.
-                sampling_modes = ['edm', 'cm_training'] if not self.config.framework.diffusion.CM_freeze else ['edm']
-                if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
-                    for mode in sampling_modes:
-                        fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 10000, batch_size=128, sampling_mode=mode)
-                        if best_fid >= fid_score:
-                            best_checkpoint_dir = self.config.exp.best_dir
-                            best_checkpoint_dir = os.path.join(best_checkpoint_dir, mode)
-                            os.makedirs(best_checkpoint_dir, exist_ok=True)
-                            if mode == "edm":
-                                jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "head_")
-                            else:
-                                jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "torso_")
+                # sampling_modes = ['edm', 'cm_training'] if not self.config.framework.diffusion.CM_freeze else ['edm']
+                # if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
+                #     for mode in sampling_modes:
+                #         fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 10000, batch_size=128, sampling_mode=mode)
+                #         if best_fid >= fid_score:
+                #             best_checkpoint_dir = self.config.exp.best_dir
+                #             best_checkpoint_dir = os.path.join(best_checkpoint_dir, mode)
+                #             os.makedirs(best_checkpoint_dir, exist_ok=True)
+                #             if mode == "edm":
+                #                 jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "head_")
+                #             else:
+                #                 jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "torso_")
 
-                            best_fid = fid_score
-                        if mode == "edm":
-                            self.wandblog.update_log({"Head FID score": fid_score})
-                        else:
-                            self.wandblog.update_log({"Torso FID score": fid_score})
-                    self.wandblog.flush(step=self.step)
+                #             best_fid = fid_score
+                #         if mode == "edm":
+                #             self.wandblog.update_log({"Head FID score": fid_score})
+                #         else:
+                #             self.wandblog.update_log({"Torso FID score": fid_score})
+                #     self.wandblog.flush(step=self.step)
 
 
             if self.step >= self.total_step:

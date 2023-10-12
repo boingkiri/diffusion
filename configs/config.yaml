@@ -1,30 +1,18 @@
 defaults:
-  # - framework: ldm
   - framework: 
-    # - diffusion/ddim
-    # - diffusion/ddpm
-    # - diffusion/improved_ddpm
-    # - diffusion/edm
-    # - diffusion/cm
-    - diffusion/cm_diffusion
-    # - diffusion/cm_dm
+    - diffusion/ctm
   - model@_group_.diffusion: 
     - diffusion/unetpp_cm
-  - model@_group_.head: 
-    # - diffusion/score_head_pde
-    - diffusion/score_head
-    # - diffusion/score_head_baseline
-  # - ema: ema_edm
+  # - model@_group_.discriminator:
+    # - discriminator/score_head
   - ema: ema
   - dataset: cifar10
   - exp: exp_setting
 
-# type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
-# type: edm
 type: ${framework.diffusion.type}
-exp_name: 0921_verification_only_cm_training_score_feedback_with_param_ema
-tags: [cm, score_feedback, param_ema]
-# exp_name: 0919_verification_alternative_training_CD_sampling_score_feedback_dsm_recheck
+exp_name: 1011_ctm
+# tags: [cm, score_feedback, param_ema]
+tags: [ctm]
 do_training: true
 do_sampling: true
 num_sampling: 50000
@@ -37,11 +25,9 @@ framework:
   diffusion:
     distillation_path: None # experiments/cm_dm_230603_encoder_head_with_time_emb_1 # Exp name or pretrained model file name
     t_emb_output: True
-
   train_idx: 2
 
 hydra:  
   output_subdir: null  
   run:  
     dir: .
-
