@@ -167,7 +167,7 @@ class UnifyingFramework():
 
                 # Calculate FID score with 1000 samples
                 if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
-                    fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 10000, batch_size=128)
+                    fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 10000, batch_size=128, sampling_mode="cm_training")
                     if best_fid >= fid_score:
                         best_checkpoint_dir = self.config.exp.best_dir
                         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "diffusion_")
