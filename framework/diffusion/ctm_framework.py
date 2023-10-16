@@ -165,6 +165,19 @@ class CTMFramework(DefaultModel):
             loss_dict['eval/lpips_dist_for_training_cm'] = lpips_dist
             loss_dict['eval/lpips_dist_btw_training_and_original_cm'] = lpips_dist_btw_training_and_original_cm
             return loss_dict
+
+        def solver_fn(x_t, current_sigma, prev_sigma, rng_key, target_model=None):
+            rng_key, sampling_key = jax.random.split(rng_key, 2)
+            if diffusion_framework.use_pretrained_score_model:
+                x_t_u = heun_fn(self.teacher_model_state["params_ema"], x_t, sampling_key, 0, 
+                                current_sigma, prev_sigma, model=self.teacher_model)
+            else:
+                x_t_u = heun_fn(jax.lax.stop_gradient(target_model), x_t, sampling_key, 0, 
+                                current_sigma, prev_sigma, model=self.model)
+        
+            return x_t_u
+
+        self.solver = jax.pmap(partial(jax.lax.scan, solver_fn), axis_name=self.pmap_axis)
         
         @jax.jit
         def ctm_loss_fn(update_params, total_states_dict, args, has_aux=False):
@@ -172,17 +185,12 @@ class CTMFramework(DefaultModel):
             target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model)
 
             # Unzip arguments for loss_fn
-            y, rng_key = args
+            package, rng_key = args
+            y, x_t_u, normal, t_sigma, u_sigma, s_sigma = package
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
-            noise = jax.random.normal(noise_key, y.shape)
 
             # Get L_CTM loss
-            step_key, t_key, u_key, s_key = jax.random.split(step_key, 4)
-            t_sigma = jax.random.uniform(t_key, (y.shape[0], 1, 1, 1), minval=self.sigma_min, maxval=self.sigma_max)
-            s_sigma = jax.random.uniform(s_key, (y.shape[0], 1, 1, 1), minval=self.sigma_min, maxval=t_sigma)
-            u_sigma = jax.random.uniform(u_key, (y.shape[0], 1, 1, 1), minval=s_sigma, maxval=t_sigma)
-
-            x_t = y + t_sigma * noise
+            x_t = y + t_sigma * normal
 
             ## Get x_est
             dropout_key_tmp, dropout_key = jax.random.split(dropout_key, 2)
@@ -196,14 +204,6 @@ class CTMFramework(DefaultModel):
                 train=False, augment_labels=None, rngs={'dropout': dropout_key_tmp})
 
             ## Get x_target
-            rng_key, sampling_key = jax.random.split(rng_key, 2)
-            if diffusion_framework.use_pretrained_score_model:
-                x_t_u = heun_fn(self.teacher_model_state["params_ema"], x_t, sampling_key, 0, 
-                                t_sigma, u_sigma, model=self.teacher_model)
-            else:
-                x_t_u = heun_fn(jax.lax.stop_gradient(target_model), x_t, sampling_key, 0, 
-                                t_sigma, u_sigma, model=self.model)
-            
             dropout_key_tmp, dropout_key = jax.random.split(dropout_key, 2)
             x_u_s, _ = self.model.apply(
                 {'params': target_model}, x=x_t_u, start_sigma=u_sigma, target_sigma=s_sigma,
@@ -224,7 +224,8 @@ class CTMFramework(DefaultModel):
             t_sigma = jnp.where(total_states_dict['torso_state'].step < diffusion_framework.train.total_step,
                                 CTM_EDM_fn(t_key, y),
                                 CTM_late_stage_fn(t_key, y))
-            x_t = y + t_sigma * noise
+            
+            x_t = y + t_sigma * normal
             _, g_theta = self.model.apply(
                 {'params': torso_params}, x=x_t, start_sigma=t_sigma, target_sigma=t_sigma,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_tmp})
@@ -255,7 +256,7 @@ class CTMFramework(DefaultModel):
             return states_dict, loss_dict_tail
 
         # Define update function
-        def update(carry_state, x0):
+        def after_solver_fn(carry_state, x0):
             (rng, states) = carry_state
             rng, new_rng = jax.random.split(rng)
             loss_dict = {}
@@ -282,6 +283,61 @@ class CTMFramework(DefaultModel):
             states = {state_name: self.ema_obj.ema_update(state_content) for state_name, state_content in states.items()}
 
             new_carry_state = (new_rng, states)
+            return new_carry_state, loss_dict
+        
+        self.after_solver = jax.pmap(partial(jax.lax.scan, after_solver_fn), axis_name=self.pmap_axis)
+        
+        def iterating_solver_fn(solver_operand, current_sigma, prev_sigma, sampling_key, target_model):
+            if diffusion_framework.use_pretrained_score_model:
+                solver_result = heun_fn(self.teacher_model_state["params_ema"], solver_operand, sampling_key, 0, 
+                                current_sigma, prev_sigma, model=self.teacher_model)
+            else:
+                solver_result = heun_fn(jax.lax.stop_gradient(target_model), solver_operand, sampling_key, 0, 
+                                current_sigma, prev_sigma, model=self.model)
+            return solver_result
+
+        def iterating_solver_scan_fn(carry, x0):
+            target_model, rng, current_sigma, prev_sigma = carry
+            solver_operand = x0
+            rng, sampling_rng = jax.random.split(rng, 2)
+            solver_result = iterating_solver_fn(solver_operand, current_sigma, prev_sigma, sampling_rng, target_model)
+            return (target_model, rng, current_sigma, prev_sigma), solver_result
+
+        self.iterating_solver = jax.pmap(partial(jax.lax.scan, iterating_solver_scan_fn), axis_name=self.pmap_axis)
+
+        def update(carry, x0): # This function does not uses pmap.
+            rng, states = carry
+            rng = rng[0]
+            rng, t_sigma_rng, u_sigma_rng, s_sigma_rng, normal_rng = jax.random.split(rng, 5)
+
+            # Get t_sigma, u_sigma, s_sigma
+            # All pmap*scan*mini_batch samples share the same t_sigma, u_sigma, s_sigma
+            # To minimize the effect of the shared sigma, the value of scan is set to 1.
+            t_sigma_idx = jax.random.randint(t_sigma_rng, (1, ), minval=0, maxval=self.n_timestep)
+            s_sigma_idx = jax.random.randint(s_sigma_rng, (1, ), minval=0, maxval=t_sigma_idx+1)
+            u_sigma_idx = jax.random.randint(u_sigma_rng, (1, ), minval=s_sigma_idx, maxval=t_sigma_idx)
+            normal = jax.random.normal(normal_rng, x0.shape)
+            
+            # Get result of solver
+            solver_result = x0 + self.t_steps[t_sigma_idx] * normal
+            sigma_shape = (x0.shape[0], 1, 1, 1, 1)
+            target_model_for_solver = flax.jax_utils.replicate(states)['torso_state'].target_model
+            for current_sigma_idx in range(jnp.squeeze(t_sigma_idx), jnp.squeeze(u_sigma_idx), -1):
+                current_sigma = jnp.full(sigma_shape, self.t_steps[current_sigma_idx])
+                prev_sigma = jnp.full(sigma_shape, self.t_steps[current_sigma_idx - 1])
+                sampling_key, rng = jax.random.split(rng, 2)
+                sampling_key = jax.random.split(sampling_key, jax.local_device_count())
+                iterating_solver_carry = (target_model_for_solver, sampling_key, current_sigma, prev_sigma)
+                iterating_solver_xs = solver_result
+                _, solver_result = self.iterating_solver(iterating_solver_carry, iterating_solver_xs)
+            sigma_shape = (*x0.shape[:-3], 1, 1, 1)
+            xs = (x0, solver_result, normal, 
+                jnp.full(sigma_shape, self.t_steps[t_sigma_idx]),
+                jnp.full(sigma_shape, self.t_steps[u_sigma_idx]),
+                jnp.full(sigma_shape, self.t_steps[s_sigma_idx]),)
+            rng = jax.random.split(rng, jax.local_device_count())
+            new_carry = (rng, states)
+            new_carry_state, loss_dict = self.after_solver(new_carry, xs)
             return new_carry_state, loss_dict
 
         # Define p_sample_jit functions for sampling
@@ -314,11 +370,10 @@ class CTMFramework(DefaultModel):
                 heun_x_prev = x_hat + 0.5 * (t_prev - t_hat) * (d_cur + d_prime)
                 return heun_x_prev
             
-            # heun_x_prev = jax.lax.cond(jnp.squeeze(t_prev) != 0.0,
-            #                         second_order_corrections,
-            #                         lambda euler_x_prev, t_prev, x_hat, t_hat, dx_dt, rng_key: euler_x_prev,
-            #                         euler_x_prev, t_prev, x_hat, t_hat, d_cur, dropout_key_2)
-            heun_x_prev = second_order_corrections(euler_x_prev, t_prev, x_hat, t_hat, d_cur, dropout_key_2)
+            heun_x_prev = jax.lax.cond(jnp.squeeze(t_prev) != 0.0,
+                                    second_order_corrections,
+                                    lambda euler_x_prev, t_prev, x_hat, t_hat, dx_dt, rng_key: euler_x_prev,
+                                    euler_x_prev, t_prev, x_hat, t_hat, d_cur, dropout_key_2)
             return heun_x_prev
 
         def sample_cm_fn(params, x_cur, rng_key, gamma=None, t_cur=None, t_prev=None):
@@ -330,7 +385,8 @@ class CTMFramework(DefaultModel):
 
         self.p_sample_edm = jax.pmap(heun_fn)
         self.p_sample_cm = jax.pmap(sample_cm_fn)
-        self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
+        # self.update_fn = jax.pmap(partial(jax.lax.scan, after_solver), axis_name=self.pmap_axis)
+        self.update_fn = update
         self.eval_fn = jax.pmap(monitor_metric_fn, axis_name=self.pmap_axis)
     
     def get_training_states_params(self):
