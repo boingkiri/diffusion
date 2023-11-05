@@ -23,32 +23,30 @@ S_noise: 1.007
 
 # Loading Checkpoint
 # torso_checkpoint: 'pretrained_models/cd_750k'
-# torso_checkpoint_path: "experiments/cm_distillation_ported_from_torch_ve/checkpoints" # None
-# head_checkpoint_path: "experiments/0906_verification_unet_block_1/checkpoints" # None
-torso_checkpoint_path: null # None
-head_checkpoint_path: null # None
-initialize_previous_training_step: False
+torso_checkpoint_path: "experiments/cm_distillation_ported_from_torch_ve/checkpoints" # None
+head_checkpoint_path: "experiments/0906_verification_unet_block_1/checkpoints" # None
+initialize_previous_training_step: True
 
 # Option for freezing CM during training
 CM_freeze: False
 joint_training: False
-alternative_training: False
-only_cm_training: True
+alternative_training: True
+only_cm_training: False
 # joint training and alternative training should be toggled together 
 
 # Option for sigma sampling for head, torso
 # EDM, CD, CT, 
 # EDM_Quantization, uniform_Quantization
 # Bernoulli, Bernoulli_Quantization, Bernoulli_uniform_Quantization, 
-sigma_sampling_head: CT
+sigma_sampling_head: EDM
 sigma_sampling_torso: CT
-sigma_sampling_joint: CT 
+sigma_sampling_joint: CT
 
 # 0917: Exploration
 gradient_flow_from_head: False
 score_feedback: False
-score_feedback_type: "interpolation" # interpolation, threshold # for now, interpolation is not supported
-score_feedback_threshold: 0.0
+score_feedback_type: "threshold" # interpolation, threshold # for now, interpolation is not supported
+score_feedback_threshold: 1.0
 
 
 # augment_rate: 0.12
@@ -62,7 +60,7 @@ train:
   # warmup: 5000
   # warmup: 19532 # int(10e6 / ${.batch_size})
   batch_size: 512
-  total_step: 800000
+  total_step: 1000000
   sampling_step: 10000
   saving_step: 100000
   optimizer:

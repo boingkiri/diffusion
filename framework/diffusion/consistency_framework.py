@@ -99,6 +99,11 @@ class CMFramework(DefaultModel):
         
         self.training_states = flax.jax_utils.replicate(self.training_states)
 
+        # Determine if get_sigma_sampling requires current step as input
+        requires_steps = ["CT", "Bernoulli"]
+        self.head_sigma_requires_current_step = any(list(map(lambda s: s in diffusion_framework['sigma_sampling_head'], requires_steps)))
+        self.torso_sigma_requires_current_step = any(list(map(lambda s: s in diffusion_framework['sigma_sampling_torso'], requires_steps)))
+
         # Parameters
         self.sigma_min = diffusion_framework['sigma_min']
         self.sigma_max = diffusion_framework['sigma_max']
@@ -323,7 +328,8 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
             
             # Sigma sampling
-            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_head'], step_key, y, None)
+            step = total_states_dict['head_state'].step if self.head_sigma_requires_current_step else None
+            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_head'], step_key, y, step)
             perturbed_x = y + sigma * noise
 
             # Get consistency function values
@@ -332,6 +338,8 @@ class CMFramework(DefaultModel):
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
                 train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
             
+            D_x = jax.lax.stop_gradient(D_x)
+            aux = jax.lax.stop_gradient(aux)
             F_x, t_emb, last_x_emb = aux
 
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
@@ -352,23 +360,23 @@ class CMFramework(DefaultModel):
             loss_dict = {}
             loss_dict['train/head_dsm_loss'] = dsm_loss
 
-            # TMP ADD: 0919
-            # Add CM loss
-            learned_score_estimator = (denoised - perturbed_x) / sigma
-            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * learned_score_estimator # Euler step
-            target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model)
-            prev_D_x, prev_aux = self.model.apply(
-                {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-                train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            # # TMP ADD: 0919
+            # # Add CM loss
+            # learned_score_estimator = (denoised - perturbed_x) / sigma
+            # prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * learned_score_estimator # Euler step
+            # target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model)
+            # prev_D_x, prev_aux = self.model.apply(
+            #     {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
+            #     train=True, augment_labels=None, rngs={'dropout': dropout_key})
 
-            # Get consistency loss
-            output_shape = (y.shape[0], 224, 224, y.shape[-1])
-            D_x = (jax.image.resize(D_x, output_shape, "bilinear") + 1) / 2.0
-            prev_D_x = (jax.image.resize(prev_D_x, output_shape, "bilinear") + 1) / 2.0
-            lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
-            hyperparam = 0.1
-            total_loss += hyperparam * lpips_loss
-            loss_dict['train/head_lpips_loss'] = lpips_loss
+            # # Get consistency loss
+            # output_shape = (y.shape[0], 224, 224, y.shape[-1])
+            # D_x = (jax.image.resize(D_x, output_shape, "bilinear") + 1) / 2.0
+            # prev_D_x = (jax.image.resize(prev_D_x, output_shape, "bilinear") + 1) / 2.0
+            # lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
+            # hyperparam = 0.1
+            # total_loss += hyperparam * lpips_loss
+            # loss_dict['train/head_lpips_loss'] = lpips_loss
 
             if self.head_type == 'score_pde' and diffusion_framework['score_pde_regularizer']:
                 # Extract dh_dx_inv, dh_dt
@@ -426,7 +434,9 @@ class CMFramework(DefaultModel):
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
             noise = jax.random.normal(noise_key, y.shape)
 
-            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_torso'], step_key, y, total_states_dict['torso_state'].step)
+            # Sigma sampling
+            step = total_states_dict['torso_state'].step if self.torso_sigma_requires_current_step else None
+            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_torso'], step_key, y, step)
 
             # denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key)
             perturbed_x = y + sigma * noise
@@ -519,9 +529,9 @@ class CMFramework(DefaultModel):
 
             if diffusion_framework['score_feedback']:
                 score_feedback_ratio = total_states_dict['torso_state'].step / diffusion_framework['train']["total_step"]
-                unbiased_score_estimator = jax.lax.stop_gradient(y - perturbed_x) / (sigma ** 2)
-                learned_score_estimator = jax.lax.stop_gradient(denoised - perturbed_x) / (sigma ** 2)
-                one_step_forward_score = jnp.where(
+                unbiased_score_estimator = jax.lax.stop_gradient(perturbed_x - y) / sigma
+                learned_score_estimator = jax.lax.stop_gradient(perturbed_x - denoised) / sigma
+                one_step_forward = jnp.where(
                     score_feedback_ratio <= diffusion_framework['score_feedback_threshold'],
                     unbiased_score_estimator,
                     learned_score_estimator
@@ -529,9 +539,9 @@ class CMFramework(DefaultModel):
                 score_diff = unbiased_score_estimator - learned_score_estimator
                 loss_dict['train/diff_btw_unbiased_estimator_and_learned_estimator'] = jnp.mean(jnp.mean(score_diff ** 2, axis=(1, 2, 3)))
             else:
-                one_step_forward_score = jax.lax.stop_gradient(y - perturbed_x) / (sigma ** 2)
+                one_step_forward = jax.lax.stop_gradient(perturbed_x - y) / sigma
 
-            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * sigma * one_step_forward_score
+            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * one_step_forward
             prev_D_x, prev_aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key})
