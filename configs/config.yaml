@@ -22,8 +22,9 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 0921_verification_only_cm_training_score_feedback_with_param_ema
-tags: [cm, score_feedback, param_ema]
+# exp_name: 0921_verification_only_cm_training_score_feedback_with_param_ema
+exp_name: 1018_ct_reproduce_dummy
+tags: [ct]
 # exp_name: 0919_verification_alternative_training_CD_sampling_score_feedback_dsm_recheck
 do_training: true
 do_sampling: true
@@ -33,12 +34,11 @@ rand_seed: 42
 fid_during_training: true # True when calculating fid during training, otherwise, false.
 n_jitted_steps: 5
 
-framework:
-  diffusion:
-    distillation_path: None # experiments/cm_dm_230603_encoder_head_with_time_emb_1 # Exp name or pretrained model file name
-    t_emb_output: True
-
-  train_idx: 2
+# framework:
+#   diffusion:
+#     distillation_path: None # experiments/cm_dm_230603_encoder_head_with_time_emb_1 # Exp name or pretrained model file name
+    # t_emb_output: True
+  # train_idx: 2
 
 hydra:  
   output_subdir: null  

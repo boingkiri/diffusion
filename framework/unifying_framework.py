@@ -130,25 +130,29 @@ class UnifyingFramework():
 
                 # Change of the sample quality is tracked to know how much the CM model is corrupted.
                 # Sample generated image for EDM
-                sample = self.sampling(8, original_data=batch_data, mode="edm")
-                xset = jnp.concatenate([sample[:8], batch_data], axis=0)
-                sample_path = self.fs_utils.save_comparison(xset, self.step, in_process_dir)
-                log['Sampling'] = wandb.Image(sample_path, caption=f"Step: {self.step}")
+                if not self.config.framework.diffusion.only_cm_training:
+                    sample = self.sampling(8, original_data=batch_data, mode="edm")
+                    edm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
+                    sample_image = self.fs_utils.get_pil_from_np(edm_xset)
+                    # sample_path = self.fs_utils.save_comparison(edm_xset, self.step, in_process_dir)
+                    log['Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
 
                 # Sample generated image for training CM
                 if not self.config.framework.diffusion.CM_freeze:
                     sample = self.sampling(8, original_data=batch_data, mode="cm_training")
-                    xset = jnp.concatenate([sample[:8], batch_data], axis=0)
-                    sample_image = self.fs_utils.get_pil_from_np(xset)
+                    training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
+                    sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
                     log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
+                    sample_path = self.fs_utils.save_comparison(training_cm_xset, self.step, in_process_dir) # TMP
                     sample_image.close()
 
                 # Sample generated image for original CM 
                 sample = self.sampling(8, original_data=batch_data, mode="cm_not_training")
-                xset = jnp.concatenate([sample[:8], batch_data], axis=0)
-                sample_image = self.fs_utils.get_pil_from_np(xset)
+                edm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
+                sample_image = self.fs_utils.get_pil_from_np(edm_xset)
                 log['Original CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
                 sample_image.close()
+                
 
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
@@ -171,7 +175,13 @@ class UnifyingFramework():
                 
                 # TMP: Calculate FID score with 10000 samples for both EDM and CM, 
                 # which corresponds to the head and the torso, respectively.
-                sampling_modes = ['edm', 'cm_training'] if not self.config.framework.diffusion.CM_freeze else ['edm']
+
+                if self.config.framework.diffusion.only_cm_training:
+                    sampling_modes = ['cm_training']
+                elif self.config.framework.diffusion.CM_freeze:
+                    sampling_modes = ['edm']
+                else:
+                    sampling_modes = ['edm', 'cm_training']
                 if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
                     for mode in sampling_modes:
                         fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 10000, batch_size=128, sampling_mode=mode)
@@ -207,7 +217,7 @@ class UnifyingFramework():
         batch_size = self.sample_batch_size
         while total_num > current_num:
             effective_batch_size = total_num - current_num if current_num + batch_size > total_num else batch_size
-            samples = self.sampling(effective_batch_size, original_data=None)
+            samples = self.sampling(effective_batch_size, original_data=None, mode="cm_not_training")
             self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
             current_num += batch_size
     
