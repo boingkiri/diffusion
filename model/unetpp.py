@@ -229,7 +229,9 @@ class FourierEmbedding(nn.Module):
         # key = self.make_rng('params')
         # randn = jax.random.normal(key, (self.num_channels // 2,))
         # self.freqs = randn * self.scale
-        self.freqs = self.param('freqs', jax.random.normal, (self.num_channels // 2,), jnp.float32)
+        def freq_init(key, shape, dtype):
+            return jax.random.normal(key, shape, dtype) * self.scale
+        self.freqs = self.param('freqs', freq_init, (self.num_channels // 2,), jnp.float32)
     
     def __call__(self, x):
         # x = x.ger((2 * np.pi * self.freqs).to(x.dtype))
@@ -258,6 +260,8 @@ class UNetpp(nn.Module):
     resample_filter: Union[Tuple[int, ...], List[int]] = (1, 1)
     learn_sigma: bool = False
 
+    fourier_layer_scale: float = 16.0
+
     t_emb_output: bool = False
     input_channels: int = None
     input_t_embed: bool = False
@@ -280,7 +284,9 @@ class UNetpp(nn.Module):
         )
 
         # Mapping
-        self.map_noise = PositionalEmbedding(num_channels=noise_channels, endpoint=True) if self.embedding_type == "positional" else FourierEmbedding(num_channels=noise_channels)
+        self.map_noise = PositionalEmbedding(num_channels=noise_channels, endpoint=True) \
+                            if self.embedding_type == "positional" \
+                            else FourierEmbedding(num_channels=noise_channels, scale=self.fourier_layer_scale)
         self.map_label = Linear(self.label_dim, noise_channels, init_mode=init) if self.label_dim else None 
         self.map_augment = Linear(self.augment_dim, noise_channels, use_bias=False, init_mode=init) if self.augment_dim else None
         self.map_layer0 = Linear(noise_channels, emb_channels, init_mode=init)
@@ -897,3 +903,35 @@ class DummyCTMScore(nn.Module):
         ratio = target_sigma / start_sigma
         D_x = ratio * x + (1 - ratio) * g_x
         return D_x, g_x
+
+
+class iCMPrecond(nn.Module):
+    model_kwargs : dict
+
+    image_channels: int
+    label_dim: int = 0
+    use_fp16: bool = False
+    sigma_min : float = 0.0 # 0.002
+    sigma_max : float = float('inf') # 80
+    sigma_data : float = 0.5
+    model_type : str = "unetpp"
+    
+    t_emb_output : bool = True
+    
+    @nn.compact
+    def __call__(self, x, sigma, augment_labels, train):
+        c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
+        c_out = ((sigma - self.sigma_min) * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
+        c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
+        c_noise = jnp.log(sigma) / 4
+
+        # Predict F_x. There is only UNetpp case for now. 
+        # Should add more cases. (ex, DhariwalUNet (ADM)) 
+        if self.model_type == "unetpp":
+            net = UNetpp(**self.model_kwargs, t_emb_output=self.t_emb_output)
+        elif self.model_type == "unet":
+            net = UNet(**self.model_kwargs)
+        
+        F_x, t_emb, last_x_emb = net(c_in * x, c_noise.flatten(), train, augment_labels)
+        D_x = c_skip * x + c_out * F_x
+        return D_x, (F_x, t_emb, last_x_emb)

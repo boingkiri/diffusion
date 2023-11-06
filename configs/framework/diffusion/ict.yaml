@@ -1,0 +1,34 @@
+type: "ict"
+n_timestep: 18
+loss: huber # l2, l1, lpips, huber
+learn_sigma: False
+
+# Consistency distillation or Consistency training
+is_distillation: False
+distillation_path: null # Exp name or pretrained model file name
+target_model_ema_decay: 0
+params_ema_for_training: [0.9, 10, 1280] # mu_0, s_0, s_1
+
+# Sigma : Assume that the process is performing VP
+sigma_sampling: iCT
+sigma_min: 0.002
+sigma_max: 80
+rho: 7
+
+deterministic_sampling: True
+S_churn: 30
+S_min: 0.01
+S_max: 1
+S_noise: 1.007
+
+
+# augment_rate: 0.12
+
+train:
+  learning_rate: 1.0e-4
+  batch_size: 512
+  total_step: 400000
+  sampling_step: 10000
+  saving_step: 100000
+  optimizer:
+    type: "radam"
