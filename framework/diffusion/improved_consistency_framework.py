@@ -127,7 +127,7 @@ class iCMFramework(DefaultModel):
             # erf(sigma_{i+1}) - erf(sigma_{i})
             # Note that the index after the maximum step value should be zero 
             # because the corresponding index value is clipped by N_k-1, which will have same sigma value
-            # Therefore, the probability value will be 0 when subtract the same erf value   
+            # Therefore, the probability value will be 0 when subtract the same erf value
             categorical_prob = jnp.zeros((self.s_1 + 1,))
             categorical_prob = categorical_prob.at[:self.s_1].set(overall_erf_sigma[1:] - overall_erf_sigma[:-1])
             # Set the probability of the maximum step value to 1 - erf(sigma_{max}) (which is almost zero)
@@ -244,8 +244,9 @@ class iCMFramework(DefaultModel):
                 loss = lpips_loss(D_x, prev_D_x)
                 loss_dict['train/lpips_loss'] = loss
             elif diffusion_framework['loss'] == "huber":
-                loss = huber_loss(D_x, prev_D_x)          
-                loss_dict['train/huber_loss'] = loss  
+                weight = 1 / (sigma - prev_sigma)
+                loss = huber_loss(D_x, prev_D_x, weight=weight)
+                loss_dict['train/huber_loss'] = loss
             total_loss += loss
             loss_dict['train/total_loss'] = total_loss
             return total_loss, loss_dict
