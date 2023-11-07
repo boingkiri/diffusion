@@ -73,7 +73,7 @@ class iCMFramework(DefaultModel):
         self.t_steps_fn = lambda idx: (self.sigma_min ** (1 / self.rho) + idx / (self.n_timestep - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
 
         # Add CT training steps for torso training
-        k_prime = diffusion_framework['train']['total_step'] / (jnp.log2(jnp.floor(self.s_1 / self.s_0)) + 1)
+        k_prime = jnp.floor(diffusion_framework['train']['total_step'] / (jnp.log2(jnp.floor(self.s_1 / self.s_0)) + 1))
         self.ct_maximum_step_fn = lambda cur_step: jnp.minimum(self.s_0 * jnp.power(2, jnp.floor(cur_step / k_prime)), self.s_1) + 1
         self.ct_t_steps_fn = lambda idx, N_k: (self.sigma_min ** (1 / self.rho) + idx / (N_k - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
 
@@ -116,7 +116,7 @@ class iCMFramework(DefaultModel):
             overall_idx = jnp.arange(self.s_1 + 1)
 
             # Then, if the value is larger than the maximum step value, set it to the maximum step value.
-            overall_idx = jnp.where(overall_idx < N_k, overall_idx, N_k - 1)
+            overall_idx = jnp.where(overall_idx < N_k, overall_idx, N_k)
 
             # Calculate erf of standardizated sigma for sampling from categorical distribution 
             # This process is imitation of discrete lognormal distribution. (please refer to the paper)
@@ -130,8 +130,7 @@ class iCMFramework(DefaultModel):
             # Therefore, the probability value will be 0 when subtract the same erf value
             categorical_prob = jnp.zeros((self.s_1 + 1,))
             categorical_prob = categorical_prob.at[:self.s_1].set(overall_erf_sigma[1:] - overall_erf_sigma[:-1])
-            # Set the probability of the maximum step value to 1 - erf(sigma_{max}) (which is almost zero)
-            categorical_prob = categorical_prob.at[self.s_1].set(1 - overall_erf_sigma[-1])
+            categorical_prob = categorical_prob.at[self.s_1].set(0)
             categorical_prob = categorical_prob / jnp.sum(categorical_prob) # Normalize to make sure the sum is 1.
             idx = jax.random.choice(rng_key, overall_idx, shape=(y.shape[0], ), p=categorical_prob)
             next_idx = idx + 1
@@ -213,8 +212,8 @@ class iCMFramework(DefaultModel):
 
         @jax.jit
         def model_loss_fn(update_params, total_states_dict, args, has_aux=False):
-            torso_params = update_params['model_state']
-            target_model = jax.lax.stop_gradient(torso_params)
+            model_params = update_params['model_state']
+            target_model = jax.lax.stop_gradient(model_params)
 
             # Unzip arguments for loss_fn
             y, rng_key = args
@@ -229,7 +228,7 @@ class iCMFramework(DefaultModel):
             # Get consistency function values
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
             D_x, _ = self.model.apply(
-                {'params': torso_params}, x=perturbed_x, sigma=sigma,
+                {'params': model_params}, x=perturbed_x, sigma=sigma,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
             
             prev_perturbed_x = y + prev_sigma * noise
@@ -249,6 +248,7 @@ class iCMFramework(DefaultModel):
                 loss_dict['train/huber_loss'] = loss
             total_loss += loss
             loss_dict['train/total_loss'] = total_loss
+            loss_dict['train/N_k'] = jnp.mean(self.ct_maximum_step_fn(total_states_dict['model_state'].step))
             return total_loss, loss_dict
 
 
