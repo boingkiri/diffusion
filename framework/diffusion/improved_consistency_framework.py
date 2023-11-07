@@ -116,7 +116,7 @@ class iCMFramework(DefaultModel):
             overall_idx = jnp.arange(self.s_1 + 1)
 
             # Then, if the value is larger than the maximum step value, set it to the maximum step value.
-            overall_idx = jnp.where(overall_idx < N_k, overall_idx, N_k)
+            overall_idx = jnp.where(overall_idx < N_k, overall_idx, N_k - 1)
 
             # Calculate erf of standardizated sigma for sampling from categorical distribution 
             # This process is imitation of discrete lognormal distribution. (please refer to the paper)
