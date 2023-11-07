@@ -102,7 +102,8 @@ class iCMFramework(DefaultModel):
         
         def ct_sigma_sampling_fn(rng_key, y, step):
             N_k = self.ct_maximum_step_fn(step)
-            idx = jax.random.randint(rng_key, (y.shape[0], ), minval=1, maxval=N_k+1)
+            # idx = jax.random.randint(rng_key, (y.shape[0], ), minval=1, maxval=N_k+1)
+            idx = jax.random.randint(rng_key, (y.shape[0], ), minval=1, maxval=N_k)
             sigma = self.ct_t_steps_fn(idx, N_k)[:, None, None, None]
             prev_sigma = self.ct_t_steps_fn(idx - 1, N_k)[:, None, None, None]
             return sigma, prev_sigma
