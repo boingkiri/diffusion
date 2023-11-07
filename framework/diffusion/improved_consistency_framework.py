@@ -101,10 +101,10 @@ class iCMFramework(DefaultModel):
             return sigma, prev_sigma
         
         def ct_sigma_sampling_fn(rng_key, y, step):
-            N_k = self.ct_steps_fn(step)
-            idx = jax.random.randint(rng_key, (y.shape[0], ), minval=1, maxval=N_k)
+            N_k = self.ct_maximum_step_fn(step)
+            idx = jax.random.randint(rng_key, (y.shape[0], ), minval=1, maxval=N_k+1)
             sigma = self.ct_t_steps_fn(idx, N_k)[:, None, None, None]
-            prev_sigma = sigma = self.ct_t_steps_fn(idx - 1, N_k)[:, None, None, None]
+            prev_sigma = self.ct_t_steps_fn(idx - 1, N_k)[:, None, None, None]
             return sigma, prev_sigma
 
         def ict_sigma_sampling_fn(rng_key, y, step):
@@ -222,11 +222,9 @@ class iCMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
             sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling'], step_key, y, total_states_dict['model_state'].step)
 
-            # denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key)
-            perturbed_x = y + sigma * noise
-
             # Get consistency function values
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            perturbed_x = y + sigma * noise
             D_x, _ = self.model.apply(
                 {'params': model_params}, x=perturbed_x, sigma=sigma,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
@@ -239,12 +237,12 @@ class iCMFramework(DefaultModel):
             # Loss and loss dict construction
             total_loss = 0
             loss_dict = {}
+            loss_weight = 1.0 if not diffusion_framework['loss_weight'] else 1 / (sigma - prev_sigma)
             if diffusion_framework['loss'] == "lpips":
-                loss = lpips_loss(D_x, prev_D_x)
+                loss = lpips_loss(D_x, prev_D_x, loss_weight)
                 loss_dict['train/lpips_loss'] = loss
             elif diffusion_framework['loss'] == "huber":
-                weight = 1 / (sigma - prev_sigma)
-                loss = huber_loss(D_x, prev_D_x, weight=weight)
+                loss = huber_loss(D_x, prev_D_x, weight=loss_weight)
                 loss_dict['train/huber_loss'] = loss
             total_loss += loss
             loss_dict['train/total_loss'] = total_loss
