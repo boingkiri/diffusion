@@ -22,8 +22,8 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 231001_CMSH_CTEDM_scratch_3
-tags: [cm, score_feedback, param_ema]
+exp_name: 1122_alternative_training
+tags: [alternative_training]
 do_training: True
 do_sampling: True
 num_sampling: 50000
@@ -31,6 +31,8 @@ sampling_batch: 256
 rand_seed: 42
 fid_during_training: True # True when calculating fid during training, otherwise, false.
 n_jitted_steps: 10
+
+available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 
 # framework:
 #   diffusion:

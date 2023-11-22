@@ -1,3 +1,4 @@
+import jax
 from jax import random
 
 import wandb
@@ -14,6 +15,10 @@ import argparse
 def start(config: DictConfig):
     rng = random.PRNGKey(config.rand_seed)
     model_type = config.type
+
+    # if the current environment is GPU, set the available GPU
+    if hasattr(config, "available_gpus"):
+        os.environ["CUDA_VISIBLE_DEVICES"] = config.available_gpus
     
     print("-------------------Config Setting---------------------")
     print(OmegaConf.to_yaml(config))
