@@ -322,6 +322,9 @@ class CMFramework(DefaultModel):
 
         @jax.jit
         def head_loss_fn(update_params, total_states_dict, args, has_aux=False):
+            total_loss = 0
+            loss_dict = {}
+
             head_params = update_params['head_state']
             torso_params = jax.lax.stop_gradient(total_states_dict.get('torso_state', self.torso_state).params_ema)
             y, rng_key = args
@@ -358,27 +361,22 @@ class CMFramework(DefaultModel):
             dsm_loss = jnp.mean(weight * (denoised - y) ** 2)
 
             # Loss and loss dict construction
-            total_loss = dsm_loss
-            loss_dict = {}
+            total_loss += dsm_loss
             loss_dict['train/head_dsm_loss'] = dsm_loss
 
-            # # TMP ADD: 0919
-            # # Add CM loss
-            # learned_score_estimator = (denoised - perturbed_x) / sigma
-            # prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * learned_score_estimator # Euler step
-            # target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model)
-            # prev_D_x, prev_aux = self.model.apply(
-            #     {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-            #     train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            if diffusion_framework['head_connection_loss']:
+                rng_key, noise_key = jax.random.split(rng_key, 2)
+                noise = jax.random.normal(noise_key, y.shape)
+                D_x = jax.lax.stop_gradient(D_x)
+                perturbed_D_x = D_x + sigma * noise
+                dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+                new_D_x, aux = self.model.apply(
+                    {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
+                    train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
+                connection_loss = jnp.mean((new_D_x - denoised) ** 2)
 
-            # # Get consistency loss
-            # output_shape = (y.shape[0], 224, 224, y.shape[-1])
-            # D_x = (jax.image.resize(D_x, output_shape, "bilinear") + 1) / 2.0
-            # prev_D_x = (jax.image.resize(prev_D_x, output_shape, "bilinear") + 1) / 2.0
-            # lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
-            # hyperparam = 0.1
-            # total_loss += hyperparam * lpips_loss
-            # loss_dict['train/head_lpips_loss'] = lpips_loss
+                total_loss += connection_loss
+                loss_dict['train/head_connection_loss'] = connection_loss
 
             if self.head_type == 'score_pde' and diffusion_framework['score_pde_regularizer']:
                 # Extract dh_dx_inv, dh_dt
@@ -424,6 +422,10 @@ class CMFramework(DefaultModel):
         
         @jax.jit
         def torso_loss_fn(update_params, total_states_dict, args, has_aux=False):
+            # Set loss dict and total loss to return
+            loss_dict = {}
+            total_loss = 0
+
             torso_params = update_params['torso_state']
             head_params = total_states_dict.get('head_state', None)
             if head_params is not None:
@@ -451,14 +453,17 @@ class CMFramework(DefaultModel):
 
             F_x, t_emb, last_x_emb = aux
             # Get score value with consistency function value
-            if diffusion_framework['score_feedback']:
+            score_head_flag = diffusion_framework['score_feedback'] or diffusion_framework['torso_connection_loss']
+            if score_head_flag:
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
                 denoised, aux = self.head.apply(
                     {'params': head_params}, x=perturbed_x, sigma=sigma, 
                     F_x=jax.lax.stop_gradient(D_x), t_emb=jax.lax.stop_gradient(t_emb), last_x_emb=jax.lax.stop_gradient(last_x_emb),
                     train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+
+            # Use the score head output as the guidance for consistency model
+            if diffusion_framework['score_feedback']:
                 score_mul_sigma = (perturbed_x - denoised) / sigma # score * sigma
-                
                 score_feedback_ratio = total_states_dict['torso_state'].step / diffusion_framework['train']["total_step"]
                 unbiased_score_mul_sigma = (perturbed_x - y)  / sigma
                 if diffusion_framework['score_feedback_type'] == "interpolation":
@@ -475,6 +480,21 @@ class CMFramework(DefaultModel):
             else:
                 prev_perturbed_x = y + prev_sigma * noise # Unbiased score estimator
             
+            # Connect the consistency output and denoiser output with connection loss
+            if diffusion_framework['torso_connection_loss']:
+                rng_key, noise_key = jax.random.split(rng_key, 2)
+                noise = jax.random.normal(noise_key, y.shape)
+                D_x = jax.lax.stop_gradient(D_x)
+                perturbed_D_x = D_x + sigma * noise
+                dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+                new_D_x, aux = self.model.apply(
+                    {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
+                    train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
+                connection_loss = jnp.mean((new_D_x - denoised) ** 2)
+
+                total_loss += connection_loss
+                loss_dict['train/torso_connection_loss'] = connection_loss
+            
             prev_perturbed_x = jax.lax.stop_gradient(prev_perturbed_x)
             prev_D_x, aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
@@ -486,22 +506,20 @@ class CMFramework(DefaultModel):
             D_x = (D_x + 1) / 2.0
             prev_D_x = (prev_D_x + 1) / 2.0
             lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
-            
-            # Loss and loss dict construction
-            loss_dict = {}
-            total_loss = lpips_loss
+
+            total_loss += lpips_loss
             loss_dict['train/torso_lpips_loss'] = lpips_loss
             
             return total_loss, loss_dict
 
         def joint_training_loss_fn(update_params, total_states_dict, args, has_aux=False):
-            torso_params = update_params['torso_state']
-            head_params = update_params['head_state']
-            target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model)
-
             # Set loss dict and total loss
             loss_dict = {}
             total_loss = 0
+
+            torso_params = update_params['torso_state']
+            head_params = update_params['head_state']
+            target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model)
 
             # Unzip arguments for loss_fn
             y, rng_key = args
