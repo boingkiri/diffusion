@@ -114,19 +114,20 @@ class UnifyingFramework():
             log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
 
             
-            if self.current_model_type == "ldm" and self.train_idx == 1:
-                loss_ema = log["train/total_loss"]
-            else:
-                # dsm_loss = log['train/head_dsm_loss']
-                # dsm_loss = log['train/torso_lpips_loss']
-                total_loss = log['train/total_loss']
+            # if self.current_model_type == "ldm" and self.train_idx == 1:
+            #     loss_ema = log["train/total_loss"]
+            # else:
+            #     # dsm_loss = log['train/head_dsm_loss']
+            #     # dsm_loss = log['train/torso_lpips_loss']
+            #     total_loss = log['train/total_loss']
             description_str = "Step: {step} lr*1e4: {lr:.4f} ".format(
                 step=self.step,
                 lr=self.learning_rate_schedule(self.step)*(1e+4)
             )
             for key in log:
                 if key.startswith("train"):
-                    description_str += f"{key}: {log[key]:.4f} "
+                    represented_key = key.replace("train/", "")
+                    description_str += f"{represented_key}: {log[key]:.4f} "
             datasets_bar.set_description(description_str)
 
             if self.step % 1000 == 0:
