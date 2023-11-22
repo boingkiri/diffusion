@@ -229,7 +229,10 @@ class FourierEmbedding(nn.Module):
         # key = self.make_rng('params')
         # randn = jax.random.normal(key, (self.num_channels // 2,))
         # self.freqs = randn * self.scale
-        self.freqs = self.param('freqs', jax.random.normal, (self.num_channels // 2,), jnp.float32)
+        def freq_init(key, shape, dtype):
+            randn = jax.random.normal(key, shape)
+            return randn * self.scale
+        self.freqs = self.param('freqs', freq_init, (self.num_channels // 2,), jnp.float32)
     
     def __call__(self, x):
         # x = x.ger((2 * np.pi * self.freqs).to(x.dtype))
