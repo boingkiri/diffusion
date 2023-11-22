@@ -166,24 +166,24 @@ class FSUtils():
         return state
     
     def get_best_fid(self):
-        best_fid = None
+        best_fid = {}
         in_process_dir = self.config.exp.in_process_dir
-        fid_log_file = os.path.join(in_process_dir, "fid_log.txt")
 
-        if not os.path.exists(fid_log_file):
-            return float('inf')
-
-        with open(fid_log_file, 'r') as f:
-            txt = f.read()
-            logs = txt.split('\n')
-            for log in logs:
-                if len(log) == 0:
-                    continue
-                frag = log.split(' ')
-                value = float(frag[-1])
-                if best_fid is None:
-                    best_fid = value
-                elif best_fid >= value:
-                    best_fid = value
+        for content in os.listdir(in_process_dir):
+            if content.startwith("fid_log"):
+                fid_log_key = content.split("_")[-1]
+                fid_log_file = os.path.join(in_process_dir, content)
+                with open(fid_log_file, 'r') as f:
+                    txt = f.read()
+                    logs = txt.split('\n')
+                    for log in logs:
+                        if len(log) == 0:
+                            continue
+                        frag = log.split(' ')
+                        value = float(frag[-1])
+                        if best_fid is None:
+                            best_fid[fid_log_key] = value
+                        elif best_fid[fid_log_key] >= value:
+                            best_fid[fid_log_key] = value
         return best_fid
 

@@ -72,20 +72,18 @@ class FIDUtils():
             current_num_samples += self.fs_utils.save_images_to_dir(sample, tmp_dir, current_num_samples)
         return tmp_dir
 
-    def calculate_fid_in_step(self, step, model_obj, total_num_samples, batch_size=128, sampling_mode=None):
+    def calculate_fid_in_step(self, model_obj, total_num_samples, batch_size=128, sampling_mode=None):
         tmp_dir = self.save_images_for_fid(model_obj, total_num_samples, batch_size, sampling_mode)
-
         fid_score = self.calculate_fid(tmp_dir)
+        shutil.rmtree(tmp_dir)
+        return fid_score
+    
+    def print_and_save_fid(self, step, fid_score, sampling_mode=None):
         writing_format = f"FID score of Step {step} : {fid_score:.4f}\n"
         print(writing_format)
 
-        fid_log_file = os.path.join(self.in_process_dir, "fid_log.txt")
+        file_name = f"fid_log_{sampling_mode}.txt" if sampling_mode is not None else "fid_log.txt"
+        fid_log_file = os.path.join(self.in_process_dir, file_name)
         with open(fid_log_file, 'a') as f:
             f.write(writing_format)
-        shutil.rmtree(tmp_dir)
-
-        return fid_score
-    
-    
-    
 

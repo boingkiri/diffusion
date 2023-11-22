@@ -922,7 +922,7 @@ class CMFramework(DefaultModel):
             self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample
 
-    def sampling_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="cm_training"):
+    def sampling_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="cm-training"):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
@@ -935,9 +935,9 @@ class CMFramework(DefaultModel):
         t_max = jnp.asarray([self.sigma_max] * jax.local_device_count())
         t_min = jnp.asarray([self.sigma_min] * jax.local_device_count())
 
-        if mode == "cm_training":
+        if mode == "cm-training":
             sampling_params = self.training_states['torso_state'].params_ema
-        elif mode == "cm_not_training":
+        elif mode == "cm-not-training":
             sampling_params = self.torso_state.params_ema
             sampling_params = flax.jax_utils.replicate(sampling_params)
 

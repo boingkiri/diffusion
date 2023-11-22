@@ -106,20 +106,13 @@ class UnifyingFramework():
         in_process_dir = self.config.exp.in_process_dir
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
-        best_fid = self.fs_utils.get_best_fid()
+        best_fids = self.fs_utils.get_best_fid()
         first_step = True
         
         for x, _ in datasets_bar:
             eval_during_training = self.step % 1000 == 0
             log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
 
-            
-            # if self.current_model_type == "ldm" and self.train_idx == 1:
-            #     loss_ema = log["train/total_loss"]
-            # else:
-            #     # dsm_loss = log['train/head_dsm_loss']
-            #     # dsm_loss = log['train/torso_lpips_loss']
-            #     total_loss = log['train/total_loss']
             description_str = "Step: {step} lr*1e4: {lr:.4f} ".format(
                 step=self.step,
                 lr=self.learning_rate_schedule(self.step)*(1e+4)
@@ -144,7 +137,7 @@ class UnifyingFramework():
 
                 # Sample generated image for training CM
                 if not self.config.framework.diffusion.CM_freeze:
-                    sample = self.sampling(8, original_data=batch_data, mode="cm_training")
+                    sample = self.sampling(8, original_data=batch_data, mode="cm-training")
                     training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                     sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
                     log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
@@ -152,7 +145,7 @@ class UnifyingFramework():
                     sample_image.close()
 
                 # Sample generated image for original CM 
-                sample = self.sampling(8, original_data=batch_data, mode="cm_not_training")
+                sample = self.sampling(8, original_data=batch_data, mode="cm-not-training")
                 edm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_image = self.fs_utils.get_pil_from_np(edm_xset)
                 log['Original CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
@@ -182,15 +175,16 @@ class UnifyingFramework():
                 # which corresponds to the head and the torso, respectively.
 
                 if self.config.framework.diffusion.only_cm_training:
-                    sampling_modes = ['cm_training']
+                    sampling_modes = ['cm-training']
                 elif self.config.framework.diffusion.CM_freeze:
                     sampling_modes = ['edm']
                 else:
-                    sampling_modes = ['edm', 'cm_training']
+                    sampling_modes = ['edm', 'cm-training']
                 if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
                     for mode in sampling_modes:
-                        fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 10000, batch_size=128, sampling_mode=mode)
-                        if best_fid >= fid_score:
+                        fid_score = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
+                        self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode)
+                        if not mode in best_fids or best_fids[mode] >= fid_score:
                             best_checkpoint_dir = self.config.exp.best_dir
                             best_checkpoint_dir = os.path.join(best_checkpoint_dir, mode)
                             os.makedirs(best_checkpoint_dir, exist_ok=True)
@@ -199,7 +193,7 @@ class UnifyingFramework():
                             else:
                                 jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "torso_")
 
-                            best_fid = fid_score
+                            best_fids[mode] = fid_score
                         if mode == "edm":
                             self.wandblog.update_log({"Head FID score": fid_score})
                         else:
