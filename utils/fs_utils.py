@@ -170,7 +170,7 @@ class FSUtils():
         in_process_dir = self.config.exp.in_process_dir
 
         for content in os.listdir(in_process_dir):
-            if content.startwith("fid_log"):
+            if content.startswith("fid_log"):
                 fid_log_key = content.split("_")[-1]
                 fid_log_file = os.path.join(in_process_dir, content)
                 with open(fid_log_file, 'r') as f:

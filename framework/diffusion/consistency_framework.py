@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import flax
 from flax.training import checkpoints
 
-from model.unetpp import CMPrecond, ScoreDistillPrecond
+from model.unetpp import CMPrecond, ScoreDistillPrecond, EDMPrecond
 from utils import jax_utils
 from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
@@ -52,7 +52,16 @@ class CMFramework(DefaultModel):
                                sigma_min=diffusion_framework['sigma_min'],
                                sigma_max=diffusion_framework['sigma_max'],
                                model_type=head_type)
-        
+
+        if diffusion_framework['is_distillation']:
+            self.teacher_model = EDMPrecond(model_config, 
+                                image_channels=model_config['image_channels'], 
+                                model_type=model_type, 
+                                sigma_min=diffusion_framework['sigma_min'],
+                                sigma_max=diffusion_framework['sigma_max'])
+            teacher_model_path = diffusion_framework['distillation_path']
+            self.teacher_state = checkpoints.restore_checkpoint(teacher_model_path, None, prefix="diffusion_")
+
         self.torso_state, self.head_state = self.init_model_state(config)
         # print(parameter_overview.get_parameter_overview(self.head_state.params))
         # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
@@ -477,6 +486,14 @@ class CMFramework(DefaultModel):
                         score_mul_sigma
                     )
                     prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * selected_score_mul_sigma # Euler step
+            elif diffusion_framework['is_distillation']:
+                assert diffusion_framework['score_feedback'] == False
+                dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+                teacher_denoised = self.teacher_model.apply(
+                    {'params': self.teacher_state["params_ema"]}, x=perturbed_x, sigma=sigma,
+                    train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+                teacher_score = (perturbed_x - teacher_denoised) / sigma     
+                prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * teacher_score
             else:
                 prev_perturbed_x = y + prev_sigma * noise # Unbiased score estimator
             
