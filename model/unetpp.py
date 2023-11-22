@@ -156,6 +156,7 @@ class UNetBlock(nn.Module):
     resample_filter: Union[Tuple[int, ...], List[int]] = (1, 1)
     resample_proj: bool = False
     adaptive_scale: bool = True
+    use_dropout: bool = True
     
     def setup(self):
         init = create_initializer("xavier_uniform")
@@ -200,7 +201,7 @@ class UNetBlock(nn.Module):
         else:
             x = nn.silu(self.norm1(x + params))
         
-        x = self.dropout1(x, deterministic=not train)
+        x = self.dropout1(x, deterministic=not train and self.use_dropout)
         x = self.conv1(x)
         skip_orig = self.skip(orig) if self.skip is not None else orig
         x = (x + skip_orig) * self.skip_scale
@@ -261,6 +262,7 @@ class UNetpp(nn.Module):
     learn_sigma: bool = False
 
     fourier_layer_scale: float = 16.0
+    use_dropout: Union[Tuple[bool, ...], List[bool]] = (True, True, True)
 
     t_emb_output: bool = False
     input_channels: int = None
@@ -306,6 +308,7 @@ class UNetpp(nn.Module):
 
         for level, mult in enumerate(self.ch_mults):
             res = img_res >> level
+            block_kwargs.update({"use_dropout": self.use_dropout[level]})
             if level == 0:
                 cin = cout if self.input_channels is None else self.input_channels
                 cout = self.n_channels
@@ -330,6 +333,7 @@ class UNetpp(nn.Module):
         dec_modules = {}
         for level, mult in reversed(list(enumerate(self.ch_mults))):
             res = img_res >> level
+            block_kwargs.update({"use_dropout": self.use_dropout[level]})
             if level == len(self.ch_mults) - 1:
                 dec_modules[f"{res}x{res}_in0"] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
                 dec_modules[f"{res}x{res}_in1"] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
