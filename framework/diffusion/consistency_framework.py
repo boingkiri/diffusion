@@ -462,16 +462,19 @@ class CMFramework(DefaultModel):
 
             F_x, t_emb, last_x_emb = aux
             # Get score value with consistency function value
-            score_head_flag = diffusion_framework['score_feedback'] or diffusion_framework['torso_connection_loss']
-            if score_head_flag:
+            def head_fn(head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key):
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+                perturbed_x = y + sigma * noise
+
                 denoised, aux = self.head.apply(
                     {'params': head_params}, x=perturbed_x, sigma=sigma, 
                     F_x=jax.lax.stop_gradient(D_x), t_emb=jax.lax.stop_gradient(t_emb), last_x_emb=jax.lax.stop_gradient(last_x_emb),
                     train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+                return denoised
 
             # Use the score head output as the guidance for consistency model
             if diffusion_framework['score_feedback']:
+                denoised = head_fn(head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key)
                 score_mul_sigma = (perturbed_x - denoised) / sigma # score * sigma
                 score_feedback_ratio = total_states_dict['torso_state'].step / diffusion_framework['train']["total_step"]
                 unbiased_score_mul_sigma = (perturbed_x - y)  / sigma
@@ -499,15 +502,19 @@ class CMFramework(DefaultModel):
             
             # Connect the consistency output and denoiser output with connection loss
             if diffusion_framework['torso_connection_loss']:
+                connection_loss_ratio = total_states_dict['torso_state'].step / diffusion_framework['train']["total_step"]
                 rng_key, noise_key = jax.random.split(rng_key, 2)
                 noise = jax.random.normal(noise_key, y.shape)
-                D_x = jax.lax.stop_gradient(D_x)
                 perturbed_D_x = D_x + sigma * noise
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
                 new_D_x, aux = self.model.apply(
-                    {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
-                    train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
-                connection_loss = jnp.mean((new_D_x - denoised) ** 2)
+                    {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
+                    train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+                unbiased_denoiser_fn = lambda head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key: y
+                connection_loss_denoised = jax.lax.cond(
+                    connection_loss_ratio <= diffusion_framework['torso_connection_threshold'],
+                    unbiased_denoiser_fn, head_fn, head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key)
+                connection_loss = jnp.mean((new_D_x - connection_loss_denoised) ** 2)
 
                 total_loss += connection_loss
                 loss_dict['train/torso_connection_loss'] = connection_loss
