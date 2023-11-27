@@ -22,8 +22,8 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 1125_alternative_training_ct
-tags: [alternative_training, CT]
+exp_name: 1127_alternative_training_ct_new_loss_threshold_150k
+tags: [alternative_training, CT, new_loss, threshold_150k]
 do_training: True
 do_sampling: True
 num_sampling: 50000
