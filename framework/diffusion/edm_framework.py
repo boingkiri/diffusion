@@ -33,7 +33,8 @@ class EDMFramework(DefaultModel):
         model_type = model_config.pop("type")
         self.model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
         self.model_state = self.init_model_state(config)
-        self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
+        # self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
+        self.model_state = fs_obj.load_model_state("diffusion", None)
         
         # Parameters
         self.sigma_min = max(diffusion_framework['sigma_min'], self.model.sigma_min)
@@ -133,6 +134,19 @@ class EDMFramework(DefaultModel):
                                     lambda x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2: x_next, 
                                     x_next, t_next, x_hat, t_hat, d_cur, dropout_key_2)
             return x_result
+        
+        def denoiser_sample_jit(params, x_cur, rng_key, gamma, t_cur):
+            # Augment label
+            augment_dim = config.model.diffusion.get("augment_dim", None)
+            augment_labels = jnp.zeros((*x_cur.shape[:-3], augment_dim)) if augment_dim is not None else None
+
+            rng_key, dropout_key = jax.random.split(rng_key)
+
+            denoised = self.model.apply(
+                {'params': params}, x=x_cur, sigma=t_cur, 
+                train=False, augment_labels=augment_labels, rngs={'dropout': dropout_key})
+            return denoised
+
 
         def scan_fn(init, x0, label):
             xs = jax.lax.map(lambda params: params, (x0, label))
@@ -142,6 +156,7 @@ class EDMFramework(DefaultModel):
         # self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
         self.update_fn = jax.pmap(scan_fn, axis_name=self.pmap_axis)
         self.p_sample_jit = jax.pmap(p_sample_jit)
+        self.denoiser_sample = jax.pmap(denoiser_sample_jit)
 
     
     def p_sample(self, param, xt, t):
@@ -190,16 +205,18 @@ class EDMFramework(DefaultModel):
         self.wandblog.update_log(return_dict)
         return return_dict
     
-    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None):
+    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None, sweep_timesteps=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
-        step_indices = jnp.arange(self.n_timestep)
+        step_indices = jnp.arange(sweep_timesteps, self.n_timestep)
         t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
         t_steps = jnp.append(t_steps, jnp.zeros_like(t_steps[:1]))
         pbar = tqdm(zip(t_steps[:-1], t_steps[1:]))
 
         latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * t_steps[0]
+        if original_data is not None:
+            latent_sample += original_data
         
 
         for t_cur, t_next in pbar:
@@ -214,9 +231,42 @@ class EDMFramework(DefaultModel):
             t_next = jnp.asarray([t_next] * jax.local_device_count())
             gamma = jnp.asarray([gamma] * jax.local_device_count())
 
-            latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
+            # latent_sample = self.p_sample_jit(self.model_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
+            latent_sample = self.p_sample_jit(self.model_state["params_ema"], latent_sample, rng_key, gamma, t_cur, t_next)
+
+        # if original_data is not None:
+        #     rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+        #     self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        return latent_sample
+
+    def sampling_denoiser(self, num_image, img_size=(32, 32, 3), original_data=None, sweep_timesteps=None, noise=None, sigma_scale=None):
+        latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
+        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+
+        step_indices = jnp.arange(self.n_timestep)
+        t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
+        t_cur = t_steps[sweep_timesteps]
+
+        if noise is not None:
+            latent_sample = noise
+        else:
+            latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * t_steps[sweep_timesteps]
+
 
         if original_data is not None:
-            rec_loss = jnp.mean((latent_sample - original_data) ** 2)
-            self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+            latent_sample += original_data
+
+        rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        gamma_val = jnp.minimum(jnp.sqrt(2) - 1, self.S_churn / self.n_timestep)
+        gamma = jnp.where(self.S_min <= t_cur and t_cur <= self.S_max,
+                        gamma_val, 0)
+
+        ###
+        rng_key = jax.random.split(rng_key, jax.local_device_count())
+        t_cur = jnp.asarray([t_cur] * jax.local_device_count())
+        gamma = jnp.asarray([gamma] * jax.local_device_count())
+
+        # latent_sample = self.p_sample_jit(self.model_state["params_ema"], latent_sample, rng_key, gamma, t_cur, t_next)
+        latent_sample = self.denoiser_sample(self.model_state["params_ema"], latent_sample, rng_key, gamma, t_cur)
+
         return latent_sample

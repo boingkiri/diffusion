@@ -22,7 +22,9 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 231001_CMSH_CTEDM_scratch_3
+# exp_name: 231001_CMSH_CTEDM_scratch_3
+# exp_name: 1108_ct_reproduce_fourier_scale
+exp_name: 1122_cm_sh_wo_cm_embed
 tags: [cm, score_feedback, param_ema]
 do_training: True
 do_sampling: True

@@ -1,0 +1,35 @@
+defaults:
+  - framework: 
+    - diffusion/edm
+  - model:
+    - diffusion/unetpp_ve
+  - ema: ema
+  - dataset: cifar10
+  - exp: exp_setting
+
+# type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
+# type: edm
+type: ${framework.diffusion.type}
+# exp_name: 231001_CMSH_CTEDM_scratch_3
+# exp_name: 1108_ct_reproduce_fourier_scale
+exp_name: edm_porting_from_torch_ve
+tags: [cm, score_feedback, param_ema]
+do_training: False
+do_sampling: True
+num_sampling: 50000
+sampling_batch: 256
+rand_seed: 42
+fid_during_training: True # True when calculating fid during training, otherwise, false.
+n_jitted_steps: 10
+
+# framework:
+#   diffusion:
+#     distillation_path: None # experiments/cm_dm_230603_encoder_head_with_time_emb_1 # Exp name or pretrained model file name
+    # t_emb_output: True
+  # train_idx: 2
+
+hydra:  
+  output_subdir: null  
+  run:  
+    dir: .
+
