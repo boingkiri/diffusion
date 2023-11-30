@@ -515,12 +515,11 @@ class CMFramework(DefaultModel):
                     current_step <= diffusion_framework['torso_connection_threshold'],
                     unbiased_denoiser_fn, head_fn, head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key)
                 connection_loss = jnp.mean((new_D_x - connection_loss_denoised) ** 2)
-                connection_loss_weight = jnp.where(
-                    current_step <= diffusion_framework['torso_connection_threshold'], 0.0, 1.0)
+                # connection_loss_weight = jnp.where(
+                    # current_step <= diffusion_framework['torso_connection_threshold'], 0.0, 1.0)
 
-                total_loss += connection_loss_weight * connection_loss
+                total_loss += connection_loss
                 loss_dict['train/torso_connection_loss'] = connection_loss
-                loss_dict['train/torso_connection_loss_weight'] = connection_loss_weight
             
             prev_perturbed_x = jax.lax.stop_gradient(prev_perturbed_x)
             prev_D_x, aux = self.model.apply(
