@@ -8,6 +8,7 @@ from dataclasses import field
 from model.modules import *
 
 from model.unet import UNet
+from model.ct.ncsnpp import NCSNpp
 
 class Linear(nn.Module):
     in_features: int
@@ -209,6 +210,72 @@ class UNetBlock(nn.Module):
             x = x * self.skip_scale
         return x
 
+class ResNetBlockBigGAN(nn.Module):
+    in_channels: int
+    out_channels: int
+    emb_channels: int
+    up: bool = False
+    down: bool = False
+    attention: bool = False
+    num_heads: int = None
+    channels_per_head = 64
+    dropout_rate: float = 0.0
+    skip_scale : int = 1
+    eps: float = 1e-5
+    resample_filter: Union[Tuple[int, ...], List[int]] = (1, 1)
+    resample_proj: bool = False
+    adaptive_scale: bool = True
+    
+    @nn.compact
+    def __call__(self, x, emb, train):
+        B, H, W, C = x.shape
+        out_ch = self.out_channels
+        init = create_initializer("xavier_uniform")
+        original_conv_init = nn.initializers.variance_scaling(1.0, 'fan_avg', 'uniform')
+        original_conv_init_zero = nn.initializers.variance_scaling(0.0, 'fan_avg', 'uniform')
+        original_conv_bias_init = nn.initializers.zeros
+
+        h = nn.silu(nn.GroupNorm(num_groups=min(C // 4, 32))(x))
+        
+        if self.up or self.down:
+            h = CustomConv2d(
+                in_channels=self.in_channels, out_channels=out_ch,
+                kernel_channels=3, up=self.up, down=self.down,
+                resample_filter=self.resample_filter,
+                init_mode=init)(h)
+            x = CustomConv2d(
+                in_channels=self.in_channels, out_channels=out_ch,
+                kernel_channels=3, up=self.up, down=self.down,
+                resample_filter=self.resample_filter,
+                init_mode=init)(x)
+
+        h = nn.Conv(
+            features=out_ch,
+            kernel_size=(3, 3), padding='SAME', use_bias=True,
+            kernel_init=original_conv_init, bias_init=original_conv_bias_init)(h)
+        if emb is not None:
+            h = h + Linear(self.emb_channels, out_ch, init_mode=init)(nn.silu(emb))[:, None, None, ...]
+        h = nn.silu(nn.GroupNorm(num_groups=min(out_ch // 4, 32))(h))
+
+        h = nn.Dropout(self.dropout_rate)(h, deterministic=not train)
+        h = nn.Conv(
+            features=out_ch,
+            kernel_size=(3, 3), padding='SAME', use_bias=True,
+            kernel_init=original_conv_init_zero, bias_init=original_conv_bias_init)(h)
+
+        if C != out_ch or self.up or self.down:
+            x = nn.Conv(
+                features=out_ch,
+                kernel_size=(3, 3), padding='SAME', use_bias=True,
+                kernel_init=original_conv_init, bias_init=original_conv_bias_init)(x)
+        
+        x = (x + h) * self.skip_scale
+        if self.attention:
+            # x = AttentionModule(self.out_channels, self.num_heads, self.eps)(x)
+            x = AttentionModule(out_ch, self.num_heads, self.eps)(x)
+            x = x * self.skip_scale
+        return x
+
 class PositionalEmbedding(nn.Module):
     num_channels: int
     max_positions: int = 10000
@@ -258,6 +325,7 @@ class UNetpp(nn.Module):
     embedding_type: str = "positional"
     encoder_type : str = "standard"
     decoder_type : str = "standard"
+    resblock_type : str = "standard"
     resample_filter: Union[Tuple[int, ...], List[int]] = (1, 1)
     learn_sigma: bool = False
 
@@ -281,6 +349,7 @@ class UNetpp(nn.Module):
             resample_proj=True,
             adaptive_scale=False
         )
+        self.resblock_class = ResNetBlockBigGAN if self.resblock_type == "biggan" else UNetBlock
 
         # Mapping
         self.map_noise = PositionalEmbedding(num_channels=noise_channels, endpoint=True) if self.embedding_type == "positional" else FourierEmbedding(num_channels=noise_channels)
@@ -309,7 +378,7 @@ class UNetpp(nn.Module):
                 enc_modules[f'{res}x{res}_conv'] = CustomConv2d(in_channels=cin, out_channels=cout, kernel_channels=3, init_mode=init)
                 skips.append(cout)
             else:
-                enc_modules[f'{res}x{res}_down'] = UNetBlock(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
+                enc_modules[f'{res}x{res}_down'] = self.resblock_class(in_channels=cout, out_channels=cout, down=True, **block_kwargs)
                 skips.append(cout)
                 if self.encoder_type == 'skip':
                     enc_modules[f'{res}x{res}_aux_down'] = CustomConv2d(in_channels=caux, out_channels=caux, kernel_channels=0, down=True, resample_filter=self.resample_filter)
@@ -321,23 +390,23 @@ class UNetpp(nn.Module):
                 cin = cout
                 cout = self.n_channels * mult
                 attn = self.is_atten[level]
-                enc_modules[f'{res}x{res}_block{idx}'] = UNetBlock(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
+                enc_modules[f'{res}x{res}_block{idx}'] = self.resblock_class(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
                 skips.append(cout)
 
         dec_modules = {}
         for level, mult in reversed(list(enumerate(self.ch_mults))):
             res = img_res >> level
             if level == len(self.ch_mults) - 1:
-                dec_modules[f"{res}x{res}_in0"] = UNetBlock(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
-                dec_modules[f"{res}x{res}_in1"] = UNetBlock(in_channels=cout, out_channels=cout, **block_kwargs)
+                dec_modules[f"{res}x{res}_in0"] = self.resblock_class(in_channels=cout, out_channels=cout, attention=True, **block_kwargs)
+                dec_modules[f"{res}x{res}_in1"] = self.resblock_class(in_channels=cout, out_channels=cout, **block_kwargs)
             else:
-                dec_modules[f"{res}x{res}_up"] = UNetBlock(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
+                dec_modules[f"{res}x{res}_up"] = self.resblock_class(in_channels=cout, out_channels=cout, up=True, **block_kwargs)
 
             for idx in range(self.n_blocks + 1):
                 cin = cout + skips.pop()
                 cout = self.n_channels * mult
                 attn = (idx == self.n_blocks) and (self.is_atten[level])
-                dec_modules[f"{res}x{res}_block{idx}"] = UNetBlock(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
+                dec_modules[f"{res}x{res}_block{idx}"] = self.resblock_class(in_channels=cin, out_channels=cout, attention=attn, **block_kwargs)
             if self.decoder_type == 'skip' or level == 0:
                 if self.decoder_type == "skip" and level < len(self.ch_mults) - 1:
                     dec_modules[f"{res}x{res}_aux_up"] = CustomConv2d(in_channels=self.image_channels, out_channels=self.image_channels, kernel_channels=0, up=True, resample_filter=self.resample_filter)
@@ -350,10 +419,10 @@ class UNetpp(nn.Module):
         emb = self.map_noise(noise_labels)
 
         # Swap sin/cos
-        emb_shape = emb.shape
-        emb = emb.reshape(emb.shape[0], 2, -1)
-        emb = jnp.flip(emb, axis=1)
-        emb = emb.reshape(*emb_shape)
+        # emb_shape = emb.shape
+        # emb = emb.reshape(emb.shape[0], 2, -1)
+        # emb = jnp.flip(emb, axis=1)
+        # emb = emb.reshape(*emb_shape)
 
         # Add augment embedding if exists
         if augment_labels is not None:
@@ -379,7 +448,7 @@ class UNetpp(nn.Module):
             elif 'aux_residual' in key:
                 x = skips[-1] = aux = (x + block(aux)) / jnp.sqrt(2)
             else:
-                x = block(x, emb, train) if isinstance(block, UNetBlock) else block(x)
+                x = block(x, emb, train) if isinstance(block, self.resblock_class) else block(x)
                 skips.append(x)
 
         # Decoder
@@ -630,6 +699,8 @@ class CMPrecond(nn.Module):
             net = UNetpp(**self.model_kwargs, t_emb_output=self.t_emb_output)
         elif self.model_type == "unet":
             net = UNet(**self.model_kwargs)
+        elif self.model_type == "original_unetpp":
+            net = NCSNpp(self.model_kwargs)
         
         F_x, t_emb, last_x_emb = net(c_in * x, c_noise.flatten(), train, augment_labels)
         D_x = c_skip * x + c_out * F_x
