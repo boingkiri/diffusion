@@ -216,7 +216,7 @@ class UnifyingFramework():
         batch_size = self.sample_batch_size
         while total_num > current_num:
             effective_batch_size = total_num - current_num if current_num + batch_size > total_num else batch_size
-            samples = self.sampling(effective_batch_size, original_data=None, mode="cm_not_training")
+            samples = self.sampling(effective_batch_size, original_data=None, mode="cm-training")
             self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
             current_num += batch_size
     
