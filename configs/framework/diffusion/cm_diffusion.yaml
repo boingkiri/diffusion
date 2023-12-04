@@ -30,9 +30,9 @@ initialize_previous_training_step: False
 
 # Option for freezing CM during training
 CM_freeze: False
-joint_training: False
+joint_training: True
 alternative_training: False
-only_cm_training: True
+only_cm_training: False
 # joint training and alternative training should be toggled together 
 
 # Option for sigma sampling for head, torso

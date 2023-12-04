@@ -9,8 +9,8 @@ defaults:
     - diffusion/cm_diffusion
     # - diffusion/cm_dm
   - model@_group_.diffusion: 
-    # - diffusion/unetpp_cm
-    - diffusion/original_cm
+    - diffusion/unetpp_cm
+    # - diffusion/original_cm
   - model@_group_.head: 
     # - diffusion/score_head_pde
     - diffusion/score_head
@@ -23,8 +23,8 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 1130_CT_original_unetpp
-tags: [CT]
+exp_name: 1204_CT_joint_training_new_loss
+tags: [CT, joint_training, new_loss]
 do_training: True
 do_sampling: True
 num_sampling: 50000
