@@ -33,20 +33,21 @@ class FSUtils():
             yaml.dump(OmegaConf.to_container(self.config, resolve=True), f)
         
         # Copying python file to current exp dir
-        python_filepath = os.path.join(current_exp_dir, 'python_files')
-        workspace_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-        for walking_path in os.walk(workspace_path):
-            files = walking_path[2]
-            walking_path = walking_path[0]
-            walking_rel_path = os.path.relpath(walking_path, workspace_path)
-            saving_filepath = os.path.join(python_filepath, walking_rel_path)
-            if self.config.exp.exp_dir in walking_rel_path:
-                continue
-            elif os.path.isdir(walking_path) and not os.path.exists(saving_filepath):
-                os.makedirs(saving_filepath)
-            for file in files:
-                if ".py" in file:
-                    shutil.copy(os.path.join(walking_path, file), saving_filepath)
+        if self.config["do_training"]:
+            python_filepath = os.path.join(current_exp_dir, 'python_files')
+            workspace_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+            for walking_path in os.walk(workspace_path):
+                files = walking_path[2]
+                walking_path = walking_path[0]
+                walking_rel_path = os.path.relpath(walking_path, workspace_path)
+                saving_filepath = os.path.join(python_filepath, walking_rel_path)
+                if self.config.exp.exp_dir in walking_rel_path:
+                    continue
+                elif os.path.isdir(walking_path) and not os.path.exists(saving_filepath):
+                    os.makedirs(saving_filepath)
+                for file in files:
+                    if ".py" in file:
+                        shutil.copy(os.path.join(walking_path, file), saving_filepath)
         
         # Creating checkpoint dir
         checkpoint_dir = self.config.exp.checkpoint_dir
