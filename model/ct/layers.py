@@ -30,13 +30,13 @@ import jax.numpy as jnp
 def get_act(config):
     """Get activation functions from the config file."""
 
-    if config.model.nonlinearity.lower() == "elu":
+    if config["nonlinearity"].lower() == "elu":
         return nn.elu
-    elif config.model.nonlinearity.lower() == "relu":
+    elif config["nonlinearity"].lower() == "relu":
         return nn.relu
-    elif config.model.nonlinearity.lower() == "lrelu":
+    elif config["nonlinearity"].lower() == "lrelu":
         return functools.partial(nn.leaky_relu, negative_slope=0.2)
-    elif config.model.nonlinearity.lower() == "swish":
+    elif config["nonlinearity"].lower() == "swish":
         return nn.swish
     else:
         raise NotImplementedError("activation function does not exist!")

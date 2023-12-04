@@ -42,35 +42,34 @@ class NCSNpp(nn.Module):
         # config parsing
         config = self.config
         act = get_act(config)
-
-        nf = config.model.nf
-        ch_mult = config.model.ch_mult
-        num_res_blocks = config.model.num_res_blocks
-        attn_resolutions = config.model.attn_resolutions
-        dropout = config.model.dropout
-        resamp_with_conv = config.model.resamp_with_conv
+        nf = config["nf"]
+        ch_mult = config["ch_mult"]
+        num_res_blocks = config["num_res_blocks"]
+        attn_resolutions = config["attn_resolutions"]
+        dropout = config["dropout"]
+        resamp_with_conv = config["resamp_with_conv"]
         num_resolutions = len(ch_mult)
 
-        conditional = config.model.conditional  # noise-conditional
-        fir = config.model.fir
-        fir_kernel = config.model.fir_kernel
-        skip_rescale = config.model.skip_rescale
-        resblock_type = config.model.resblock_type.lower()
-        progressive = config.model.progressive.lower()
-        progressive_input = config.model.progressive_input.lower()
-        embedding_type = config.model.embedding_type.lower()
-        init_scale = config.model.init_scale
+        conditional = config["conditional"]  # noise-conditional
+        fir = config["fir"]
+        fir_kernel = config["fir_kernel"]
+        skip_rescale = config["skip_rescale"]
+        resblock_type = config["resblock_type"].lower()
+        progressive = config["progressive"].lower()
+        progressive_input = config["progressive_input"].lower()
+        embedding_type = config["embedding_type"].lower()
+        init_scale = config["init_scale"]
         assert progressive in ["none", "output_skip", "residual"]
         assert progressive_input in ["none", "input_skip", "residual"]
         assert embedding_type in ["fourier", "positional"]
-        combine_method = config.model.progressive_combine.lower()
+        combine_method = config["progressive_combine"].lower()
         combiner = functools.partial(Combine, method=combine_method)
 
         # timestep/noise_level embedding; only for continuous training
         if embedding_type == "fourier":
             # Gaussian Fourier features embeddings.
             temb = layerspp.GaussianFourierProjection(
-                embedding_size=nf, scale=config.model.fourier_scale
+                embedding_size=nf, scale=config["fourier_scale"]
             )(time_cond)
 
         elif embedding_type == "positional":
@@ -246,12 +245,12 @@ class NCSNpp(nn.Module):
 
         last_x_emb = None
 
-        if progressive == "output_skip" and not config.model.double_heads:
+        if progressive == "output_skip" and not config["double_heads"]:
             h = pyramid
         else:
             h = act(nn.GroupNorm(num_groups=min(h.shape[-1] // 4, 32))(h))
             last_x_emb = h
-            if config.model.double_heads:
+            if config["double_heads"]:
                 h = conv3x3(h, x.shape[-1] * 2, init_scale=init_scale)
             else:
                 h = conv3x3(h, x.shape[-1], init_scale=init_scale)

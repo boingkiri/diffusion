@@ -9,7 +9,8 @@ defaults:
     - diffusion/cm_diffusion
     # - diffusion/cm_dm
   - model@_group_.diffusion: 
-    - diffusion/unetpp_cm
+    # - diffusion/unetpp_cm
+    - diffusion/original_cm
   - model@_group_.head: 
     # - diffusion/score_head_pde
     - diffusion/score_head

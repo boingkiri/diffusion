@@ -1,13 +1,13 @@
 type: "original_unetpp"
 
-sigma_min : 0.02
-sigma_max : 100
-num_scales : 1000
+image_channels: 3
+
+sigma_min : 0.002
+sigma_max : 80.0
 beta_min : 0.1
 beta_max : 20.0
 t_min : 0.002
 t_max : 80.0
-dropout : 0.1
 embedding_type : "fourier"
 double_heads : False
 
@@ -18,9 +18,9 @@ ema_rate : 0.9999
 normalization : "GroupNorm"
 nonlinearity : "swish"
 nf : 128
-ch_mult : (2, 2, 2)
+ch_mult : [2, 2, 2]
 num_res_blocks : 4
-attn_resolutions : (16,)
+attn_resolutions : [16]
 resamp_with_conv : True
 conditional : True
 fir : True
