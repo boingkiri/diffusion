@@ -561,16 +561,13 @@ class CMFramework(DefaultModel):
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
             
-            if not diffusion_framework['gradient_flow_from_head']:
-                D_x = jax.lax.stop_gradient(D_x)
-                F_x, t_emb, last_x_emb = jax.lax.stop_gradient(aux)
-            else:
-                F_x, t_emb, last_x_emb = aux
+            head_D_x = jax.lax.stop_gradient(D_x) if diffusion_framework['gradient_flow_from_head'] else D_x
+            head_F_x, head_t_emb, head_last_x_emb = jax.lax.stop_gradient(aux) if diffusion_framework['gradient_flow_from_head'] else aux
 
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
             denoised, aux = self.head.apply(
                 {'params': head_params}, x=perturbed_x, sigma=sigma, 
-                F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                F_x=head_D_x, t_emb=head_t_emb, last_x_emb=head_last_x_emb,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
 
             if diffusion_framework['score_feedback']:
@@ -709,10 +706,10 @@ class CMFramework(DefaultModel):
 
                 # Target model EMA (for consistency model training procedure)
                 torso_state = states['torso_state']
-                if diffusion_framework['sigma_sampling_torso'] == "CT":
-                    target_model_ema_decay = self.target_model_ema_decay_fn(torso_state.step)
-                else:
-                    target_model_ema_decay = self.target_model_ema_decay
+                target_model_ema_decay = jnp.where(
+                        diffusion_framework['sigma_sampling_torso'] == "CT", 
+                        self.target_model_ema_decay_fn(torso_state.step),
+                        self.target_model_ema_decay)
                 ema_updated_params = jax.tree_map(
                     lambda x, y: target_model_ema_decay * x + (1 - target_model_ema_decay) * y,
                     torso_state.target_model, torso_state.params)
