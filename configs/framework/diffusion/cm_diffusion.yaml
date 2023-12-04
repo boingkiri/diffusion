@@ -58,6 +58,10 @@ score_feedback_threshold: 1.0
 torso_connection_loss: False # The name is temporarily used for now.
 torso_connection_threshold: 150000
 
+joint_connection_loss: True
+joint_connection_threshold: 150000
+joint_connection_denoiser_type: "unbiased" # unbiased, STF
+
 # augment_rate: 0.12
 score_pde_regularizer: False
 dh_dx_inv_weight: 1.0

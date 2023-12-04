@@ -515,8 +515,6 @@ class CMFramework(DefaultModel):
                     current_step <= diffusion_framework['torso_connection_threshold'],
                     unbiased_denoiser_fn, head_fn, head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key)
                 connection_loss = jnp.mean((new_D_x - connection_loss_denoised) ** 2)
-                # connection_loss_weight = jnp.where(
-                    # current_step <= diffusion_framework['torso_connection_threshold'], 0.0, 1.0)
 
                 total_loss += connection_loss
                 loss_dict['train/torso_connection_loss'] = connection_loss
@@ -571,7 +569,8 @@ class CMFramework(DefaultModel):
 
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
             denoised, aux = self.head.apply(
-                {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                {'params': head_params}, x=perturbed_x, sigma=sigma, 
+                F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
 
             if diffusion_framework['score_feedback']:
@@ -586,7 +585,8 @@ class CMFramework(DefaultModel):
                 score_diff = unbiased_score_estimator - learned_score_estimator
                 loss_dict['train/diff_btw_unbiased_estimator_and_learned_estimator'] = jnp.mean(jnp.mean(score_diff ** 2, axis=(1, 2, 3)))
             else:
-                one_step_forward = jax.lax.stop_gradient(perturbed_x - y) / sigma
+                # one_step_forward = jax.lax.stop_gradient(perturbed_x - y) / sigma
+                one_step_forward = jax.lax.stop_gradient(noise)
 
             prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * one_step_forward
             prev_D_x, prev_aux = self.model.apply(
@@ -622,49 +622,37 @@ class CMFramework(DefaultModel):
             # Loss and loss dict construction
             total_loss += dsm_loss
             loss_dict['train/head_dsm_loss'] = dsm_loss
+
+            if diffusion_framework['joint_connection_loss']:
+                rng_key, noise_key = jax.random.split(rng_key, 2)
+                noise = jax.random.normal(noise_key, y.shape)
+                perturbed_D_x = D_x + sigma * noise
+                dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+                new_D_x, aux = self.model.apply(
+                    {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
+                    train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+                current_step = total_states_dict['torso_state'].step
+
+                # Connection unbiased denoiser type
+                if diffusion_framework['joint_connection_denoiser_type'] == "unbiased":
+                    connection_loss_denoised = y
+                elif diffusion_framework['joint_connection_denoiser_type'] == "STF":
+                    NotImplementedError("STF is not implemented yet.") # TODO
+                else:
+                    NotImplementedError("joint_connection_denoiser_type should be either unbiased or STF for now.")
+
+                # Retrieve connection loss denoised
+                if type(diffusion_framework['joint_connection_threshold']) is int:
+                    connection_loss_denoised = jnp.where(
+                        current_step <= diffusion_framework['joint_connection_threshold'], connection_loss_denoised, denoised)
+                elif diffusion_framework['joint_connection_threshold'] in ["linear_interpolate", 'li']:
+                    li_ratio = current_step / diffusion_framework['train']["total_step"]
+                    connection_loss_denoised = (1 - li_ratio) * connection_loss_denoised + li_ratio * denoised
+                connection_loss = jnp.mean((new_D_x - connection_loss_denoised) ** 2)
+                total_loss += connection_loss
+                loss_dict['train/connection_loss'] = connection_loss
+
             return total_loss, loss_dict
-            # return total_loss, loss_dict
-            # if self.head_type == 'score_pde' and diffusion_framework['score_pde_regularizer']:
-            #     # Extract dh_dx_inv, dh_dt
-            #     dh_dx_inv, dh_dt = aux
-
-            #     # Get dh_dx_inv loss
-            #     dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-            #     def egrad(g): # diagonal of jacobian can be calculated by egrad (elementwise grad)
-            #         def wrapped(x, *rest):
-            #             y, g_vjp = jax.vjp(lambda x: g(x, *rest)[0], x)
-            #             x_bar, = g_vjp(jnp.ones_like(y))
-            #             return x_bar
-            #         return wrapped
-
-            #     target_dh_dx_diag = egrad(
-            #         lambda data: self.model.apply(
-            #             {'params': self.torso_state.params_ema}, x=data, sigma=sigma,
-            #             train=False, augment_labels=None, rngs={'dropout': dropout_key_2}
-            #         )
-            #     )(perturbed_x, )
-            #     dh_dx_inv_loss = jnp.mean((dh_dx_inv * target_dh_dx_diag - jnp.ones_like(dh_dx_inv)) ** 2)
-
-            #     # Get dh_dt loss
-            #     dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-            #     _, target_dh_dt = jax.jvp(
-            #         lambda sigma: self.model.apply(
-            #             {'params': self.torso_state.params_ema}, x=perturbed_x, sigma=sigma,
-            #             train=False, augment_labels=None, rngs={'dropout': dropout_key_2}
-            #         ),
-            #         (sigma, ), (jnp.ones_like(sigma), ),
-            #     )
-            #     target_dh_dt = target_dh_dt[0]
-            #     dh_dt_loss = jnp.mean((dh_dt - target_dh_dt) ** 2)
-
-            #     # Add to total_loss
-            #     dh_dx_inv_weight = diffusion_framework['dh_dx_inv_weight']
-            #     dh_dt_weight = diffusion_framework['dh_dt_weight']
-            #     total_loss += dh_dx_inv_weight * dh_dx_inv_loss
-            #     total_loss += dh_dt_weight * dh_dt_loss
-            #     loss_dict['train/head_dh_dx_inv_loss'] = dh_dx_inv_loss
-            #     loss_dict['train/head_dh_dt_loss'] = dh_dt_loss
-            # return total_loss, loss_dict
 
 
         def update_params_fn(
