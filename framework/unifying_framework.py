@@ -24,7 +24,7 @@ class UnifyingFramework():
         This framework contains overall methods for training and sampling
     """
     def __init__(self, model_type, config: DictConfig, random_rng) -> None:
-        self.config = config # TODO: This code is ugly. It should not need to reuse config obj
+        self.config = config
         self.current_model_type = model_type.lower()
         self.diffusion_model_type = ['ddpm', 'ddim', 'edm', 'cm']
         self.random_rng = random_rng
@@ -101,7 +101,9 @@ class UnifyingFramework():
             )
 
     def train(self):
-        datasets = common_utils.load_dataset_from_tfds(n_jitted_steps=self.n_jitted_steps, x_flip=self.dataset_x_flip)
+        datasets = common_utils.load_dataset_from_tfds(
+            batch_size=self.config.framework.diffusion.train.batch_size,
+            n_jitted_steps=self.n_jitted_steps, x_flip=self.dataset_x_flip)
         datasets_bar = tqdm(datasets, total=self.total_step-self.step, initial=self.step)
         in_process_dir = self.config.exp.in_process_dir
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
