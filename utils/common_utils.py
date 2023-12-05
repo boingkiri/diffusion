@@ -4,6 +4,7 @@ import requests
 import flax
 import jax
 import jax.numpy as jnp
+from jax.lib import xla_bridge
 
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -69,7 +70,8 @@ def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_step
   augmented_train_ds = train_ds.prefetch(AUTOTUNE)
   # it = tfds.as_numpy(augmented_train_ds)
   it = map(lambda data: jax.tree_map(lambda x: x._numpy(), data), augmented_train_ds)
-  it = flax.jax_utils.prefetch_to_device(it, 2)
+  if xla_bridge.get_backend().platform == "gpu":
+    it = flax.jax_utils.prefetch_to_device(it, 2)
 
   return it
 
