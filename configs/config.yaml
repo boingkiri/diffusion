@@ -23,15 +23,15 @@ defaults:
 # type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
 # type: edm
 type: ${framework.diffusion.type}
-exp_name: 1204_CT_joint_training_new_loss
-tags: [CT, joint_training, new_loss]
+exp_name: 1205_CT_alternative_training_new_loss_stf
+tags: [CT, alternative_training, new_loss, STF]
 do_training: True
 do_sampling: True
 num_sampling: 50000
 sampling_batch: 256
 rand_seed: 42
 fid_during_training: True # True when calculating fid during training, otherwise, false.
-n_jitted_steps: 10
+n_jitted_steps: 1
 
 available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 

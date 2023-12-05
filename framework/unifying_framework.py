@@ -101,9 +101,14 @@ class UnifyingFramework():
             )
 
     def train(self):
+        # TODO: The connection_denoiser_type is only used in CM training. need to be fixed.
+        STF_flag = self.config["framework"]["diffusion"].get("connection_denoiser_type", False)
+        batch_size = self.config["framework"]["diffusion"]["train"]["batch_size"] \
+            if not STF_flag else self.config["framework"]["diffusion"]["train"]["STF_reference_batch_size"]
         datasets = common_utils.load_dataset_from_tfds(
-            batch_size=self.config.framework.diffusion.train.batch_size,
-            n_jitted_steps=self.n_jitted_steps, x_flip=self.dataset_x_flip)
+            batch_size=batch_size,
+            n_jitted_steps=self.n_jitted_steps, x_flip=self.dataset_x_flip,
+            stf=STF_flag)
         datasets_bar = tqdm(datasets, total=self.total_step-self.step, initial=self.step)
         in_process_dir = self.config.exp.in_process_dir
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'

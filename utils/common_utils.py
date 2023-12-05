@@ -40,7 +40,7 @@ def normalize_to_minus_one_to_one(image):
 def unnormalize_minus_one_to_one(images):
     return (images + 1) * 0.5 
 
-def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_steps=1, x_flip=True):
+def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_steps=1, x_flip=True, stf=False):
   assert n_jitted_steps >= 1
 
   AUTOTUNE = tf.data.experimental.AUTOTUNE
@@ -60,7 +60,10 @@ def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_step
   train_ds, _ = ds['train'], ds['test']
 
   device_count = jax.local_device_count()
-  batch_dims= [device_count, n_jitted_steps, batch_size // device_count]
+  if stf:
+    batch_dims= [device_count, n_jitted_steps, batch_size]
+  else:
+    batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 
 
   train_ds = train_ds.shuffle(1000)
   train_ds = train_ds.repeat()
