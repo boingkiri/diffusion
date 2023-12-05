@@ -347,10 +347,10 @@ class CMFramework(DefaultModel):
             perturbed_x = y + sigma * noise
 
             # Get consistency function values
-            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            cm_dropout_key, dropout_key = jax.random.split(dropout_key, 2)
             D_x, aux = self.model.apply(
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+                train=False, augment_labels=None, rngs={'dropout': cm_dropout_key})
             
             D_x = jax.lax.stop_gradient(D_x)
             aux = jax.lax.stop_gradient(aux)
@@ -378,10 +378,9 @@ class CMFramework(DefaultModel):
                 noise = jax.random.normal(noise_key, y.shape)
                 D_x = jax.lax.stop_gradient(D_x)
                 perturbed_D_x = D_x + sigma * noise
-                dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
                 new_D_x, aux = self.model.apply(
                     {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
-                    train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
+                    train=False, augment_labels=None, rngs={'dropout': cm_dropout_key})
                 connection_loss = jnp.mean((new_D_x - denoised) ** 2)
 
                 total_loss += connection_loss
@@ -455,10 +454,10 @@ class CMFramework(DefaultModel):
             perturbed_x = y + sigma * noise
 
             # Get consistency function values
-            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            cm_dropout_key, dropout_key = jax.random.split(dropout_key, 2)
             D_x, aux = self.model.apply(
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
-                train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
+                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
             F_x, t_emb, last_x_emb = aux
             # Get score value with consistency function value
@@ -506,10 +505,9 @@ class CMFramework(DefaultModel):
                 rng_key, noise_key = jax.random.split(rng_key, 2)
                 noise = jax.random.normal(noise_key, y.shape)
                 perturbed_D_x = D_x + sigma * noise
-                dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
                 new_D_x, aux = self.model.apply(
                     {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
-                    train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+                    train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
                 unbiased_denoiser_fn = lambda head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key: y
                 connection_loss_denoised = jax.lax.cond(
                     current_step <= diffusion_framework['torso_connection_threshold'],
@@ -522,7 +520,7 @@ class CMFramework(DefaultModel):
             prev_perturbed_x = jax.lax.stop_gradient(prev_perturbed_x)
             prev_D_x, aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
             
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
             D_x = jax.image.resize(D_x, output_shape, "bilinear")
@@ -556,10 +554,10 @@ class CMFramework(DefaultModel):
             perturbed_x = y + sigma * noise
 
             # Get consistency function values
-            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            cm_dropout_key, dropout_key = jax.random.split(dropout_key, 2)
             D_x, aux = self.model.apply(
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
-                train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
+                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
             
             head_D_x = jax.lax.stop_gradient(D_x) if not diffusion_framework['gradient_flow_from_head'] else D_x
             head_F_x, head_t_emb, head_last_x_emb = jax.lax.stop_gradient(aux) if not diffusion_framework['gradient_flow_from_head'] else aux
@@ -583,12 +581,12 @@ class CMFramework(DefaultModel):
                 loss_dict['train/diff_btw_unbiased_estimator_and_learned_estimator'] = jnp.mean(jnp.mean(score_diff ** 2, axis=(1, 2, 3)))
             else:
                 # one_step_forward = jax.lax.stop_gradient(perturbed_x - y) / sigma
-                one_step_forward = jax.lax.stop_gradient(noise)
+                one_step_forward = noise
 
             prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * one_step_forward
             prev_D_x, prev_aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
             # prev_F_x, prev_t_emb, prev_last_x_emb = jax.lax.stop_gradient(prev_aux)
             # prev_denoising_D_x = jax.lax.stop_gradient(prev_D_x)
@@ -624,10 +622,9 @@ class CMFramework(DefaultModel):
                 rng_key, noise_key = jax.random.split(rng_key, 2)
                 noise = jax.random.normal(noise_key, y.shape)
                 perturbed_D_x = D_x + sigma * noise
-                dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
                 new_D_x, aux = self.model.apply(
                     {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
-                    train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+                    train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
                 current_step = total_states_dict['torso_state'].step
 
                 # Connection unbiased denoiser type
@@ -660,9 +657,12 @@ class CMFramework(DefaultModel):
                 loss_dict_tail: dict = {}):
             update_params_dict = {params_key: states_dict[params_key].params for params_key in update_states_key_list}
             (_, loss_dict), grads = jax.value_and_grad(loss_fn, has_aux=True)(update_params_dict, states_dict, loss_fn_args)
-            grads = jax.lax.pmean(grads, axis_name=self.pmap_axis)
-            updated_states = {params_key: states_dict[params_key].apply_gradients(grads=grads[params_key]) 
+            grads_mean = {params_key: jax.lax.pmean(grads[params_key], axis_name=self.pmap_axis) for params_key in update_states_key_list}
+            updated_states = {params_key: states_dict[params_key].apply_gradients(grads=grads_mean[params_key]) 
                               for params_key in update_states_key_list}
+            # grads = jax.lax.pmean(grads, axis_name=self.pmap_axis)
+            # updated_states = {params_key: states_dict[params_key].apply_gradients(grads=grads[params_key]) 
+            #                   for params_key in update_states_key_list}
             loss_dict_tail.update(loss_dict)
             states_dict.update(updated_states)
             return states_dict, loss_dict_tail
@@ -696,7 +696,6 @@ class CMFramework(DefaultModel):
                         lambda x, y: target_model_ema_decay * x + (1 - target_model_ema_decay) * y,
                         torso_state.target_model, torso_state.params)
                     torso_state = torso_state.replace(target_model = ema_updated_params)
-                    
                     states['torso_state'] = torso_state
             
             elif diffusion_framework['joint_training']:
@@ -707,7 +706,7 @@ class CMFramework(DefaultModel):
                 # Target model EMA (for consistency model training procedure)
                 torso_state = states['torso_state']
                 target_model_ema_decay = jnp.where(
-                        diffusion_framework['sigma_sampling_torso'] == "CT", 
+                        diffusion_framework['sigma_sampling_joint'] == "CT", 
                         self.target_model_ema_decay_fn(torso_state.step),
                         self.target_model_ema_decay)
                 ema_updated_params = jax.tree_map(
