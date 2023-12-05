@@ -588,7 +588,7 @@ class CMFramework(DefaultModel):
             prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * one_step_forward
             prev_D_x, prev_aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-                train=True, augment_labels=None, rngs={'dropout': dropout_key})
+                train=False, augment_labels=None, rngs={'dropout': dropout_key})
 
             # prev_F_x, prev_t_emb, prev_last_x_emb = jax.lax.stop_gradient(prev_aux)
             # prev_denoising_D_x = jax.lax.stop_gradient(prev_D_x)
