@@ -312,8 +312,6 @@ class CMFramework(DefaultModel):
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
             D_x = jax.image.resize(D_x, output_shape, "bilinear")
             prev_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
-            D_x = (D_x + 1) / 2.0
-            prev_D_x = (prev_D_x + 1) / 2.0
             lpips_dist = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
 
             # Monitor difference between original CM and trained (perturbed) CM
@@ -525,8 +523,6 @@ class CMFramework(DefaultModel):
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
             D_x = jax.image.resize(D_x, output_shape, "bilinear")
             prev_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
-            D_x = (D_x + 1) / 2.0
-            prev_D_x = (prev_D_x + 1) / 2.0
             lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
 
             total_loss += lpips_loss
@@ -599,8 +595,8 @@ class CMFramework(DefaultModel):
 
             # Get consistency loss
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
-            lpips_D_x = (jax.image.resize(D_x, output_shape, "bilinear") + 1) / 2.0
-            prev_lpips_D_x = (jax.image.resize(prev_D_x, output_shape, "bilinear") + 1) / 2.0
+            lpips_D_x = jax.image.resize(D_x, output_shape, "bilinear")
+            prev_lpips_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
             lpips_loss = jnp.mean(self.perceptual_loss(lpips_D_x, prev_lpips_D_x))
             total_loss += lpips_loss
             loss_dict['train/torso_lpips_loss'] = lpips_loss
