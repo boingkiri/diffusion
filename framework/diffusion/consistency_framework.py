@@ -271,13 +271,17 @@ class CMFramework(DefaultModel):
         def STF_targets(sigmas, perturbed_samples, ref):
             perturbed_samples_vec = perturbed_samples.reshape((len(perturbed_samples), -1))
             ref_vec = ref.reshape((len(ref), -1))
-            gt_distance = jnp.sum((jnp.expand_dims(perturbed_samples_vec, axis=1) - ref_vec) ** 2, axis=[-1])
-            gt_distance = - gt_distance / (2 * jnp.squeeze(sigmas, axis=(-1, -2)) ** 2)
-            # adding a constant to the log-weights to prevent numerical issue
-            distance = - jnp.max(gt_distance, axis=1, keepdims=True)[0] + gt_distance
-            distance = jnp.exp(distance)[:, :, None]
+
+            gt_distance = jnp.sum((jnp.expand_dims(perturbed_samples_vec, axis=1) - ref_vec) ** 2, axis=-1)
+            gt_distance = - gt_distance / (2 * (jnp.squeeze(sigmas, axis=(-1, -2)) ** 2))
+
+            distance = gt_distance[:, :, None]
+
             # self-normalize the per-sample weight of reference batch
-            weights = distance / jnp.sum(distance, axis=1, keepdims=True)
+            denominator = jax.scipy.special.logsumexp(distance, axis=1, keepdims=True)
+            weights = distance - denominator
+            weights = jnp.exp(weights)
+            
             target = jnp.tile(jnp.expand_dims(ref_vec, axis=0), (len(perturbed_samples), 1, 1))
             # calculate the stable targets with reference batch
             stable_targets = jnp.sum(weights * target, axis=1)
