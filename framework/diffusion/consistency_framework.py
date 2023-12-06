@@ -508,10 +508,17 @@ class CMFramework(DefaultModel):
                 new_D_x, aux = self.model.apply(
                     {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
                     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+
+                dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
                 unbiased_denoiser_fn = lambda head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key: y
-                connection_loss_denoised = jax.lax.cond(
-                    current_step <= diffusion_framework['torso_connection_threshold'],
-                    unbiased_denoiser_fn, head_fn, head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key)
+                if diffusion_framework['torso_connection_threshold'] in ["li", "linear_interpolate"]:
+                    trained_denoiser = head_fn(head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key_2)
+                    train_step_ratio = current_step / diffusion_framework['train']["total_step"]
+                    connection_loss_denoised = train_step_ratio * trained_denoiser + (1 - train_step_ratio) * y
+                elif type(diffusion_framework['torso_connection_threshold']) is int:
+                    connection_loss_denoised = jax.lax.cond(
+                        current_step <= diffusion_framework['torso_connection_threshold'],
+                        unbiased_denoiser_fn, head_fn, head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key)
                 connection_loss = jnp.mean((new_D_x - connection_loss_denoised) ** 2)
 
                 total_loss += connection_loss
