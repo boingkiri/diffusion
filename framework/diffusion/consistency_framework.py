@@ -267,6 +267,27 @@ class CMFramework(DefaultModel):
                 return bernoulli_uniform_quantization_sigma_sampling_fn(rng_key, y, step)
             else:
                 NotImplementedError("sigma_sampling should be either EDM or CM for now.")
+        
+        def STF_targets(sigmas, perturbed_samples, ref):
+            perturbed_samples_vec = perturbed_samples.reshape((len(perturbed_samples), -1))
+            ref_vec = ref.reshape((len(ref), -1))
+
+            gt_distance = jnp.sum((jnp.expand_dims(perturbed_samples_vec, axis=1) - ref_vec) ** 2, axis=-1)
+            gt_distance = - gt_distance / (2 * (jnp.squeeze(sigmas, axis=(-1, -2)) ** 2))
+
+            distance = gt_distance[:, :, None]
+
+            # self-normalize the per-sample weight of reference batch
+            denominator = jax.scipy.special.logsumexp(distance, axis=1, keepdims=True)
+            weights = distance - denominator
+            weights = jnp.exp(weights)
+            
+            target = jnp.tile(jnp.expand_dims(ref_vec, axis=0), (len(perturbed_samples), 1, 1))
+            # calculate the stable targets with reference batch
+            stable_targets = jnp.sum(weights * target, axis=1)
+            stable_targets = stable_targets.reshape(perturbed_samples.shape)
+            return stable_targets
+            
 
         @jax.jit
         def monitor_metric_fn(params, y, rng_key):
@@ -312,8 +333,6 @@ class CMFramework(DefaultModel):
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
             D_x = jax.image.resize(D_x, output_shape, "bilinear")
             prev_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
-            D_x = (D_x + 1) / 2.0
-            prev_D_x = (prev_D_x + 1) / 2.0
             lpips_dist = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
 
             # Monitor difference between original CM and trained (perturbed) CM
@@ -337,6 +356,8 @@ class CMFramework(DefaultModel):
             head_params = update_params['head_state']
             torso_params = jax.lax.stop_gradient(total_states_dict.get('torso_state', self.torso_state).params_ema)
             y, rng_key = args
+            if diffusion_framework['connection_denoiser_type'] == "STF":
+                y = y[:diffusion_framework['train']['batch_size'] // jax.local_device_count()]
             
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
             noise = jax.random.normal(noise_key, y.shape)
@@ -442,6 +463,13 @@ class CMFramework(DefaultModel):
 
             # Unzip arguments for loss_fn
             y, rng_key = args
+            if diffusion_framework['connection_denoiser_type'] == "STF":
+                references = y
+                effective_batch_size = diffusion_framework['train']['batch_size'] // jax.local_device_count()
+                y = references[:effective_batch_size]
+            # references = y
+            # effective_batch_size = diffusion_framework['train']['batch_size'] // jax.local_device_count()
+            # y = references[:effective_batch_size]
 
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
             noise = jax.random.normal(noise_key, y.shape)
@@ -500,7 +528,7 @@ class CMFramework(DefaultModel):
                 prev_perturbed_x = y + prev_sigma * noise # Unbiased score estimator
             
             # Connect the consistency output and denoiser output with connection loss
-            if diffusion_framework['torso_connection_loss']:
+            if diffusion_framework['connection_loss']:
                 current_step = total_states_dict['torso_state'].step
                 rng_key, noise_key = jax.random.split(rng_key, 2)
                 noise = jax.random.normal(noise_key, y.shape)
@@ -510,15 +538,18 @@ class CMFramework(DefaultModel):
                     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-                unbiased_denoiser_fn = lambda head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key: y
-                if diffusion_framework['torso_connection_threshold'] in ["li", "linear_interpolate"]:
+                if diffusion_framework['connection_denoiser_type'] == "STF":
+                    denoiser_fn = lambda head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key: STF_targets(sigma, perturbed_x, references)
+                elif diffusion_framework['connection_denoiser_type'] == "unbiased":
+                    denoiser_fn = lambda head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key: y
+                if diffusion_framework['connection_threshold'] in ["li", "linear_interpolate"]:
                     trained_denoiser = head_fn(head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key_2)
                     train_step_ratio = current_step / diffusion_framework['train']["total_step"]
                     connection_loss_denoised = train_step_ratio * trained_denoiser + (1 - train_step_ratio) * y
-                elif type(diffusion_framework['torso_connection_threshold']) is int:
+                elif type(diffusion_framework['connection_threshold']) is int:
                     connection_loss_denoised = jax.lax.cond(
-                        current_step <= diffusion_framework['torso_connection_threshold'],
-                        unbiased_denoiser_fn, head_fn, head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key)
+                        current_step <= diffusion_framework['connection_threshold'],
+                        denoiser_fn, head_fn, head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key)
                 connection_loss = jnp.mean((new_D_x - connection_loss_denoised) ** 2)
 
                 total_loss += connection_loss
@@ -532,8 +563,6 @@ class CMFramework(DefaultModel):
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
             D_x = jax.image.resize(D_x, output_shape, "bilinear")
             prev_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
-            D_x = (D_x + 1) / 2.0
-            prev_D_x = (prev_D_x + 1) / 2.0
             lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
 
             total_loss += lpips_loss
@@ -552,6 +581,12 @@ class CMFramework(DefaultModel):
 
             # Unzip arguments for loss_fn
             y, rng_key = args
+            
+            # STF 
+            if diffusion_framework['connection_denoiser_type'] == "STF":
+                references = y
+                effective_batch_size = diffusion_framework['train']['batch_size'] // jax.local_device_count()
+                y = references[:effective_batch_size]
 
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
             noise = jax.random.normal(noise_key, y.shape)
@@ -587,27 +622,17 @@ class CMFramework(DefaultModel):
                 score_diff = unbiased_score_estimator - learned_score_estimator
                 loss_dict['train/diff_btw_unbiased_estimator_and_learned_estimator'] = jnp.mean(jnp.mean(score_diff ** 2, axis=(1, 2, 3)))
             else:
-                # one_step_forward = jax.lax.stop_gradient(perturbed_x - y) / sigma
                 one_step_forward = noise
 
             prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * one_step_forward
             prev_D_x, prev_aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-
-            # prev_F_x, prev_t_emb, prev_last_x_emb = jax.lax.stop_gradient(prev_aux)
-            # prev_denoising_D_x = jax.lax.stop_gradient(prev_D_x)
-
-            # dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-            # prev_denoised, aux = self.head.apply(
-            #     {'params': head_params}, x=prev_perturbed_x, 
-            #     sigma=prev_sigma, F_x=prev_denoising_D_x, t_emb=prev_t_emb, last_x_emb=prev_last_x_emb,
-            #     train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
+                train=False, augment_labels=None, rngs={'dropout': dropout_key})
 
             # Get consistency loss
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
-            lpips_D_x = (jax.image.resize(D_x, output_shape, "bilinear") + 1) / 2.0
-            prev_lpips_D_x = (jax.image.resize(prev_D_x, output_shape, "bilinear") + 1) / 2.0
+            lpips_D_x = jax.image.resize(D_x, output_shape, "bilinear")
+            prev_lpips_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
             lpips_loss = jnp.mean(self.perceptual_loss(lpips_D_x, prev_lpips_D_x))
             total_loss += lpips_loss
             loss_dict['train/torso_lpips_loss'] = lpips_loss
@@ -625,7 +650,7 @@ class CMFramework(DefaultModel):
             total_loss += dsm_loss
             loss_dict['train/head_dsm_loss'] = dsm_loss
 
-            if diffusion_framework['joint_connection_loss']:
+            if diffusion_framework['connection_loss']:
                 rng_key, noise_key = jax.random.split(rng_key, 2)
                 noise = jax.random.normal(noise_key, y.shape)
                 perturbed_D_x = D_x + sigma * noise
@@ -635,18 +660,19 @@ class CMFramework(DefaultModel):
                 current_step = total_states_dict['torso_state'].step
 
                 # Connection unbiased denoiser type
-                if diffusion_framework['joint_connection_denoiser_type'] == "unbiased":
+                if diffusion_framework['connection_denoiser_type'] == "unbiased":
                     connection_loss_denoised = y
-                elif diffusion_framework['joint_connection_denoiser_type'] == "STF":
-                    NotImplementedError("STF is not implemented yet.") # TODO
+                elif diffusion_framework['connection_denoiser_type'] == "STF":
+                    # NotImplementedError("STF is not implemented yet.") # TODO
+                    connection_loss_denoised = STF_targets(sigma, perturbed_x, references)
                 else:
-                    NotImplementedError("joint_connection_denoiser_type should be either unbiased or STF for now.")
+                    NotImplementedError("connection_denoiser_type should be either unbiased or STF for now.")
 
                 # Retrieve connection loss denoised
-                if type(diffusion_framework['joint_connection_threshold']) is int:
+                if type(diffusion_framework['connection_threshold']) is int:
                     connection_loss_denoised = jnp.where(
-                        current_step <= diffusion_framework['joint_connection_threshold'], connection_loss_denoised, denoised)
-                elif diffusion_framework['joint_connection_threshold'] in ["linear_interpolate", 'li']:
+                        current_step <= diffusion_framework['connection_threshold'], connection_loss_denoised, denoised)
+                elif diffusion_framework['connection_threshold'] in ["linear_interpolate", 'li']:
                     li_ratio = current_step / diffusion_framework['train']["total_step"]
                     connection_loss_denoised = (1 - li_ratio) * connection_loss_denoised + li_ratio * denoised
                 connection_loss = jnp.mean((new_D_x - connection_loss_denoised) ** 2)
@@ -888,6 +914,7 @@ class CMFramework(DefaultModel):
         dropout_key = jax.random.split(dropout_key, jax.local_device_count())
         dropout_key = jnp.asarray(dropout_key)
         # new_carry, loss_dict_stack = self.update_fn((dropout_key, self.head_state), x0)
+        x0 = jnp.asarray(x0)
         new_carry, loss_dict_stack = self.update_fn((dropout_key, self.training_states), x0)
         (_, training_states) = new_carry
 
