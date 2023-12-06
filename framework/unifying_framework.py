@@ -102,7 +102,8 @@ class UnifyingFramework():
 
     def train(self):
         # TODO: The connection_denoiser_type is only used in CM training. need to be fixed.
-        STF_flag = self.config["framework"]["diffusion"].get("connection_denoiser_type", False)
+        STF_flag = self.config["framework"]["diffusion"].get("connection_denoiser_type", None)
+        STF_flag = False if STF_flag is None or STF_flag != "STF" else True
         batch_size = self.config["framework"]["diffusion"]["train"]["batch_size"] \
             if not STF_flag else self.config["framework"]["diffusion"]["train"]["STF_reference_batch_size"]
         datasets = common_utils.load_dataset_from_tfds(
