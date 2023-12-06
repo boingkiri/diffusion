@@ -13,9 +13,21 @@ import matplotlib.pyplot as plt
 
 import io
 
+from flax.training import checkpoints, orbax_utils
+import orbax.checkpoint
+
 class FSUtils():
     def __init__(self, config: DictConfig) -> None:
         self.config = config
+
+        # Create pytree checkpointer and its manager
+        self.checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+        self.checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions()
+        self.checkpoint_manager = orbax.checkpoint.CheckpointManager(self.config.exp.checkpoint_dir, self.checkpointer, )
+
+        self.best_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+        self.best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions()
+        self.best_checkpoint_manager = orbax.checkpoint.CheckpointManager(self.config.exp.best_dir, self.best_checkpointer, )
 
     def verify_and_create_dir(self, dir_path):
         if not os.path.exists(dir_path):
@@ -147,14 +159,15 @@ class FSUtils():
             current_sampling += 1
         return current_sampling
 
-    # def get_state_prefix(self, model_type):
-    #     if model_type == 'diffusion':
-    #         prefix = self.config.exp.diffusion_prefix
-    #     elif model_type == "autoencoder":
-    #         prefix = self.config.exp.autoencoder_prefix
-    #     elif model_type == "discriminator":
-    #         prefix = self.config.exp.discriminator_prefix
-    #     return prefix
+    def save_model_state(self, state, checkpoint_dir, step, prefix=None):
+        if prefix is None:
+            prefix = "checkpoint_"
+        # checkpoints.save_checkpoint(checkpoint_dir, state, step, prefix=prefix)
+
+        orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+        save_args = orbax_utils.save_args_from_target(state)
+        orbax_checkpointer.save(checkpoint_dir, state, )
+        print(f"Saving {step} complete.")
 
     def load_model_state(self, model_type, state, checkpoint_dir=None):
         # prefix = self.get_state_prefix(model_type)

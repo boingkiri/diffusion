@@ -4,7 +4,8 @@ import jax
 import jax.numpy as jnp
 import optax
 import flax.linen as nn
-from flax.training import checkpoints
+from flax.training import checkpoints, orbax_utils
+import orbax.checkpoint
 
 from omegaconf import DictConfig
 from typing import Any
@@ -84,7 +85,11 @@ def create_train_state(config: DictConfig, model_type, apply_fn, params):
 def save_train_state(state, checkpoint_dir, step, prefix=None):
   if prefix is None:
     prefix = "checkpoint_"
-  checkpoints.save_checkpoint(checkpoint_dir, state, step, prefix=prefix)
+  # checkpoints.save_checkpoint(checkpoint_dir, state, step, prefix=prefix)
+
+  orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+  save_args = orbax_utils.save_args_from_target(state)
+  orbax_checkpointer.save(checkpoint_dir, state, )
   print(f"Saving {step} complete.")
 
 
