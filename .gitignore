@@ -15,3 +15,5 @@ main.log
 pretrained_models
 cd_checkpoint
 venv
+
+tmp
