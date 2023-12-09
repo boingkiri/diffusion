@@ -54,13 +54,13 @@ def stochastic_iterative_sampler(
 
     return x
 
-def get_fid(rng, sampling_fn, fid_obj: FIDUtils, p, begin=(0,), end=(17, )):
+def get_fid(rng, sampling_fn, fid_obj: FIDUtils, p, begin=(0,), end=(17, ), sampling_dir="."):
     total_size = 50000
     batch_size = 128
     current_sampling_num = 0
 
     ts = begin + (p,) + end
-    tmp_dir = os.path.join(".", f"{p}")
+    tmp_dir = os.path.join(sampling_dir, f"{p}")
     if not os.path.exists(tmp_dir):
         os.mkdir(tmp_dir)
 
