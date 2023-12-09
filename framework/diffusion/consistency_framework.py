@@ -837,7 +837,7 @@ class CMFramework(DefaultModel):
                                     second_order_corrections,
                                     lambda euler_x_prev, t_prev, x_hat, t_hat, dx_dt, rng_key: euler_x_prev,
                                     euler_x_prev, t_prev, x_hat, t_hat, d_cur, dropout_key_2)
-            return heun_x_prev
+            return heun_x_prev, D_x
 
         def sample_cm_fn(params, x_cur, rng_key, gamma=None, t_cur=None, t_prev=None):
             dropout_key = rng_key
@@ -957,7 +957,7 @@ class CMFramework(DefaultModel):
             t_next = jnp.asarray([t_next] * jax.local_device_count())
             gamma = jnp.asarray([gamma] * jax.local_device_count())
             # latent_sample = self.p_sample_edm(self.head_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
-            latent_sample = self.p_sample_edm(
+            latent_sample, _ = self.p_sample_edm(
                 {state_name: state_content.params_ema for state_name, state_content in self.training_states.items()},
                 latent_sample, rng_key, gamma, t_cur, t_next)
 
@@ -965,6 +965,39 @@ class CMFramework(DefaultModel):
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample
+
+    def sampling_edm_and_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
+        # Multistep sampling using the distilled score
+        # Progress one step towards the sample
+        latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
+        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+
+        step_indices = jnp.arange(self.n_timestep)
+        t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
+        t_steps = jnp.append(t_steps, jnp.zeros_like(t_steps[0]))
+        pbar = tqdm(zip(t_steps[:-1], t_steps[1:]))
+
+        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * t_steps[0]
+        cm_sample = None
+        for t_cur, t_next in pbar:
+            rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+            gamma = 0
+
+            rng_key = jax.random.split(rng_key, jax.local_device_count())
+            t_cur = jnp.asarray([t_cur] * jax.local_device_count())
+            t_next = jnp.asarray([t_next] * jax.local_device_count())
+            gamma = jnp.asarray([gamma] * jax.local_device_count())
+            # latent_sample = self.p_sample_edm(self.head_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
+            latent_sample, d_x = self.p_sample_edm(
+                {state_name: state_content.params_ema for state_name, state_content in self.training_states.items()},
+                latent_sample, rng_key, gamma, t_cur, t_next)
+            if cm_sample is None:
+                cm_sample = d_x
+
+        if original_data is not None:
+            rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+            self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        return latent_sample, cm_sample
 
     def sampling_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="cm-training"):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
