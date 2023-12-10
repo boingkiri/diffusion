@@ -11,6 +11,7 @@ tensorflow_datasets
 
 # JAX family framework
 flax
+orbax-checkpoint
 optax
 lpips_jax
 

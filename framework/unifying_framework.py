@@ -91,8 +91,10 @@ class UnifyingFramework():
         sample = jnp.reshape(sample, (num_img, *sample.shape[-3:]))
         return sample
     
-    def save_model_state(self, states:dict):
-        self.fs_utils.save_model_state(states, self.step, self.checkpoint_prefix)
+    def save_model_state(self, states:dict, metrics:dict=None):
+        self.fs_utils.save_model_state(states, self.step, metrics=metrics)
+        # self.fs_utils.save_model_state(states, self.step, self.checkpoint_prefix)
+
         # for state_key in states:
         #     jax_utils.save_train_state(
         #         states[state_key],
@@ -115,8 +117,9 @@ class UnifyingFramework():
         in_process_dir = self.config.exp.in_process_dir
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
-        best_fids = self.fs_utils.get_best_fid()
-        first_step = True
+        # best_fids = self.fs_utils.get_best_fid()
+        # first_step = True
+        first_step = False
         
         for x, _ in datasets_bar:
             eval_during_training = self.step % 1000 == 0
@@ -164,10 +167,11 @@ class UnifyingFramework():
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
 
-            if self.step % 50000 == 0 and self.step != 0:
+            # if self.step % 50000 == 0 and self.step != 0:
+            if self.step % 50000 == 0:
                 model_state = self.framework.get_model_state()
-                if not first_step:
-                    self.save_model_state(model_state)
+                # if not first_step:
+                #     self.save_model_state(model_state)
 
                 # Calculate FID score with 1000 samples
                 # if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
@@ -190,23 +194,29 @@ class UnifyingFramework():
                 else:
                     sampling_modes = ['edm', 'cm-training']
                 if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
+                    mode_metrics = {}
                     for mode in sampling_modes:
                         fid_score = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
                         self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode)
-                        if not mode in best_fids or best_fids[mode] >= fid_score:
-                            best_checkpoint_dir = self.config.exp.best_dir
-                            best_checkpoint_dir = os.path.join(best_checkpoint_dir, mode)
-                            os.makedirs(best_checkpoint_dir, exist_ok=True)
-                            if mode == "edm":
-                                jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "head_")
-                            else:
-                                jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "torso_")
+                        metrics = {"fid": fid_score}
+                        # if not mode in best_fids or best_fids[mode] >= fid_score:
+                        #     best_checkpoint_dir = self.config.exp.best_dir
+                        #     best_checkpoint_dir = os.path.join(best_checkpoint_dir, mode)
+                        #     os.makedirs(best_checkpoint_dir, exist_ok=True)
+                        #     if mode == "edm":
+                        #         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "head_")
+                        #     else:
+                        #         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "torso_")
 
-                            best_fids[mode] = fid_score
+                            # best_fids[mode] = fid_score
                         if mode == "edm":
+                            mode_metrics["head"] = metrics
                             self.wandblog.update_log({"Head FID score": fid_score})
                         else:
+                            mode_metrics['diffusion'] = metrics
                             self.wandblog.update_log({"Torso FID score": fid_score})
+                    if not first_step:
+                        self.save_model_state(model_state, mode_metrics)
                     self.wandblog.flush(step=self.step)
 
 
