@@ -40,7 +40,7 @@ def normalize_to_minus_one_to_one(image):
 def unnormalize_minus_one_to_one(images):
     return (images + 1) * 0.5 
 
-def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_steps=1, x_flip=True):
+def load_dataset_from_tfds(dataset_name="cifar10", batch_size=512, n_jitted_steps=1, x_flip=True):
   assert n_jitted_steps >= 1
 
   AUTOTUNE = tf.data.experimental.AUTOTUNE

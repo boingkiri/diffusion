@@ -224,16 +224,16 @@ class iCMFramework(DefaultModel):
             sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling'], step_key, y, total_states_dict['model_state'].step)
 
             # Get consistency function values
-            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            # dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
             perturbed_x = y + sigma * noise
             D_x, _ = self.model.apply(
                 {'params': model_params}, x=perturbed_x, sigma=sigma,
-                train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
+                train=True, augment_labels=None, rngs={'dropout': dropout_key})
             
             prev_perturbed_x = y + prev_sigma * noise
             prev_D_x, _ = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+                train=True, augment_labels=None, rngs={'dropout': dropout_key})
 
             # Loss and loss dict construction
             total_loss = 0

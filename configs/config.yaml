@@ -8,7 +8,7 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: 1106_ict
+exp_name: ict_pseudohuber_231206
 # tags: [cm, score_feedback, param_ema]
 tags: [ict]
 do_training: true

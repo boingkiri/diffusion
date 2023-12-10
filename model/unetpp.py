@@ -225,7 +225,7 @@ class PositionalEmbedding(nn.Module):
 
 class FourierEmbedding(nn.Module):
     num_channels: int
-    scale: float = 16
+    scale: float = 0.02
     def setup(self):
         # key = self.make_rng('params')
         # randn = jax.random.normal(key, (self.num_channels // 2,))

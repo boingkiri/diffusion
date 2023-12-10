@@ -37,6 +37,7 @@ class UnifyingFramework():
         self.n_jitted_steps = config.get("n_jitted_steps", 1)
         self.dataset_x_flip = self.config.framework.diffusion.get("augment_rate", None) is None
         self.set_train_step_process(config)
+        self.batch_size = config.framework.diffusion.train.batch_size
     
     def set_train_step_process(self, config: DictConfig):
         self.set_utils(config)
@@ -111,7 +112,7 @@ class UnifyingFramework():
             )
 
     def train(self):
-        datasets = common_utils.load_dataset_from_tfds(n_jitted_steps=self.n_jitted_steps, x_flip=self.dataset_x_flip)
+        datasets = common_utils.load_dataset_from_tfds(n_jitted_steps=self.n_jitted_steps, x_flip=self.dataset_x_flip, batch_size=self.batch_size)
         datasets_bar = tqdm(datasets, total=self.total_step-self.step, initial=self.step)
         in_process_dir = self.config.exp.in_process_dir
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'

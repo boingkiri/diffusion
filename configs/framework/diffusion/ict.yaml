@@ -29,8 +29,8 @@ S_noise: 1.007
 
 train:
   learning_rate: 1.0e-4
-  batch_size: 512
-  total_step: 400000
+  batch_size: 128 #512
+  total_step: 600000
   sampling_step: 10000
   saving_step: 100000
   optimizer:
