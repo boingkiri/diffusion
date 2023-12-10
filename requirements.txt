@@ -3,8 +3,11 @@ torch
 tensorflow
 tensorflow_datasets
 
--f https://storage.googleapis.com/jax-releases/libtpu_releases.html
-jax[tpu]
+# -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+# jax[tpu]
+
+# -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+# jax[cuda11_pip]
 
 # JAX family framework
 flax

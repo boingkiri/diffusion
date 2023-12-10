@@ -92,13 +92,14 @@ class UnifyingFramework():
         return sample
     
     def save_model_state(self, states:dict):
-        for state_key in states:
-            jax_utils.save_train_state(
-                states[state_key],
-                self.config.exp.checkpoint_dir,
-                self.step,
-                prefix=state_key + "_"
-            )
+        self.fs_utils.save_model_state(states, self.step, self.checkpoint_prefix)
+        # for state_key in states:
+        #     jax_utils.save_train_state(
+        #         states[state_key],
+        #         self.config.exp.checkpoint_dir,
+        #         self.step,
+        #         prefix=state_key + "_"
+        #     )
 
     def train(self):
         # TODO: The connection_denoiser_type is only used in CM training. need to be fixed.

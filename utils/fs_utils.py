@@ -13,9 +13,37 @@ import matplotlib.pyplot as plt
 
 import io
 
+from flax.training import checkpoints, orbax_utils
+import orbax.checkpoint
+
 class FSUtils():
     def __init__(self, config: DictConfig) -> None:
         self.config = config
+
+        # Create pytree checkpointer and its manager
+        self.checkpoint_manager, self.best_checkpoint_manager = self.create_checkpoint_manager()
+
+    def create_checkpoint_manager(self):
+        model_keys = self.config.model.keys()
+        checkpoint_manager = {}
+        best_checkpoint_manager = {}
+        for model_key in model_keys:
+            model_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+            model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1, step_prefix=model_key)
+            model_checkpoint_manager = orbax.checkpoint.CheckpointManager(
+                self.config.exp.checkpoint_dir, model_checkpointer, model_checkpoint_manager_options)
+
+            model_best_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+            model_best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(
+                max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min', step_prefix=model_key)
+            model_best_checkpoint_manager = orbax.checkpoint.CheckpointManager(
+                self.config.exp.best_dir, model_best_checkpointer, model_best_checkpoint_manager_options)
+
+            checkpoint_manager[model_key] = model_checkpoint_manager
+            best_checkpoint_manager[model_key] = model_best_checkpoint_manager
+
+        return checkpoint_manager, best_checkpoint_manager
+
 
     def verify_and_create_dir(self, dir_path):
         if not os.path.exists(dir_path):
@@ -147,23 +175,23 @@ class FSUtils():
             current_sampling += 1
         return current_sampling
 
-    # def get_state_prefix(self, model_type):
-    #     if model_type == 'diffusion':
-    #         prefix = self.config.exp.diffusion_prefix
-    #     elif model_type == "autoencoder":
-    #         prefix = self.config.exp.autoencoder_prefix
-    #     elif model_type == "discriminator":
-    #         prefix = self.config.exp.discriminator_prefix
-    #     return prefix
+    def save_model_state(self, states, step, metrics=None):
+        best_saved = False
+        for state in states:
+            self.checkpoint_manager[state].save(step, metrics)
+            best_saved = self.best_checkpoint_manager[state].save(step, metrics)
 
-    def load_model_state(self, model_type, state, checkpoint_dir=None):
-        # prefix = self.get_state_prefix(model_type)
-        prefix = model_type
-        prefix = prefix + "_" if prefix[-1] != "_" else prefix
+        print(f"Saving {step} complete.")
+        if best_saved:
+            print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")
         
-        if checkpoint_dir is None:
-            checkpoint_dir = self.config.exp.checkpoint_dir
-        state = jax_utils.load_state_from_checkpoint_dir(checkpoint_dir, state, None, prefix)
+
+    def load_model_state(self, model_type, state):
+        # prefix = self.get_state_prefix(model_type)
+        checkpoint_manager = self.checkpoint_manager[model_type]
+        step = checkpoint_manager.latest_step()
+        if step is not None:
+            state = checkpoint_manager.restore(step, items=state)
         return state
     
     def get_best_fid(self):

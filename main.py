@@ -1,4 +1,5 @@
 import jax
+from jax.lib import xla_bridge
 from jax import random
 
 import wandb
@@ -17,8 +18,10 @@ def start(config: DictConfig):
     model_type = config.type
 
     # if the current environment is GPU, set the available GPU
-    if hasattr(config, "available_gpus"):
-        os.environ["CUDA_VISIBLE_DEVICES"] = config.available_gpus
+    if xla_bridge.get_backend().platform == "gpu":
+        # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
+        if hasattr(config, "available_gpus"):
+            os.environ["CUDA_VISIBLE_DEVICES"] = config.available_gpus
     
     print("-------------------Config Setting---------------------")
     print(OmegaConf.to_yaml(config))
