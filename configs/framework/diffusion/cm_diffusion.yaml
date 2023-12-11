@@ -72,7 +72,8 @@ train:
   # batch_size: 512  
   batch_size: 128
   STF_reference_batch_size: 1024
-  total_step: 800000
+  # total_step: 800000
+  total_step: 400000
   sampling_step: 10000
   saving_step: 100000
   optimizer:
