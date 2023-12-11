@@ -148,6 +148,11 @@ class CMFramework(DefaultModel):
         self.target_model_ema_decay_fn = lambda step: jnp.exp(self.s_0 * jnp.log(self.mu_0) / self.ct_step_num_fn(step))
         self.ct_t_steps_fn = lambda idx, N_k: (self.sigma_min ** (1 / self.rho) + idx / (N_k - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
 
+        # Add iCT training steps
+        k_prime = jnp.floor(diffusion_framework['train']['total_step'] / (jnp.log2(jnp.floor(self.s_1 / self.s_0)) + 1))
+        self.ict_maximum_step_fn = lambda cur_step: jnp.minimum(self.s_0 * jnp.power(2, jnp.floor(cur_step / k_prime)), self.s_1) + 1
+        self.ict_t_steps_fn = lambda idx, N_k: (self.sigma_min ** (1 / self.rho) + idx / (N_k - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
+
         # Create ema obj
         ema_config = config.ema
         self.ema_obj = CMEMA(**ema_config)
@@ -258,7 +263,7 @@ class CMFramework(DefaultModel):
         def ict_sigma_sampling_fn(rng_key, y, step):
             p_mean = -1.1
             p_std = 2.0
-            N_k = self.ct_maximum_step_fn(cur_step=step)
+            N_k = self.ict_maximum_step_fn(cur_step=step)
 
             # First, prepare range list from 0 to self.s_1 (include)
             overall_idx = jnp.arange(self.s_1 + 1)
@@ -268,7 +273,7 @@ class CMFramework(DefaultModel):
 
             # Calculate erf of standardizated sigma for sampling from categorical distribution 
             # This process is imitation of discrete lognormal distribution. (please refer to the paper)
-            overall_standardized_sigma = (jnp.log(self.ct_t_steps_fn(overall_idx, N_k)) - p_mean) / (jnp.sqrt(2) * p_std)
+            overall_standardized_sigma = (jnp.log(self.ict_t_steps_fn(overall_idx, N_k)) - p_mean) / (jnp.sqrt(2) * p_std)
             overall_erf_sigma = jax.scipy.special.erf(overall_standardized_sigma)
 
             # Calculate categorical distribution probability
@@ -282,8 +287,8 @@ class CMFramework(DefaultModel):
             categorical_prob = categorical_prob / jnp.sum(categorical_prob) # Normalize to make sure the sum is 1.
             idx = jax.random.choice(rng_key, overall_idx, shape=(y.shape[0], ), p=categorical_prob)
             next_idx = idx + 1
-            sigma = self.ct_t_steps_fn(next_idx, N_k)[:, None, None, None]
-            prev_sigma = self.ct_t_steps_fn(idx, N_k)[:, None, None, None]
+            sigma = self.ict_t_steps_fn(next_idx, N_k)[:, None, None, None]
+            prev_sigma = self.ict_t_steps_fn(idx, N_k)[:, None, None, None]
             return sigma, prev_sigma
 
         def get_sigma_sampling(sigma_sampling, rng_key, y, step=None):
