@@ -1,6 +1,7 @@
 defaults:
   - framework: 
-    - diffusion/ict
+    # - diffusion/ict
+    - diffusion/cm_diffusion
   - model@_group_.diffusion: 
     # - diffusion/unetpp_cm
     # - diffusion/original_cm
