@@ -33,7 +33,7 @@ progressive_combine : "sum"
 attention_type : "ddpm"
 init_scale : 0.0
 # fourier_scale : 16
-fourier_scale: 0.0
+fourier_scale: 0.02
 conv_size : 3
 rho : 7.0
 data_std : 0.5
