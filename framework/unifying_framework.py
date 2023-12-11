@@ -2,10 +2,14 @@
 from framework.diffusion.ddpm_framework import DDPMFramework
 from framework.diffusion.edm_framework import EDMFramework
 from framework.diffusion.consistency_framework import CMFramework
+from framework.diffusion.ctm_framework import CTMFramework
+from framework.diffusion.improved_consistency_framework import iCMFramework
 from framework.LDM import LDM
 
 import jax
 import jax.numpy as jnp
+from flax.training import orbax_utils
+import orbax.checkpoint
 
 from utils.fs_utils import FSUtils
 from utils import jax_utils, common_utils
@@ -60,6 +64,12 @@ class UnifyingFramework():
         elif self.current_model_type == "ldm":
             ldm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
             self.framework = LDM(config, ldm_rng, self.fs_utils, self.wandblog)
+        elif self.current_model_type == "ctm":
+            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+            self.framework = CTMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
+        elif self.current_model_type == "ict":
+            diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+            self.framework = iCMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
         else:
             NotImplementedError("Model Type cannot be identified. Please check model name.")
         

@@ -1,16 +1,10 @@
 defaults:
-  # - framework: ldm
   - framework: 
-    # - diffusion/ddim
-    # - diffusion/ddpm
-    # - diffusion/improved_ddpm
-    # - diffusion/edm
-    # - diffusion/cm
-    - diffusion/cm_diffusion
-    # - diffusion/cm_dm
+    - diffusion/ict
   - model@_group_.diffusion: 
-    - diffusion/unetpp_cm
+    # - diffusion/unetpp_cm
     # - diffusion/original_cm
+    - diffusion/original_ict
   - model@_group_.head: 
     # - diffusion/score_head_pde
     - diffusion/score_head
@@ -20,11 +14,9 @@ defaults:
   - dataset: cifar10
   - exp: exp_setting
 
-# type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
-# type: edm
 type: ${framework.diffusion.type}
-exp_name: 1205_CT_alternative_training_new_loss_stf
-tags: [CT, alternative_training, new_loss, STF]
+exp_name: 1205_CT_joint_training_new_loss_ict
+tags: [CT, joint_training, new_loss, iCT]
 do_training: True
 do_sampling: True
 num_sampling: 50000
@@ -45,4 +37,3 @@ hydra:
   output_subdir: null  
   run:  
     dir: .
-

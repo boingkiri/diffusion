@@ -254,6 +254,37 @@ class CMFramework(DefaultModel):
             sigma = jnp.where(bernoulli_idx == 1, cm_sigma_tuple[0], edm_sigma_tuple[0])
             prev_sigma = jnp.where(bernoulli_idx == 1, cm_sigma_tuple[1], edm_sigma_tuple[1])
             return sigma, prev_sigma
+        
+        def ict_sigma_sampling_fn(rng_key, y, step):
+            p_mean = -1.1
+            p_std = 2.0
+            N_k = self.ct_maximum_step_fn(cur_step=step)
+
+            # First, prepare range list from 0 to self.s_1 (include)
+            overall_idx = jnp.arange(self.s_1 + 1)
+
+            # Then, if the value is larger than the maximum step value, set it to the maximum step value.
+            overall_idx = jnp.where(overall_idx < N_k, overall_idx, N_k - 1)
+
+            # Calculate erf of standardizated sigma for sampling from categorical distribution 
+            # This process is imitation of discrete lognormal distribution. (please refer to the paper)
+            overall_standardized_sigma = (jnp.log(self.ct_t_steps_fn(overall_idx, N_k)) - p_mean) / (jnp.sqrt(2) * p_std)
+            overall_erf_sigma = jax.scipy.special.erf(overall_standardized_sigma)
+
+            # Calculate categorical distribution probability
+            # erf(sigma_{i+1}) - erf(sigma_{i})
+            # Note that the index after the maximum step value should be zero 
+            # because the corresponding index value is clipped by N_k-1, which will have same sigma value
+            # Therefore, the probability value will be 0 when subtract the same erf value
+            categorical_prob = jnp.zeros((self.s_1 + 1,))
+            categorical_prob = categorical_prob.at[:self.s_1].set(overall_erf_sigma[1:] - overall_erf_sigma[:-1])
+            categorical_prob = categorical_prob.at[self.s_1].set(0)
+            categorical_prob = categorical_prob / jnp.sum(categorical_prob) # Normalize to make sure the sum is 1.
+            idx = jax.random.choice(rng_key, overall_idx, shape=(y.shape[0], ), p=categorical_prob)
+            next_idx = idx + 1
+            sigma = self.ct_t_steps_fn(next_idx, N_k)[:, None, None, None]
+            prev_sigma = self.ct_t_steps_fn(idx, N_k)[:, None, None, None]
+            return sigma, prev_sigma
 
         def get_sigma_sampling(sigma_sampling, rng_key, y, step=None):
             if sigma_sampling == "EDM":
@@ -272,6 +303,8 @@ class CMFramework(DefaultModel):
                 return bernoulli_quantization_sigma_sampling_fn(rng_key, y, step)
             elif sigma_sampling == "Bernoulli_uniform_Quantization":
                 return bernoulli_uniform_quantization_sigma_sampling_fn(rng_key, y, step)
+            elif sigma_sampling == "iCT":
+                return ict_sigma_sampling_fn(rng_key, y, step)
             else:
                 NotImplementedError("sigma_sampling should be either EDM or CM for now.")
         

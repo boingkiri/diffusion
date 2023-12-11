@@ -297,8 +297,7 @@ class FourierEmbedding(nn.Module):
         # randn = jax.random.normal(key, (self.num_channels // 2,))
         # self.freqs = randn * self.scale
         def freq_init(key, shape, dtype):
-            randn = jax.random.normal(key, shape)
-            return randn * self.scale
+            return jax.random.normal(key, shape, dtype) * self.scale
         self.freqs = self.param('freqs', freq_init, (self.num_channels // 2,), jnp.float32)
     
     def __call__(self, x):
@@ -329,6 +328,8 @@ class UNetpp(nn.Module):
     resample_filter: Union[Tuple[int, ...], List[int]] = (1, 1)
     learn_sigma: bool = False
 
+    fourier_layer_scale: float = 16.0
+
     t_emb_output: bool = False
     input_channels: int = None
     input_t_embed: bool = False
@@ -352,7 +353,9 @@ class UNetpp(nn.Module):
         self.resblock_class = ResNetBlockBigGAN if self.resblock_type == "biggan" else UNetBlock
 
         # Mapping
-        self.map_noise = PositionalEmbedding(num_channels=noise_channels, endpoint=True) if self.embedding_type == "positional" else FourierEmbedding(num_channels=noise_channels)
+        self.map_noise = PositionalEmbedding(num_channels=noise_channels, endpoint=True) \
+                            if self.embedding_type == "positional" \
+                            else FourierEmbedding(num_channels=noise_channels, scale=self.fourier_layer_scale)
         self.map_label = Linear(self.label_dim, noise_channels, init_mode=init) if self.label_dim else None 
         self.map_augment = Linear(self.augment_dim, noise_channels, use_bias=False, init_mode=init) if self.augment_dim else None
         self.map_layer0 = Linear(noise_channels, emb_channels, init_mode=init)
@@ -843,3 +846,165 @@ class ScoreDistillPrecond(nn.Module):
             sigma_score, dh_dx_inv, dh_dt = self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train)
             return x + sigma * sigma_score, (dh_dx_inv, dh_dt)
             # return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train)
+
+class UNetppTwoTimestep(UNetpp):
+    image_channels: int = 3
+    n_channels: int = 128
+    label_dim: int = 0
+    augment_dim: int = 0
+    
+    ch_mults: Union[Tuple[int, ...], List[int]] = (1, 2, 2, 2)
+    is_atten: Union[Tuple[bool, ...], List[bool]] = (False, True, False, False)
+    n_blocks: int = 4
+    n_heads: int = 1
+    n_groups: int = 32
+    dropout_rate: float = 0.1
+    label_dropout_rate: float = 0.0
+
+    embedding_type: str = "positional"
+    encoder_type : str = "standard"
+    decoder_type : str = "standard"
+    resample_filter: Union[Tuple[int, ...], List[int]] = (1, 1)
+    learn_sigma: bool = False
+
+    t_emb_output: bool = False
+    input_channels: int = None
+    input_t_embed: bool = False
+
+    def setup(self):
+        emb_channels = self.n_channels * 4
+        noise_channels = self.n_channels * (1 if len(self.resample_filter) == 2 else 2)
+        init = create_initializer('xavier_uniform')
+        self.map_layer0_target_noise = Linear(noise_channels, emb_channels, init_mode=init)
+        self.map_layer1_target_noise = Linear(emb_channels, emb_channels, init_mode=init)
+        super().setup()
+        
+    def map_noise_emb(self, noise):
+        emb = self.map_noise(noise)
+
+        # Swap sin/cos
+        emb_shape = emb.shape
+        emb = emb.reshape(emb.shape[0], 2, -1)
+        emb = jnp.flip(emb, axis=1)
+        emb = emb.reshape(*emb_shape)
+        return emb
+
+    def __call__(self, x, start_noise, target_noise, train, augment_labels=None, t_emb=None):
+        # TODO: the structure to deal with two time variable is now unknown.
+        emb_start = self.map_noise_emb(start_noise)
+        # TODO: Add conditional stuffs in here
+        emb_start = nn.silu(self.map_layer0(emb_start))
+        emb_start = nn.silu(self.map_layer1(emb_start))
+
+        emb_end = self.map_noise_emb(target_noise)
+        # TODO: Add conditional stuffs in here
+        emb_end = nn.silu(self.map_layer0_target_noise(emb_end))
+        emb_end = nn.silu(self.map_layer1_target_noise(emb_end))
+
+        emb = emb_start + emb_end
+
+        # Add augment embedding if exists
+        if augment_labels is not None:
+            emb += self.map_augment(augment_labels)
+
+        # Add t_embd if exists
+        if self.input_t_embed:
+            t_emb = self.map_noise_proj(jnp.concatenate([emb, t_emb], axis=-1))
+            emb = t_emb
+
+        # Encoder
+        skips = []
+        aux = x
+        for key, block in self.enc.items():
+            if 'aux_down' in key:
+                aux = block(aux)
+            elif 'aux_skip' in key:
+                x = skips[-1] = x + block(aux)
+            elif 'aux_residual' in key:
+                x = skips[-1] = aux = (x + block(aux)) / jnp.sqrt(2)
+            else:
+                x = block(x, emb, train) if isinstance(block, UNetBlock) else block(x)
+                skips.append(x)
+
+        # Decoder
+        aux = None
+        tmp = None
+        last_xemb = None
+        for key, block in self.dec.items():
+            if 'aux_up' in key:
+                aux = block(aux)
+            elif 'aux_norm' in key:
+                last_xemb = x
+                tmp = block(x)
+            elif 'aux_conv' in key:
+                tmp = block(nn.silu(tmp))
+                aux = tmp if aux is None else tmp + aux
+            else:
+                if x.shape[-1] != block.in_channels:
+                    x = jnp.concatenate([x, skips.pop()], axis=-1)
+                x = block(x, emb, train)
+        
+        if self.t_emb_output:
+            return aux, emb, last_xemb
+        else:
+            return aux
+
+class DummyCTMScore(nn.Module):
+    model_kwargs : dict
+
+    image_channels: int
+    label_dim: int = 0
+    use_fp16: bool = False
+    sigma_min : float = 0.0
+    sigma_max : float = float('inf')
+    sigma_data : float = 0.5
+    model_type : str = "unetpp"
+    
+    def setup(self):
+        self.UNetpp_0 = UNetppTwoTimestep(**self.model_kwargs)
+
+    # @nn.compact
+    def __call__(self, x, start_sigma, target_sigma, augment_labels, train):
+        c_skip = (self.sigma_data ** 2) / (start_sigma ** 2 + self.sigma_data ** 2)
+        c_out = (start_sigma * self.sigma_data) / jnp.sqrt(start_sigma ** 2 + self.sigma_data ** 2)
+        c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + start_sigma ** 2)
+        c_start_noise = jnp.log(start_sigma) / 4
+        c_end_noise = jnp.log(target_sigma) / 4
+
+        F_x = self.UNetpp_0(c_in * x, c_start_noise.flatten(), c_end_noise.flatten(), train, augment_labels)
+        g_x = c_skip * x + c_out * F_x
+        ratio = target_sigma / start_sigma
+        D_x = ratio * x + (1 - ratio) * g_x
+        return D_x, g_x
+
+
+class iCMPrecond(nn.Module):
+    model_kwargs : dict
+
+    image_channels: int
+    label_dim: int = 0
+    use_fp16: bool = False
+    sigma_min : float = 0.0 # 0.002
+    sigma_max : float = float('inf') # 80
+    sigma_data : float = 0.5
+    model_type : str = "unetpp"
+    
+    t_emb_output : bool = True
+    
+    @nn.compact
+    def __call__(self, x, sigma, augment_labels, train):
+        c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
+        c_out = ((sigma - self.sigma_min) * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
+        c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
+        c_noise = jnp.log(sigma) / 4
+
+        # Predict F_x. There is only UNetpp case for now. 
+        # Should add more cases. (ex, DhariwalUNet (ADM)) 
+        if self.model_type == "unetpp":
+            net = UNetpp(**self.model_kwargs, t_emb_output=self.t_emb_output)
+        elif self.model_type == "unet":
+            net = UNet(**self.model_kwargs)
+        
+        F_x, t_emb, last_x_emb = net(c_in * x, c_noise.flatten(), train, augment_labels)
+        D_x = c_skip * x + c_out * F_x
+        return D_x, (F_x, t_emb, last_x_emb)
