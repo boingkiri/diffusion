@@ -25,25 +25,7 @@ class FSUtils():
 
     def create_checkpoint_manager(self):
         model_keys = self.config.model.keys()
-        # checkpoint_manager = {}
         best_checkpoint_manager = {}
-        # for model_key in model_keys:
-        #     model_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        #     model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1, step_prefix=model_key)
-        #     model_checkpoint_manager = orbax.checkpoint.CheckpointManager(
-        #         self.config.exp.checkpoint_dir, model_checkpointer, model_checkpoint_manager_options)
-
-        #     model_best_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        #     model_best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(
-        #         max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min', step_prefix=model_key)
-        #     model_best_checkpoint_manager = orbax.checkpoint.CheckpointManager(
-        #         self.config.exp.best_dir, model_best_checkpointer, model_best_checkpoint_manager_options)
-
-        #     checkpoint_manager[model_key] = model_checkpoint_manager
-        #     best_checkpoint_manager[model_key] = model_best_checkpoint_manager
-
-        # model_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        # model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1, step_prefix=model_key)
         abs_path_ = os.getcwd()+"/"
         model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1)
         model_checkpoint_manager = orbax.checkpoint.CheckpointManager(
@@ -53,9 +35,6 @@ class FSUtils():
 
         for model_key in model_keys:
             best_checkpoint_dir = self.config.exp.best_dir + "/" + model_key
-            # model_best_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-            # model_best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(
-            #     max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min', step_prefix=model_key)
             model_best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(
                 max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min')
             model_best_checkpoint_manager = orbax.checkpoint.CheckpointManager(
@@ -65,6 +44,37 @@ class FSUtils():
             best_checkpoint_manager[model_key] = model_best_checkpoint_manager
 
         return model_checkpoint_manager, best_checkpoint_manager
+    
+    def update_checkpoint_manager(self, add_model_keys=None, delete_model_keys=None):
+        model_keys = set(self.config.model.keys())
+        best_checkpoint_manager = {}
+        abs_path_ = os.getcwd()+"/"
+
+        if add_model_keys is not None:
+            for add_model_key in add_model_keys:
+                model_keys.add(add_model_key)
+        if delete_model_keys is not None:
+            for delete_model_key in delete_model_keys:
+                model_keys.discard(delete_model_key)
+
+        model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1)
+        model_checkpoint_manager = orbax.checkpoint.CheckpointManager(
+            abs_path_ + self.config.exp.checkpoint_dir, 
+            {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
+            model_checkpoint_manager_options)
+
+        for model_key in model_keys:
+            best_checkpoint_dir = self.config.exp.best_dir + "/" + model_key
+            model_best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(
+                max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min')
+            model_best_checkpoint_manager = orbax.checkpoint.CheckpointManager(
+                abs_path_ + best_checkpoint_dir,
+                {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys}, 
+                model_best_checkpoint_manager_options)
+            best_checkpoint_manager[model_key] = model_best_checkpoint_manager
+        self.checkpoint_manager = model_checkpoint_manager
+        self.best_checkpoint_manager = best_checkpoint_manager
+
 
 
     def verify_and_create_dir(self, dir_path):
@@ -211,13 +221,9 @@ class FSUtils():
 
     # def load_model_state(self, model_type, state):
     def load_model_state(self, state):
-        # prefix = self.get_state_prefix(model_type)
-        # checkpoint_manager = self.checkpoint_manager[model_type]
-        # step = checkpoint_manager.latest_step()
-        # if step is not None:
-        #     state = checkpoint_manager.restore(step, items=state)
         step = self.checkpoint_manager.latest_step()
         if step is not None:
+            # state = self.checkpoint_manager.restore(step, items=state, restore_kwargs={'transforms': None})
             state = self.checkpoint_manager.restore(step, items=state)
         return state
     

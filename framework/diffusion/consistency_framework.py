@@ -83,10 +83,19 @@ class CMFramework(DefaultModel):
         
         
         # checkpoint_dir = "experiments/0906_verification_unet_block_1/checkpoints"
-        states = {"diffusion": self.torso_state if self.torso_state is not None else {}, 
-                  "head": self.head_state if self.head_state is not None else {}}
+        # states = {"diffusion": self.torso_state if self.torso_state is not None else {}, 
+        #           "head": self.head_state if self.head_state is not None else {}}
+        if diffusion_framework['only_cm_training']:
+            fs_obj.update_checkpoint_manager(delete_model_keys=["head"])
+        
+        states= {}
+        if self.torso_state is not None:
+            states["diffusion"] = self.torso_state
+        if self.head_state is not None:
+            states["head"] = self.head_state
+        
         states = fs_obj.load_model_state(states)
-        self.torso_state, self.head_state = states["diffusion"], states["head"]
+        self.torso_state, self.head_state = states.get("diffusion"), states.get("head")
         
         # Set optimizer newly if initialize_previous_training_step is True
         if diffusion_framework['initialize_previous_training_step']:
@@ -102,7 +111,6 @@ class CMFramework(DefaultModel):
         self.CM_freeze = diffusion_framework['CM_freeze']
         self.only_cm_training = diffusion_framework['only_cm_training']
         if not self.CM_freeze:
-            # self.training_states["torso_state"] = self.torso_state
             self.training_states['torso_state'] = self.torso_state
         if not self.only_cm_training:
             self.training_states["head_state"] = self.head_state
@@ -867,15 +875,7 @@ class CMFramework(DefaultModel):
         D_x, aux = self.model.apply(
                 {'params': torso_params}, x=input_format, sigma=jnp.ones([1,]), 
                 train=False, augment_labels=None, rngs={'dropout': self.rand_key})
-        
-        F_x, t_emb, last_x_emb = aux
-        self.rand_key, param_rng, dropout_rng = jax.random.split(self.rand_key, 3)
-        rng_dict = {"params": param_rng, 'dropout': dropout_rng}
-        head_params = self.head.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), F_x=D_x, last_x_emb=last_x_emb, t_emb=t_emb,
-                                     train=False, augment_labels=None)['params']
-
         model_tx = jax_utils.create_optimizer(config, "diffusion")
-        head_tx = jax_utils.create_optimizer(config, "diffusion")
         new_torso_state = TrainState.create(
             apply_fn=self.model.apply,
             params=torso_params,
@@ -883,6 +883,18 @@ class CMFramework(DefaultModel):
             target_model=torso_params, # NEW!
             tx=model_tx
         )
+        if config.framework.diffusion.only_cm_training:
+            return new_torso_state, None
+        
+        
+        F_x, t_emb, last_x_emb = aux
+        self.rand_key, param_rng, dropout_rng = jax.random.split(self.rand_key, 3)
+        rng_dict = {"params": param_rng, 'dropout': dropout_rng}
+        head_params = self.head.init(rng_dict, x=input_format, sigma=jnp.ones([1,]), F_x=D_x, last_x_emb=last_x_emb, t_emb=t_emb,
+                                     train=False, augment_labels=None)['params']
+
+        head_tx = jax_utils.create_optimizer(config, "diffusion")
+        
         new_head_state = TrainState.create(
             apply_fn=self.head.apply,
             params=head_params,
@@ -904,6 +916,10 @@ class CMFramework(DefaultModel):
                 "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']), 
                 "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
             }
+        # return {
+        #     "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']) if "torso_state" in self.training_states else None,
+        #     "head": flax.jax_utils.unreplicate(self.training_states['head_state']) if "head_state" in self.training_states else None
+        # }
     
     
     def fit(self, x0, cond=None, step=0, eval_during_training=False):
