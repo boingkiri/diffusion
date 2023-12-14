@@ -8,6 +8,7 @@ from dataclasses import field
 from model.modules import *
 
 from model.unet import UNet
+from model.ct.ncsnpp import NCSNpp
 
 class Linear(nn.Module):
     in_features: int
@@ -933,9 +934,13 @@ class iCMPrecond(nn.Module):
         # Should add more cases. (ex, DhariwalUNet (ADM)) 
         if self.model_type == "unetpp":
             net = UNetpp(**self.model_kwargs, t_emb_output=self.t_emb_output)
+            F_x, t_emb, last_x_emb = net(c_in * x, c_noise.flatten(), train, augment_labels)
         elif self.model_type == "unet":
             net = UNet(**self.model_kwargs)
+            F_x, t_emb, last_x_emb = net(c_in * x, c_noise.flatten(), train, augment_labels)
+        elif self.model_type == "original_unetpp":
+            net = NCSNpp(self.model_kwargs)
+            F_x, t_emb, last_x_emb = net(c_in * x, c_noise.flatten(), train)
         
-        F_x, t_emb, last_x_emb = net(c_in * x, c_noise.flatten(), train, augment_labels)
         D_x = c_skip * x + c_out * F_x
         return D_x, (F_x, t_emb, last_x_emb)

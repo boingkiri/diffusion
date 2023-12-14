@@ -162,7 +162,8 @@ class iCMFramework(DefaultModel):
         def huber_loss(original, denoised, weight=1.0):
             data_dim = original.shape[-1] * original.shape[-2] * original.shape[-3] # H * W * C
             c = 0.00054 * jnp.sqrt(data_dim)
-            huber = jnp.sqrt(jnp.mean((original - denoised) ** 2, axis=(-1, -2, -3)) + c ** 2) - c
+            # huber = jnp.sqrt(jnp.mean((original - denoised) ** 2, axis=(-1, -2, -3)) + c ** 2) - c
+            huber = jnp.sqrt(jnp.sum((original - denoised) ** 2, axis=(-1, -2, -3)) + c ** 2) - c
             huber = weight * huber
             return jnp.mean(huber)
 

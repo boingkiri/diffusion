@@ -2,15 +2,16 @@ defaults:
   - framework: 
     - diffusion/ict
   - model@_group_.diffusion: 
-    - diffusion/unetpp_ict
+    # - diffusion/unetpp_ict
+    - diffusion/original_cm
   - ema: ema
   - dataset: cifar10
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: ict_pseudohuber_231206
+exp_name: ict_originalcm_huberagain_231214
 # tags: [cm, score_feedback, param_ema]
-tags: [ict]
+tags: [ict, pseudohuber]
 do_training: true
 do_sampling: true
 num_sampling: 50000
