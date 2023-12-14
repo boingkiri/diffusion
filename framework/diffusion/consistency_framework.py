@@ -910,9 +910,10 @@ class CMFramework(DefaultModel):
         torso_params = self.model.init(
             rng_dict, x=input_format, sigma=jnp.ones([1,]), train=False, augment_labels=None)['params']
         
+        self.rand_key, dummy_rng = jax.random.split(self.rand_key, 2)
         D_x, aux = self.model.apply(
                 {'params': torso_params}, x=input_format, sigma=jnp.ones([1,]), 
-                train=False, augment_labels=None, rngs={'dropout': self.rand_key})
+                train=False, augment_labels=None, rngs={'dropout': dummy_rng})
         model_tx = jax_utils.create_optimizer(config, "diffusion")
         new_torso_state = TrainState.create(
             apply_fn=self.model.apply,
