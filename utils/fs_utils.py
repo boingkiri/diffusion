@@ -87,13 +87,13 @@ class FSUtils():
         current_exp_dir = self.config.exp.current_exp_dir
         self.verify_and_create_dir(current_exp_dir)
         
-        # Creating config file
-        config_filepath = os.path.join(current_exp_dir, 'config.yaml')
-        with open(config_filepath, 'w') as f:
-            yaml.dump(OmegaConf.to_container(self.config, resolve=True), f)
-        
-        # Copying python file to current exp dir
         if self.config["do_training"]:
+            # Creating config file
+            config_filepath = os.path.join(current_exp_dir, 'config.yaml')
+            with open(config_filepath, 'w') as f:
+                yaml.dump(OmegaConf.to_container(self.config, resolve=True), f)
+        
+            # Copying python file to current exp dir
             python_filepath = os.path.join(current_exp_dir, 'python_files')
             workspace_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
             for walking_path in os.walk(workspace_path):
