@@ -20,6 +20,7 @@ import flax.linen as nn
 import functools
 import jax.numpy as jnp
 import numpy as np
+import omegaconf
 
 ResnetBlockDDPM = layerspp.ResnetBlockDDPMpp
 ResnetBlockBigGAN = layerspp.ResnetBlockBigGANpp
@@ -34,7 +35,8 @@ default_initializer = layers.default_init
 class NCSNpp(nn.Module):
     """NCSN++ model"""
 
-    config: ml_collections.ConfigDict
+    # config: ml_collections.ConfigDict
+    config: omegaconf.DictConfig
 
     @nn.compact
     def __call__(self, x, time_cond, train=True):
@@ -261,7 +263,8 @@ class NCSNpp(nn.Module):
 class JointNCSNpp(nn.Module):
     """NCSN++ model"""
 
-    config: ml_collections.ConfigDict
+    # config: ml_collections.ConfigDict
+    config: omegaconf.DictConfig
 
     @nn.compact
     def __call__(self, x, time_cond, train=True):
