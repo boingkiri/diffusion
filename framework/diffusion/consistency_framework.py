@@ -715,7 +715,7 @@ class CMFramework(DefaultModel):
                         {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
                         train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
                     samples.append(new_D_x)
-                new_D_X = jnp.mean(jnp.stack(samples), axis=0)
+                new_D_x = jnp.mean(jnp.stack(samples), axis=0)
                 current_step = total_states_dict['torso_state'].step
 
                 # Connection unbiased denoiser type
