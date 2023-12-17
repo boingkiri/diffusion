@@ -587,6 +587,7 @@ class CMFramework(DefaultModel):
                         {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
                         train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
                     samples.append(new_D_x)
+                breakpoint()
                 new_D_x = jnp.mean(jnp.stack(samples), axis=0)
 
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
@@ -704,12 +705,17 @@ class CMFramework(DefaultModel):
             loss_dict['train/head_dsm_loss'] = dsm_loss
 
             if diffusion_framework['connection_loss']:
-                rng_key, noise_key = jax.random.split(rng_key, 2)
-                noise = jax.random.normal(noise_key, y.shape)
-                perturbed_D_x = D_x + sigma * noise
-                new_D_x, aux = self.model.apply(
-                    {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
-                    train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+                connection_mc_samples = diffusion_framework.get('connection_mc_samples', 1)
+                samples = []
+                for _ in range(connection_mc_samples):
+                    rng_key, noise_key = jax.random.split(rng_key, 2)
+                    noise = jax.random.normal(noise_key, y.shape)
+                    perturbed_D_x = D_x + sigma * noise
+                    new_D_x, aux = self.model.apply(
+                        {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
+                        train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+                    samples.append(new_D_x)
+                new_D_X = jnp.mean(jnp.stack(samples), axis=0)
                 current_step = total_states_dict['torso_state'].step
 
                 # Connection unbiased denoiser type
