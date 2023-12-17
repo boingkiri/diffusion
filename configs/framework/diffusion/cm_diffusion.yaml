@@ -41,7 +41,7 @@ only_cm_training: False
 # Bernoulli, Bernoulli_Quantization, Bernoulli_uniform_Quantization, 
 sigma_sampling_head: EDM
 sigma_sampling_torso: CT
-sigma_sampling_joint: iCT
+sigma_sampling_joint: CT
 
 # Common training procedure
 
@@ -51,13 +51,14 @@ head_connection_loss: False # The name is temporarily used for now.
 
 
 # Torso training procedure
-gradient_flow_from_head: False
+gradient_flow_from_head: True
 score_feedback: False
 score_feedback_type: "threshold" # interpolation, threshold # for now, interpolation is not supported
 score_feedback_threshold: 1.0
 
 # Connection loss (new loss)
 connection_loss: True
+connection_mc_samples: 16
 connection_threshold: 400000
 connection_denoiser_type: unbiased # unbiased, STF
 
@@ -67,13 +68,13 @@ dh_dx_inv_weight: 1.0
 dh_dt_weight: 1.0
 
 train:
-  # learning_rate: 4.0e-4
-  learning_rate: 0.0001
+  learning_rate: 4.0e-4
+  # learning_rate: 0.0001
   # batch_size: 512  
-  batch_size: 128
+  batch_size: 32
   STF_reference_batch_size: 1024
-  # total_step: 800000
-  total_step: 400000
+  total_step: 800000
+  # total_step: 400000
   sampling_step: 10000
   saving_step: 100000
   optimizer:

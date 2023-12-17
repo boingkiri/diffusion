@@ -575,12 +575,19 @@ class CMFramework(DefaultModel):
             # Connect the consistency output and denoiser output with connection loss
             if diffusion_framework['connection_loss']:
                 current_step = total_states_dict['torso_state'].step
-                rng_key, noise_key = jax.random.split(rng_key, 2)
-                noise = jax.random.normal(noise_key, y.shape)
-                perturbed_D_x = D_x + sigma * noise
-                new_D_x, aux = self.model.apply(
-                    {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
-                    train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+
+                # Get multiple target model outputs using MC sampling
+                connection_mc_samples = diffusion_framework.get('connection_mc_samples', 1)
+                samples = []
+                for _ in range(connection_mc_samples):
+                    rng_key, noise_key = jax.random.split(rng_key, 2)
+                    noise = jax.random.normal(noise_key, y.shape)
+                    perturbed_D_x = D_x + sigma * noise
+                    new_D_x, aux = self.model.apply(
+                        {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
+                        train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+                    samples.append(new_D_x)
+                new_D_x = jnp.mean(jnp.stack(samples), axis=0)
 
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
                 if diffusion_framework['connection_denoiser_type'] == "STF":
