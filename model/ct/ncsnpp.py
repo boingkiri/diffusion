@@ -20,7 +20,6 @@ import flax.linen as nn
 import functools
 import jax.numpy as jnp
 import numpy as np
-import ml_collections
 
 ResnetBlockDDPM = layerspp.ResnetBlockDDPMpp
 ResnetBlockBigGAN = layerspp.ResnetBlockBigGANpp

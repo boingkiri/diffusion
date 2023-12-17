@@ -22,7 +22,7 @@ from functools import partial
 import os
 from typing import Any
 
-from clu import parameter_overview
+# from clu import parameter_overview
 
 class CMFramework(DefaultModel):
     def __init__(self, config: DictConfig, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
