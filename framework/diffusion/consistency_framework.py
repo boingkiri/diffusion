@@ -763,8 +763,8 @@ class CMFramework(DefaultModel):
             current_param = updated_states['torso_state'].params
             distance = jax.tree_util.tree_reduce(lambda acc, x: acc + jnp.sum(x),
                     jax.tree_util.tree_map(lambda x, y: (x - y) ** 2, 
-                                           jax.tree_leaves(prev_param), 
-                                           jax.tree_leaves(current_param)), 0)
+                                           jax.tree_util.tree_leaves(prev_param), 
+                                           jax.tree_util.tree_leaves(current_param)), 0)
             loss_dict_tail['train/weight_update_distance'] = distance
 
             states_dict.update(updated_states)
