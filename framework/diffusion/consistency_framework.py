@@ -765,7 +765,7 @@ class CMFramework(DefaultModel):
                     jax.tree_util.tree_map(lambda x, y: (x - y) ** 2, 
                                            jax.tree_util.tree_leaves(prev_param), 
                                            jax.tree_util.tree_leaves(current_param)), 0)
-            loss_dict_tail['train/weight_update_distance'] = distance
+            loss_dict_tail['train/weight_update_distance'] = jnp.sqrt(distance)
 
             states_dict.update(updated_states)
             return states_dict, loss_dict_tail
