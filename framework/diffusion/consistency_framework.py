@@ -761,9 +761,12 @@ class CMFramework(DefaultModel):
             # if diffusion_framework['gradient_flow_from_head']: 
             prev_param = states_dict['torso_state'].params
             current_param = updated_states['torso_state'].params
-            distance = jnp.mean(jnp.sum((jax.tree_leaves(prev_param) - jax.tree_leaves(current_param)) ** 2, axis=0))
+            distance = jax.tree_util.tree_reduce(lambda acc, x: acc + jnp.sum(x),
+                    jax.tree_util.tree_map(lambda x, y: (x - y) ** 2, 
+                                           jax.tree_leaves(prev_param), 
+                                           jax.tree_leaves(current_param)), 0)
             loss_dict_tail['train/weight_update_distance'] = distance
-            
+
             states_dict.update(updated_states)
             return states_dict, loss_dict_tail
             
