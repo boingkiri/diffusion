@@ -707,6 +707,16 @@ class CMPrecond(nn.Module):
         elif self.model_type == "original_unetpp":
             net = NCSNpp(self.model_kwargs)
             F_x, t_emb, last_x_emb = net(c_in * x, c_noise.flatten(), train)
+            
+            if self.model_kwargs.get("double_heads", False):
+                denoiser_c_skip = (self.sigma_data ** 2) / (sigma ** 2 + self.sigma_data ** 2)
+                denoiser_c_out = (sigma * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
+                image_channels = F_x.shape[-1] // 2
+                CM_output = F_x[..., :image_channels]
+                DM_output = F_x[..., image_channels:]
+                CM_output = c_skip * x + c_out * CM_output
+                DM_output = denoiser_c_skip * x + denoiser_c_out * DM_output
+                return CM_output, DM_output, (F_x, t_emb, last_x_emb)
         
         D_x = c_skip * x + c_out * F_x
         return D_x, (F_x, t_emb, last_x_emb)

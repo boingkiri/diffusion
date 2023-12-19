@@ -15,9 +15,13 @@ defaults:
   - dataset: cifar10
   - exp: exp_setting
 
+model:
+  diffusion:
+    double_heads: True
+
 type: ${framework.diffusion.type}
-exp_name: 1217_CT_joint_training_grad_flow_new_loss_multi_target_16
-tags: [CT, joint_training, new_loss, multi_target]
+exp_name: 1218_CT_double_head_for_EDM
+tags: [CT, double_head]
 do_training: True
 do_sampling: True
 num_sampling: 50000
@@ -28,11 +32,6 @@ n_jitted_steps: 10
 
 available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 
-# framework:
-#   diffusion:
-#     distillation_path: None # experiments/cm_dm_230603_encoder_head_with_time_emb_1 # Exp name or pretrained model file name
-    # t_emb_output: True
-  # train_idx: 2
 
 hydra:  
   output_subdir: null  

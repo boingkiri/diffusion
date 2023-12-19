@@ -128,8 +128,8 @@ class UnifyingFramework():
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
         # best_fids = self.fs_utils.get_best_fid()
-        first_step = True
-        # first_step = False
+        # first_step = True
+        first_step = False
         
         for x, _ in datasets_bar:
             eval_during_training = self.step % 1000 == 0
@@ -177,8 +177,8 @@ class UnifyingFramework():
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
 
-            if self.step % 50000 == 0 and self.step != 0:
-            # if self.step % 50000 == 0:
+            # if self.step % 50000 == 0 and self.step != 0:
+            if self.step % 50000 == 0:
                 model_state = self.framework.get_model_state()
                 # if not first_step:
                 #     self.save_model_state(model_state)
@@ -197,12 +197,13 @@ class UnifyingFramework():
                 # TMP: Calculate FID score with 10000 samples for both EDM and CM, 
                 # which corresponds to the head and the torso, respectively.
 
-                if self.config.framework.diffusion.only_cm_training:
-                    sampling_modes = ['cm-training']
-                elif self.config.framework.diffusion.CM_freeze:
-                    sampling_modes = ['edm']
-                else:
-                    sampling_modes = ['edm', 'cm-training']
+                # if self.config.framework.diffusion.only_cm_training:
+                #     sampling_modes = ['cm-training']
+                # elif self.config.framework.diffusion.CM_freeze:
+                #     sampling_modes = ['edm']
+                # else:
+                #     sampling_modes = ['edm', 'cm-training']
+                sampling_modes = ['edm', 'cm-training']
                 if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
                     mode_metrics = {}
                     for mode in sampling_modes:

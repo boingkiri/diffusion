@@ -30,9 +30,9 @@ initialize_previous_training_step: False
 
 # Option for freezing CM during training
 CM_freeze: False
-joint_training: True
+joint_training: False
 alternative_training: False
-only_cm_training: False
+only_cm_training: True
 # joint training and alternative training should be toggled together 
 
 # Option for sigma sampling for head, torso
@@ -51,14 +51,15 @@ head_connection_loss: False # The name is temporarily used for now.
 
 
 # Torso training procedure
-gradient_flow_from_head: True
+gradient_flow_from_head: False
 score_feedback: False
 score_feedback_type: "threshold" # interpolation, threshold # for now, interpolation is not supported
 score_feedback_threshold: 1.0
 
 # Connection loss (new loss)
-connection_loss: True
-connection_mc_samples: 16
+connection_loss: False
+# connection_mc_samples: 16
+connection_mc_samples: 1
 connection_threshold: 400000
 connection_denoiser_type: unbiased # unbiased, STF
 

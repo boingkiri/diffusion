@@ -11,8 +11,6 @@ t_max : 80.0
 embedding_type : "fourier"
 double_heads : False
 
-
-
 name : "ncsnpp"
 ema_rate : 0.9999
 normalization : "GroupNorm"
