@@ -756,6 +756,14 @@ class CMFramework(DefaultModel):
             # updated_states = {params_key: states_dict[params_key].apply_gradients(grads=grads[params_key]) 
             #                   for params_key in update_states_key_list}
             loss_dict_tail.update(loss_dict)
+
+            # Before weight update, measure the distance between current model and target model
+            # if diffusion_framework['gradient_flow_from_head']: 
+            prev_param = states_dict['torso_state'].params
+            current_param = updated_states['torso_state'].params
+            distance = jnp.mean(jnp.sum((jax.tree_leaves(prev_param) - jax.tree_leaves(current_param)) ** 2, axis=0))
+            loss_dict_tail['train/weight_update_distance'] = distance
+            
             states_dict.update(updated_states)
             return states_dict, loss_dict_tail
             
