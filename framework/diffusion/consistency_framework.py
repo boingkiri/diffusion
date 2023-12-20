@@ -587,7 +587,6 @@ class CMFramework(DefaultModel):
                         {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
                         train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
                     samples.append(new_D_x)
-                breakpoint()
                 new_D_x = jnp.mean(jnp.stack(samples), axis=0)
 
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
@@ -681,7 +680,7 @@ class CMFramework(DefaultModel):
             prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * one_step_forward
             prev_D_x, prev_aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
             # Get consistency loss
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
