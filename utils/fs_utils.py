@@ -103,10 +103,12 @@ class FSUtils():
                 saving_filepath = os.path.join(python_filepath, walking_rel_path)
                 if self.config.exp.exp_dir in walking_rel_path:
                     continue
+                if "bin" in walking_rel_path or "include" in walking_rel_path or "lib" in walking_rel_path or "share" in walking_rel_path:
+                    continue
                 elif os.path.isdir(walking_path) and not os.path.exists(saving_filepath):
                     os.makedirs(saving_filepath)
                 for file in files:
-                    if ".py" in file:
+                    if ".py" in file and not ".pyc" in file:
                         shutil.copy(os.path.join(walking_path, file), saving_filepath)
         
         # Creating checkpoint dir
