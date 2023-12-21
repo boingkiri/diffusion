@@ -1103,6 +1103,40 @@ class CMFramework(DefaultModel):
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample
+
+    def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sweep_timesteps=17, noise=None, sigma_scale=None):
+        latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
+        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+
+        # One-step generation
+        # latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
+        sampling_t_steps = jnp.flip(self.t_steps)
+
+        if noise is None:
+            latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * sampling_t_steps[sweep_timesteps]
+        else:
+            latent_sample = noise
+        
+        if original_data is not None:
+            latent_sample += original_data
+        
+        rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        rng_key = jax.random.split(rng_key, jax.local_device_count())
+        gamma = jnp.asarray([0] * jax.local_device_count())
+        # t_max = jnp.asarray([self.sigma_max] * jax.local_device_count())
+        current_t = jnp.asarray([sampling_t_steps[sweep_timesteps]] * jax.local_device_count())
+        t_min = jnp.asarray([self.sigma_min] * jax.local_device_count())
+
+        # sampling_params = self.training_states['torso_state'].params_ema
+        sampling_params = self.torso_state.params_ema
+        sampling_params = flax.jax_utils.replicate(sampling_params)
+
+        latent_sample = self.p_sample_cm(sampling_params, latent_sample, rng_key, gamma, current_t, t_min)
+
+        # if original_data is not None:
+        #     rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+        #     self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        return latent_sample
     
     def sampling(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
         # mode option: edm, cm_training, cm_not_training
