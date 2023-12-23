@@ -48,7 +48,7 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
 
   STF_flag = config["framework"]["diffusion"].get("connection_loss", False)
   alignment_denoiser_type = config["framework"]["diffusion"].get("connection_denoiser_type", None)
-  STF_flag = STF_flag or alignment_denoiser_type == "STF"  
+  STF_flag = STF_flag and alignment_denoiser_type == "STF"  
 
   n_jitted_steps = config["n_jitted_steps"] if n_jitted_steps is None else n_jitted_steps
   x_flip = config["dataset"].get("x_flip", x_flip)
@@ -68,11 +68,15 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
       image = tf.image.random_flip_left_right(image)
     return image, label
 
-  ds = tfds.load(dataset_name, as_supervised=True)
+  if dataset_name == "cifar10":
+    ds = tfds.load("cifar10", as_supervised=True)
+  elif dataset_name == "imagenet_64": # TODO
+    ds = tfds.load("imagenet2012", split="train", as_supervised=True)
   train_ds, _ = ds['train'], ds['test']
 
   device_count = jax.local_device_count()
   if STF_flag:
+    batch_size = config["framework"]["diffusion"]["train"]["STF_reference_batch_size"]
     batch_dims= [device_count, n_jitted_steps, batch_size]
   else:
     batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 
