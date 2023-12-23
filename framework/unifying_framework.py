@@ -115,22 +115,19 @@ class UnifyingFramework():
 
     def train(self):
         # TODO: The connection_denoiser_type is only used in CM training. need to be fixed.
-        STF_flag = self.config["framework"]["diffusion"].get("connection_denoiser_type", None)
-        STF_flag = False if STF_flag is None or STF_flag != "STF" else True
-        batch_size = self.config["framework"]["diffusion"]["train"]["batch_size"] \
-            if not STF_flag else self.config["framework"]["diffusion"]["train"]["STF_reference_batch_size"]
-        datasets = common_utils.load_dataset_from_tfds(
-            batch_size=batch_size,
-            n_jitted_steps=self.n_jitted_steps, x_flip=self.dataset_x_flip,
-            stf=STF_flag)
+        datasets = common_utils.load_dataset_from_tfds(self.config)
         datasets_bar = tqdm(datasets, total=self.total_step-self.step, initial=self.step)
         in_process_dir = self.config.exp.in_process_dir
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
+        num_of_rounds = self.config["framework"]["diffusion"]['train']["total_batch_size"] // \
+                            self.config["framework"]["diffusion"]['train']["batch_size_per_rounds"]
         # best_fids = self.fs_utils.get_best_fid()
-        first_step = True
-        # first_step = False
-        
+        # first_step = True
+        first_step = False
+
+        num_used_dataset = 0
+
         for x, _ in datasets_bar:
             eval_during_training = self.step % 1000 == 0
             log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
@@ -177,8 +174,8 @@ class UnifyingFramework():
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
 
-            if self.step % 50000 == 0 and self.step != 0:
-            # if self.step % 50000 == 0:
+            # if self.step % 50000 == 0 and self.step != 0:
+            if self.step % 50000 == 0:
                 model_state = self.framework.get_model_state()
                 # if not first_step:
                 #     self.save_model_state(model_state)
@@ -233,9 +230,16 @@ class UnifyingFramework():
             if self.step >= self.total_step:
                 if not self.next_step():
                     break
-            self.step += self.n_jitted_steps
+            num_used_dataset += self.n_jitted_steps
+            
+            update_step = num_used_dataset // num_of_rounds
+            num_used_dataset = num_used_dataset % num_of_rounds
+            
+            # datasets_bar.update(self.n_jitted_steps)
+            datasets_bar.update(update_step)
+            # self.step += self.n_jitted_steps
+            self.step += update_step
             first_step = False
-            datasets_bar.update(self.n_jitted_steps)
             
 
     def sampling_and_save(self, total_num, img_size=None):

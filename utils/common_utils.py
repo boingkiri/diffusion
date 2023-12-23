@@ -40,7 +40,19 @@ def normalize_to_minus_one_to_one(image):
 def unnormalize_minus_one_to_one(images):
     return (images + 1) * 0.5 
 
-def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_steps=1, x_flip=True, stf=False):
+# def load_dataset_from_tfds(config, dataset_name="cifar10", batch_size=128, n_jitted_steps=1, x_flip=True, stf=False):
+def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_steps=None, x_flip=True):
+
+  dataset_name = config["dataset"]["name"] if dataset_name is None else dataset_name
+  batch_size = config["framework"]["diffusion"]["train"]["batch_size_per_rounds"] if batch_size is None else batch_size
+
+  STF_flag = config["framework"]["diffusion"].get("connection_loss", False)
+  alignment_denoiser_type = config["framework"]["diffusion"].get("connection_denoiser_type", None)
+  STF_flag = STF_flag or alignment_denoiser_type == "STF"  
+
+  n_jitted_steps = config["n_jitted_steps"] if n_jitted_steps is None else n_jitted_steps
+  x_flip = config["dataset"].get("x_flip", x_flip)
+
   assert n_jitted_steps >= 1
 
   AUTOTUNE = tf.data.experimental.AUTOTUNE
@@ -60,7 +72,7 @@ def load_dataset_from_tfds(dataset_name="cifar10", batch_size=128, n_jitted_step
   train_ds, _ = ds['train'], ds['test']
 
   device_count = jax.local_device_count()
-  if stf:
+  if STF_flag:
     batch_dims= [device_count, n_jitted_steps, batch_size]
   else:
     batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 

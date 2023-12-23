@@ -63,6 +63,12 @@ def create_optimizer(config: DictConfig, model_type):
   tx = optax.chain(
     *optax_chain
   )
+
+  # Create gradient accumulation
+  if framework_config['train'].get("batch_size_per_rounds", None) is not None and \
+      framework_config['train']["total_batch_size"] != framework_config['train']["batch_size_per_rounds"]:
+    num_of_rounds = framework_config['train']["total_batch_size"] // framework_config['train']["batch_size_per_rounds"]
+    tx = optax.MultiSteps(tx, every_k_schedule=num_of_rounds)
   return tx
 
 
