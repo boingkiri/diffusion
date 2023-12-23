@@ -208,6 +208,14 @@ class FSUtils():
             im.save(sample_path)
             current_sampling += 1
         return current_sampling
+    
+    def delete_images_from_dir(self, save_path_dir=None, starting_pos=50000):
+        if save_path_dir is None:
+            save_path_dir = self.config.exp.sampling_dir
+        for content in os.listdir(save_path_dir):
+            number = int(content.split(".")[0])
+            if number >= starting_pos:
+                os.remove(os.path.join(save_path_dir, content))
 
     def save_model_state(self, states, step, metrics=None):
         best_saved = False

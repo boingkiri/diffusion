@@ -71,6 +71,11 @@ class FIDUtils():
                 sample = model_obj.sampling(batch_size)
             sample = jnp.reshape(sample, (batch_size, *sample.shape[-3:]))
             current_num_samples += self.fs_utils.save_images_to_dir(sample, tmp_dir, current_num_samples)
+        
+        remained_samples = current_num_samples - total_num_samples
+        if remained_samples > 0:
+            self.fs_utils.delete_images_from_dir(tmp_dir, current_num_samples, total_num_samples)
+            current_num_samples -= remained_samples
         return tmp_dir
 
     def calculate_fid_in_step(self, model_obj, total_num_samples, batch_size=128, sampling_mode=None):

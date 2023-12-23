@@ -174,8 +174,8 @@ class UnifyingFramework():
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
 
-            # if self.step % 50000 == 0 and self.step != 0:
-            if self.step % 50000 == 0:
+            if self.step % 50000 == 0 and self.step != 0:
+            # if self.step % 50000 == 0:
                 model_state = self.framework.get_model_state()
                 # if not first_step:
                 #     self.save_model_state(model_state)
