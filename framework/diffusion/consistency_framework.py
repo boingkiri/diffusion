@@ -917,9 +917,11 @@ class CMFramework(DefaultModel):
 
         self.p_sample_edm = jax.pmap(sample_edm_fn)
         self.p_sample_cm = jax.pmap(sample_cm_fn)
+        # self.update_fn = jax.pmap(partial(jax.lax.scan, update), 
+        #                           axis_name=self.pmap_axis, 
+        #                           donate_argnums=(0,))
         self.update_fn = jax.pmap(partial(jax.lax.scan, update), 
-                                  axis_name=self.pmap_axis, 
-                                  donate_argnums=(0,))
+                                  axis_name=self.pmap_axis)
         self.eval_fn = jax.pmap(monitor_metric_fn, axis_name=self.pmap_axis)
     
     def get_training_states_params(self):

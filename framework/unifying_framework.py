@@ -132,8 +132,9 @@ class UnifyingFramework():
             eval_during_training = self.step % 1000 == 0
             log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
 
-            description_str = "Step: {step} lr*1e4: {lr:.4f} ".format(
+            description_str = "Step: {step}/{total_step} lr*1e4: {lr:.4f} ".format(
                 step=self.step,
+                total_step=self.total_step,
                 lr=self.learning_rate_schedule(self.step)*(1e+4)
             )
             for key in log:
