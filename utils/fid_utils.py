@@ -74,7 +74,7 @@ class FIDUtils():
         
         remained_samples = current_num_samples - total_num_samples
         if remained_samples > 0:
-            self.fs_utils.delete_images_from_dir(tmp_dir, current_num_samples, total_num_samples)
+            self.fs_utils.delete_images_from_dir(tmp_dir, total_num_samples)
             current_num_samples -= remained_samples
         return tmp_dir
 
