@@ -528,7 +528,7 @@ class CMFramework(DefaultModel):
 
             # Get consistency function values
             cm_dropout_key, dropout_key = jax.random.split(dropout_key, 2)
-            D_x, aux = self.model.apply(
+            CM_output, DM_output, aux = self.model.apply(
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
@@ -546,7 +546,7 @@ class CMFramework(DefaultModel):
 
             # Use the score head output as the guidance for consistency model
             if diffusion_framework['score_feedback']:
-                denoised = head_fn(head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key)
+                denoised = head_fn(head_params, y, sigma, noise, CM_output, t_emb, last_x_emb, dropout_key)
                 score_mul_sigma = (perturbed_x - denoised) / sigma # score * sigma
                 score_feedback_ratio = total_states_dict['torso_state'].step / diffusion_framework['train']["total_step"]
                 unbiased_score_mul_sigma = (perturbed_x - y)  / sigma
@@ -575,34 +575,11 @@ class CMFramework(DefaultModel):
             # Connect the consistency output and denoiser output with connection loss
             if diffusion_framework['connection_loss']:
                 current_step = total_states_dict['torso_state'].step
-                
-                connection_mc_samples = diffusion_framework.get('connection_mc_samples', 1)
-                samples = []
                 rng_key, noise_key = jax.random.split(rng_key, 2)
                 noise = jax.random.normal(noise_key, y.shape)
-                perturbed_D_x = D_x + sigma * noise
+                perturbed_D_x = CM_output + sigma * noise
                 new_D_x, aux = self.model.apply(
-                    {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
-                    train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-                samples.append(new_D_x)
-
-                # Get multiple target model outputs using MC sampling
-                connection_mc_samples -= 1
-                for _ in range(connection_mc_samples):
-                    rng_key, noise_key = jax.random.split(rng_key, 2)
-                    noise = jax.random.normal(noise_key, y.shape)
-                    perturbed_D_x = D_x + sigma * noise
-                    new_D_x, aux = self.model.apply(
-                        {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
-                        train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-                    samples.append(new_D_x)
-                new_D_x = jnp.mean(jnp.stack(samples), axis=0)
-
-                rng_key, noise_key = jax.random.split(rng_key, 2)
-                noise = jax.random.normal(noise_key, y.shape)
-                perturbed_D_x = D_x + sigma * noise
-                new_D_x, aux = self.model.apply(
-                    {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
+                    {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
                     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
@@ -611,30 +588,36 @@ class CMFramework(DefaultModel):
                 elif diffusion_framework['connection_denoiser_type'] == "unbiased":
                     denoiser_fn = lambda head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key: y
                 if diffusion_framework['connection_threshold'] in ["li", "linear_interpolate"]:
-                    trained_denoiser = head_fn(head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key_2)
+                    trained_denoiser = head_fn(head_params, y, sigma, noise, CM_output, t_emb, last_x_emb, dropout_key_2)
                     train_step_ratio = current_step / diffusion_framework['train']["total_step"]
                     connection_loss_denoised = train_step_ratio * trained_denoiser + (1 - train_step_ratio) * y
                 elif type(diffusion_framework['connection_threshold']) is int:
                     connection_loss_denoised = jax.lax.cond(
                         current_step <= diffusion_framework['connection_threshold'],
-                        denoiser_fn, head_fn, head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key)
+                        denoiser_fn, head_fn, head_params, y, sigma, noise, CM_output, t_emb, last_x_emb, dropout_key)
                 connection_loss = jnp.mean((new_D_x - connection_loss_denoised) ** 2)
 
                 total_loss += connection_loss
                 loss_dict['train/torso_connection_loss'] = connection_loss
             
             prev_perturbed_x = jax.lax.stop_gradient(prev_perturbed_x)
-            prev_D_x, aux = self.model.apply(
+            prev_D_x, _, aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
             
+            # Get consistency loss
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
-            D_x = jax.image.resize(D_x, output_shape, "bilinear")
+            CM_output = jax.image.resize(CM_output, output_shape, "bilinear")
             prev_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
-            lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
+            lpips_loss = jnp.mean(self.perceptual_loss(CM_output, prev_D_x))
 
             total_loss += lpips_loss
             loss_dict['train/torso_lpips_loss'] = lpips_loss
+
+            # Get score matching loss
+            dsm_loss = jnp.mean((DM_output - y) ** 2)
+            total_loss += dsm_loss
+            loss_dict['train/torso_dsm_loss'] = dsm_loss
             
             return total_loss, loss_dict
 
@@ -665,6 +648,9 @@ class CMFramework(DefaultModel):
 
             # Get consistency function values
             cm_dropout_key, dropout_key = jax.random.split(dropout_key, 2)
+            # D_x, aux = self.model.apply(
+            #     {'params': torso_params}, x=perturbed_x, sigma=sigma,
+            #     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
             D_x, aux = self.model.apply(
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
@@ -696,7 +682,7 @@ class CMFramework(DefaultModel):
             prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * one_step_forward
             prev_D_x, prev_aux = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+                train=False, augment_labels=None, rngs={'dropout': dropout_key})
 
             # Get consistency loss
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
@@ -720,41 +706,13 @@ class CMFramework(DefaultModel):
             loss_dict['train/head_dsm_loss'] = dsm_loss
 
             if diffusion_framework['connection_loss']:
-                # connection_mc_samples = diffusion_framework.get('connection_mc_samples', 1)
-                # samples = []
-                # for _ in range(connection_mc_samples):
-                #     rng_key, noise_key = jax.random.split(rng_key, 2)
-                #     noise = jax.random.normal(noise_key, y.shape)
-                #     perturbed_D_x = D_x + sigma * noise
-                #     new_D_x, aux = self.model.apply(
-                #         {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
-                #         train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-                #     samples.append(new_D_x)
-                # new_D_x = jnp.mean(jnp.stack(samples), axis=0)
-                # current_step = total_states_dict['torso_state'].step
-                current_step = total_states_dict['torso_state'].step
-                
-                connection_mc_samples = diffusion_framework.get('connection_mc_samples', 1)
-                samples = []
                 rng_key, noise_key = jax.random.split(rng_key, 2)
                 noise = jax.random.normal(noise_key, y.shape)
                 perturbed_D_x = D_x + sigma * noise
                 new_D_x, aux = self.model.apply(
-                    {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
+                    {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
                     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-                samples.append(new_D_x)
-
-                # Get multiple target model outputs using MC sampling
-                connection_mc_samples -= 1
-                for _ in range(connection_mc_samples):
-                    rng_key, noise_key = jax.random.split(rng_key, 2)
-                    noise = jax.random.normal(noise_key, y.shape)
-                    perturbed_D_x = D_x + sigma * noise
-                    new_D_x, aux = self.model.apply(
-                        {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
-                        train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-                    samples.append(new_D_x)
-                new_D_x = jnp.mean(jnp.stack(samples), axis=0)
+                current_step = total_states_dict['torso_state'].step
 
                 # Connection unbiased denoiser type
                 if diffusion_framework['connection_denoiser_type'] == "unbiased":
@@ -794,17 +752,6 @@ class CMFramework(DefaultModel):
             # updated_states = {params_key: states_dict[params_key].apply_gradients(grads=grads[params_key]) 
             #                   for params_key in update_states_key_list}
             loss_dict_tail.update(loss_dict)
-
-            # Before weight update, measure the distance between current model and target model
-            # if diffusion_framework['gradient_flow_from_head']: 
-            prev_param = states_dict['torso_state'].params
-            current_param = updated_states['torso_state'].params
-            distance = jax.tree_util.tree_reduce(lambda acc, x: acc + jnp.sum(x),
-                    jax.tree_util.tree_map(lambda x, y: (x - y) ** 2, 
-                                           jax.tree_util.tree_leaves(prev_param), 
-                                           jax.tree_util.tree_leaves(current_param)), 0)
-            loss_dict_tail['train/weight_update_distance'] = jnp.sqrt(distance)
-
             states_dict.update(updated_states)
             return states_dict, loss_dict_tail
             
@@ -893,7 +840,7 @@ class CMFramework(DefaultModel):
         def sample_edm_fn(params, x_cur, rng_key, gamma, t_cur, t_prev):
             # model_params = params.get('model_state', None)
             torso_params = params.get('torso_state', self.torso_state.params_ema)
-            head_params = params['head_state']
+            head_params = params.get('head_state', None)
 
             rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
 
@@ -903,16 +850,16 @@ class CMFramework(DefaultModel):
             x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
 
             # Euler step
-            D_x, aux = self.model.apply(
+            D_x, denoised, aux = self.model.apply(
                 {'params': torso_params}, x=x_hat, sigma=t_hat, 
                 train=False, augment_labels=None, rngs={'dropout': dropout_key})
             
-            F_x, t_emb, last_x_emb = aux
+            # F_x, t_emb, last_x_emb = aux
 
-            denoised, aux = self.head.apply(
-                {'params': head_params}, x=x_hat, sigma=t_hat, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key}
-            )
+            # denoised, aux = self.head.apply(
+            #     {'params': head_params}, x=x_hat, sigma=t_hat, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+            #     train=False, augment_labels=None, rngs={'dropout': dropout_key}
+            # )
 
             if self.head_type == 'score_pde':
                 dh_dx_inv, dh_dt = aux
@@ -923,16 +870,16 @@ class CMFramework(DefaultModel):
 
             # Apply 2nd order correction.
             def second_order_corrections(euler_x_prev, t_prev, x_hat, t_hat, d_cur, rng_key):
-                D_x, aux = self.model.apply(
+                D_x, denoised, aux = self.model.apply(
                     {'params': torso_params}, x=euler_x_prev, sigma=t_prev,
                     train=False, augment_labels=None, rngs={'dropout': rng_key})
                 
-                F_x, t_emb, last_x_emb = aux
+                # F_x, t_emb, last_x_emb = aux
 
-                denoised, aux = self.head.apply(
-                    {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
-                    train=False, augment_labels=None, rngs={'dropout': dropout_key}
-                )
+                # denoised, aux = self.head.apply(
+                #     {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                #     train=False, augment_labels=None, rngs={'dropout': dropout_key}
+                # )
 
                 if self.head_type == 'score_pde':
                     dh_dx_inv, dh_dt = aux
@@ -949,18 +896,14 @@ class CMFramework(DefaultModel):
 
         def sample_cm_fn(params, x_cur, rng_key, gamma=None, t_cur=None, t_prev=None):
             dropout_key = rng_key
-            denoised, aux = self.model.apply(
+            denoised, _, aux = self.model.apply(
                 {'params': params}, x=x_cur, sigma=t_cur, 
                 train=False, augment_labels=None, rngs={'dropout': dropout_key})
             return denoised
 
         self.p_sample_edm = jax.pmap(sample_edm_fn)
         self.p_sample_cm = jax.pmap(sample_cm_fn)
-        # self.update_fn = jax.pmap(partial(jax.lax.scan, update), 
-        #                           axis_name=self.pmap_axis, 
-        #                           donate_argnums=(0,))
-        self.update_fn = jax.pmap(partial(jax.lax.scan, update), 
-                                  axis_name=self.pmap_axis)
+        self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
         self.eval_fn = jax.pmap(monitor_metric_fn, axis_name=self.pmap_axis)
     
     def get_training_states_params(self):
@@ -978,7 +921,8 @@ class CMFramework(DefaultModel):
             rng_dict, x=input_format, sigma=jnp.ones([1,]), train=False, augment_labels=None)['params']
         
         self.rand_key, dummy_rng = jax.random.split(self.rand_key, 2)
-        D_x, aux = self.model.apply(
+        # D_x, aux = self.model.apply(
+        CM_output, DM_output, aux = self.model.apply(
                 {'params': torso_params}, x=input_format, sigma=jnp.ones([1,]), 
                 train=False, augment_labels=None, rngs={'dropout': dummy_rng})
         model_tx = jax_utils.create_optimizer(config, "diffusion")
@@ -1013,15 +957,18 @@ class CMFramework(DefaultModel):
     def get_model_state(self):
         # TODO: the code is ugly. The key should be the same as the key in the config key dynamically.
         # return [flax.jax_utils.unreplicate(self.head_state)]
-        if self.CM_freeze:
-            return {"head": flax.jax_utils.unreplicate(self.training_states['head_state'])}
-        elif self.only_cm_training:
-            return {"diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state'])}
-        else:
-            return {
-                "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']), 
-                "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
-            }
+        # if self.CM_freeze:
+        #     return {"head": flax.jax_utils.unreplicate(self.training_states['head_state'])}
+        # elif self.only_cm_training:
+        #     return {"diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state'])}
+        # else:
+        #     return {
+        #         "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']), 
+        #         "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
+        #     }
+        return {
+            "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']), 
+        }
         # return {
         #     "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']) if "torso_state" in self.training_states else None,
         #     "head": flax.jax_utils.unreplicate(self.training_states['head_state']) if "head_state" in self.training_states else None
@@ -1145,40 +1092,6 @@ class CMFramework(DefaultModel):
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
             self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
-        return latent_sample
-
-    def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sweep_timesteps=17, noise=None, sigma_scale=None):
-        latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
-        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-
-        # One-step generation
-        # latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
-        sampling_t_steps = jnp.flip(self.t_steps)
-
-        if noise is None:
-            latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * sampling_t_steps[sweep_timesteps]
-        else:
-            latent_sample = noise
-        
-        if original_data is not None:
-            latent_sample += original_data
-        
-        rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        rng_key = jax.random.split(rng_key, jax.local_device_count())
-        gamma = jnp.asarray([0] * jax.local_device_count())
-        # t_max = jnp.asarray([self.sigma_max] * jax.local_device_count())
-        current_t = jnp.asarray([sampling_t_steps[sweep_timesteps]] * jax.local_device_count())
-        t_min = jnp.asarray([self.sigma_min] * jax.local_device_count())
-
-        # sampling_params = self.training_states['torso_state'].params_ema
-        sampling_params = self.torso_state.params_ema
-        sampling_params = flax.jax_utils.replicate(sampling_params)
-
-        latent_sample = self.p_sample_cm(sampling_params, latent_sample, rng_key, gamma, current_t, t_min)
-
-        # if original_data is not None:
-        #     rec_loss = jnp.mean((latent_sample - original_data) ** 2)
-        #     self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample
     
     def sampling(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
