@@ -772,7 +772,18 @@ class CMFramework(DefaultModel):
                 elif diffusion_framework['connection_threshold'] in ["linear_interpolate", 'li']:
                     li_ratio = current_step / diffusion_framework['train']["total_step"]
                     connection_loss_denoised = (1 - li_ratio) * connection_loss_denoised + li_ratio * denoised
-                connection_loss = jnp.mean((new_D_x - connection_loss_denoised) ** 2)
+
+                if diffusion_framework.get("connection_loss_weight", "uniform") == "lognormal":
+                    p_mean = -1.1
+                    p_std = 2.0
+                    connection_loss_weight = jnp.exp(-0.5 * ((jnp.log(sigma) - p_mean) / p_std) ** 2)
+                    connection_loss_weight *= 1 / (p_std * jnp.sqrt(2 * jnp.pi))
+                else:
+                    connection_loss_weight = 1
+                
+                connection_loss = jnp.mean(connection_loss_weight * (new_D_x - connection_loss_denoised) ** 2)
+
+
                 total_loss += connection_loss
                 loss_dict['train/connection_loss'] = connection_loss
 
