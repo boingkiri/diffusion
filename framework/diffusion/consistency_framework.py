@@ -582,7 +582,7 @@ class CMFramework(DefaultModel):
                 noise = jax.random.normal(noise_key, y.shape)
                 perturbed_D_x = D_x + sigma * noise
                 new_D_x, aux = self.model.apply(
-                    {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
+                    {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
                     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
                 samples.append(new_D_x)
 
@@ -632,8 +632,8 @@ class CMFramework(DefaultModel):
             D_x = jax.image.resize(D_x, output_shape, "bilinear")
             prev_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
             lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
-
-            total_loss += lpips_loss
+            loss_weight = 1.0 if not diffusion_framework['loss_weight'] else 1 / (sigma - prev_sigma)
+            total_loss += loss_weight * lpips_loss
             loss_dict['train/torso_lpips_loss'] = lpips_loss
             
             return total_loss, loss_dict
@@ -703,7 +703,8 @@ class CMFramework(DefaultModel):
             lpips_D_x = jax.image.resize(D_x, output_shape, "bilinear")
             prev_lpips_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
             lpips_loss = jnp.mean(self.perceptual_loss(lpips_D_x, prev_lpips_D_x))
-            total_loss += lpips_loss
+            loss_weight = 1.0 if not diffusion_framework['loss_weight'] else 1 / (sigma - prev_sigma)
+            total_loss += loss_weight * lpips_loss
             loss_dict['train/torso_lpips_loss'] = lpips_loss
 
             # Get DSM
@@ -740,7 +741,7 @@ class CMFramework(DefaultModel):
                 noise = jax.random.normal(noise_key, y.shape)
                 perturbed_D_x = D_x + sigma * noise
                 new_D_x, aux = self.model.apply(
-                    {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
+                    {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
                     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
                 samples.append(new_D_x)
 

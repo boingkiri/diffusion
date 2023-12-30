@@ -8,7 +8,7 @@ learn_sigma: False
 is_distillation: False
 distillation_path: experiments/edm_porting_from_torch_ve/checkpoints # Exp name or pretrained model file name
 target_model_ema_decay: 0
-params_ema_for_training: [0.9, 2, 150] # mu_0, s_0, s_1
+params_ema_for_training: [0.9, 10, 1280] # mu_0, s_0, s_1
 
 # Sigma : Assume that the process is performing VP
 sigma_min: 0.002
@@ -39,9 +39,12 @@ only_cm_training: False
 # EDM, CD, CT, 
 # EDM_Quantization, uniform_Quantization
 # Bernoulli, Bernoulli_Quantization, Bernoulli_uniform_Quantization, 
-sigma_sampling_head: EDM
-sigma_sampling_torso: CT
-sigma_sampling_joint: CT
+sigma_sampling_head: iCT
+sigma_sampling_torso: iCT
+sigma_sampling_joint: iCT
+
+# Loss weighting
+loss_weight: True
 
 # Common training procedure
 
@@ -57,7 +60,7 @@ score_feedback_type: "threshold" # interpolation, threshold # for now, interpola
 score_feedback_threshold: 1.0
 
 # Connection loss (new loss)
-connection_loss: True
+connection_loss: False
 connection_mc_samples: 16
 connection_threshold: 400000
 connection_denoiser_type: unbiased # unbiased, STF
@@ -68,14 +71,14 @@ dh_dx_inv_weight: 1.0
 dh_dt_weight: 1.0
 
 train:
-  learning_rate: 4.0e-4
-  # learning_rate: 0.0001
+  # learning_rate: 4.0e-4
+  learning_rate: 1.0e-4
   total_batch_size: 512  
-  batch_size_per_rounds: 128   # The option for gradient accumulation, which is used for large batch size training.
+  batch_size_per_rounds: 256   # The option for gradient accumulation, which is used for large batch size training.
   # batch_size: 32
   STF_reference_batch_size: 1024
-  total_step: 800000
-  # total_step: 400000
+  # total_step: 800000
+  total_step: 400000
   sampling_step: 10000
   saving_step: 100000
   optimizer:

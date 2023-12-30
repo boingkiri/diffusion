@@ -2,7 +2,7 @@
 # - baseline: stack of UNetblock. Not encoder-decoder model.
 # - unet: Encdoer-decoder model with UNetBlock.
 
-type: "unetpp" 
+type: "unetpp"
 
 image_channels: 3
 n_channels: 128
@@ -11,8 +11,7 @@ augment_dim: 9
 
 ch_mults: [2, 2, 2]
 is_atten: [False, True, False]
-# n_blocks: 4
-n_blocks: 1 # 2
+n_blocks: 1
 n_heads: 1
 n_groups: 32
 dropout_rate: 0.0
