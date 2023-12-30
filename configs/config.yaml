@@ -4,8 +4,8 @@ defaults:
     - diffusion/cm_diffusion
   - model@_group_.diffusion: 
     # - diffusion/unetpp_cm
-    - diffusion/original_cm
-    # - diffusion/original_ict
+    # - diffusion/original_cm
+    - diffusion/original_ict
   - model@_group_.head: 
     # - diffusion/score_head_pde
     - diffusion/score_head
@@ -16,8 +16,8 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: 1217_CT_joint_training_grad_flow_new_loss_multi_target_16
-tags: [CT, joint_training, new_loss, multi_target]
+exp_name: headnblock4_imperfectict_231231
+tags: [CT, joint_training, new_loss]
 do_training: True
 do_sampling: True
 num_sampling: 50000
