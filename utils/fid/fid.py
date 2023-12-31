@@ -42,6 +42,12 @@ def compute_statistics(path, params, apply_fn, batch_size=1, img_size=None, mode
     sigma = np.cov(act, rowvar=False)
     return mu, sigma
 
+def compute_mean_difference(mu1, mu2):
+    mu1 = np.atleast_1d(mu1)
+    mu2 = np.atleast_1d(mu2)
+    diff = mu1 - mu2
+    return diff.dot(diff)
+
 
 def compute_frechet_distance(mu1, mu2, sigma1, sigma2, eps=1e-6):
     # Taken from: https://github.com/mseitzer/pytorch-fid/blob/master/src/pytorch_fid/fid_score.py

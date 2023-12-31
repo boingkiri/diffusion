@@ -204,19 +204,10 @@ class UnifyingFramework():
                 if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
                     mode_metrics = {}
                     for mode in sampling_modes:
-                        fid_score = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
+                        # fid_score = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
+                        fid_score, mu_diff = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
                         self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode)
                         metrics = {"fid": fid_score}
-                        # if not mode in best_fids or best_fids[mode] >= fid_score:
-                        #     best_checkpoint_dir = self.config.exp.best_dir
-                        #     best_checkpoint_dir = os.path.join(best_checkpoint_dir, mode)
-                        #     os.makedirs(best_checkpoint_dir, exist_ok=True)
-                        #     if mode == "edm":
-                        #         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "head_")
-                        #     else:
-                        #         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "torso_")
-
-                            # best_fids[mode] = fid_score
                         if mode == "edm":
                             mode_metrics["head"] = metrics
                             self.wandblog.update_log({"Head FID score": fid_score})
