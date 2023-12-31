@@ -163,6 +163,15 @@ class UnifyingFramework():
                     log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
                     sample_path = self.fs_utils.save_comparison(training_cm_xset, self.step, in_process_dir) # TMP
                     sample_image.close()
+                
+                # Sample generated image for EDM when embedding flag configuration is existed
+                if self.config.framework.diffusion.get("embedding_flag", False):
+                    sample = self.sampling(8, original_data=batch_data, mode="edm_embedding_flag")
+                    training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
+                    sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
+                    log['EDM embedding flag Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
+                    sample_path = self.fs_utils.save_comparison(training_cm_xset, self.step, in_process_dir) # TMP
+                    sample_image.close()
 
                 # Sample generated image for original CM 
                 sample = self.sampling(8, original_data=batch_data, mode="cm-not-training")
@@ -175,8 +184,8 @@ class UnifyingFramework():
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
 
-            if self.step % 50000 == 0 and self.step != 0:
-            # if self.step % 50000 == 0:
+            # if self.step % 50000 == 0 and self.step != 0:
+            if self.step % 50000 == 0:
                 model_state = self.framework.get_model_state()
                 # if not first_step:
                 #     self.save_model_state(model_state)
@@ -201,22 +210,16 @@ class UnifyingFramework():
                     sampling_modes = ['edm']
                 else:
                     sampling_modes = ['edm', 'cm-training']
+                
+                if self.config.framework.diffusion.get("embedding_flag", False):
+                    sampling_modes.append("edm_embedding_flag")
                 if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
                     mode_metrics = {}
                     for mode in sampling_modes:
-                        fid_score = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
-                        self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode)
+                        # fid_score = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
+                        fid_score, mu_diff = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
+                        self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode, mu_diff=mu_diff)
                         metrics = {"fid": fid_score}
-                        # if not mode in best_fids or best_fids[mode] >= fid_score:
-                        #     best_checkpoint_dir = self.config.exp.best_dir
-                        #     best_checkpoint_dir = os.path.join(best_checkpoint_dir, mode)
-                        #     os.makedirs(best_checkpoint_dir, exist_ok=True)
-                        #     if mode == "edm":
-                        #         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "head_")
-                        #     else:
-                        #         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "torso_")
-
-                            # best_fids[mode] = fid_score
                         if mode == "edm":
                             mode_metrics["head"] = metrics
                             self.wandblog.update_log({"Head FID score": fid_score})

@@ -49,7 +49,7 @@ class FIDUtils():
     def calculate_statistics(self, img_path):
         mu, sigma = fid.compute_statistics(img_path, self.params, self.apply_fn, 50, self.img_size)
         return mu, sigma
-    
+
     def calculate_fid(self, src_img_path, des_img_path=None):
         if des_img_path is None:
             dest_mu, dest_sigma = self.precompute_dataset(self.dataset_name)
@@ -58,6 +58,16 @@ class FIDUtils():
         src_mu, src_sigma = self.calculate_statistics(src_img_path)
         fid_score = fid.compute_frechet_distance(src_mu, dest_mu, src_sigma, dest_sigma)
         return fid_score
+    
+    def calculate_fid_and_mu_diff(self, src_img_path, des_img_path=None):
+        if des_img_path is None:
+            dest_mu, dest_sigma = self.precompute_dataset(self.dataset_name)
+        else:
+            dest_mu, dest_sigma = self.calculate_statistics(des_img_path)
+        src_mu, src_sigma = self.calculate_statistics(src_img_path)
+        fid_score = fid.compute_frechet_distance(src_mu, dest_mu, src_sigma, dest_sigma)
+        mu_diff = fid.compute_mean_difference(src_mu, dest_mu)
+        return fid_score, mu_diff
     
     def save_images_for_fid(self, model_obj, total_num_samples, batch_size, sampling_mode=None):
         tmp_dir = self.get_tmp_dir()
@@ -80,12 +90,15 @@ class FIDUtils():
 
     def calculate_fid_in_step(self, model_obj, total_num_samples, batch_size=128, sampling_mode=None):
         tmp_dir = self.save_images_for_fid(model_obj, total_num_samples, batch_size, sampling_mode)
-        fid_score = self.calculate_fid(tmp_dir)
+        # fid_score, mu_diff = self.calculate_fid(tmp_dir)
+        fid_score, mu_diff = self.calculate_fid_and_mu_diff(tmp_dir)
         shutil.rmtree(tmp_dir)
-        return fid_score
+        return fid_score, mu_diff
     
-    def print_and_save_fid(self, step, fid_score, sampling_mode=None):
+    def print_and_save_fid(self, step, fid_score, sampling_mode=None, mu_diff=None):
         writing_format = f"FID score of Step {step} : {fid_score:.4f}\n"
+        if mu_diff is not None: 
+            writing_format += f"Mean difference of Step {step} : {mu_diff:.4f}\n"
         print(writing_format)
 
         file_name = f"fid_log_{sampling_mode}.txt" if sampling_mode is not None else "fid_log.txt"

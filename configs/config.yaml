@@ -8,7 +8,8 @@ defaults:
     - diffusion/original_ict
   - model@_group_.head: 
     # - diffusion/score_head_pde
-    - diffusion/score_head
+    # - diffusion/score_head
+    - diffusion/score_head_large
     # - diffusion/score_head_baseline
   # - ema: ema_edm
   - ema: ema
@@ -16,8 +17,8 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: jointtraining_largehead_240101
-tags: [iCT, joint_training, large_head]
+exp_name: 1231_CT_joint_training_embedding_flag
+tags: [CT, joint_training, embedding_flag]
 do_training: True
 do_sampling: True
 num_sampling: 50000
