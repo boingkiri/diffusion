@@ -78,7 +78,7 @@ train:
   # learning_rate: 4.0e-4
   learning_rate: 1.0e-4
   total_batch_size: 512  
-  batch_size_per_rounds: 64   # The option for gradient accumulation, which is used for large batch size training.
+  batch_size_per_rounds: 32   # The option for gradient accumulation, which is used for large batch size training.
   # batch_size: 32
   STF_reference_batch_size: 1024
   # total_step: 800000
