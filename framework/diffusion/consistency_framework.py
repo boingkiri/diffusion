@@ -633,7 +633,7 @@ class CMFramework(DefaultModel):
             prev_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
             lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
             loss_weight = 1.0 if not diffusion_framework['loss_weight'] else 1 / (sigma - prev_sigma)
-            total_loss += loss_weight * lpips_loss
+            total_loss += jnp.mean(loss_weight * lpips_loss)
             loss_dict['train/torso_lpips_loss'] = lpips_loss
             
             return total_loss, loss_dict
@@ -704,7 +704,7 @@ class CMFramework(DefaultModel):
             prev_lpips_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
             lpips_loss = jnp.mean(self.perceptual_loss(lpips_D_x, prev_lpips_D_x))
             loss_weight = 1.0 if not diffusion_framework['loss_weight'] else 1 / (sigma - prev_sigma)
-            total_loss += loss_weight * lpips_loss
+            total_loss += jnp.mean(loss_weight * lpips_loss)
             loss_dict['train/torso_lpips_loss'] = lpips_loss
 
             # Get DSM
@@ -759,20 +759,26 @@ class CMFramework(DefaultModel):
 
                 # Connection unbiased denoiser type
                 if diffusion_framework['connection_denoiser_type'] == "unbiased":
-                    connection_loss_denoised = y
+                    # connection_loss_denoised = y
+                    error = new_D_x - y
                 elif diffusion_framework['connection_denoiser_type'] == "STF":
                     # NotImplementedError("STF is not implemented yet.") # TODO
-                    connection_loss_denoised = STF_targets(sigma, perturbed_x, references)
+                    # connection_loss_denoised = STF_targets(sigma, perturbed_x, references)
+                    error = new_D_x - STF_targets(sigma, perturbed_x, references)
+                elif diffusion_framework['connection_denoiser_type'] == "none":
+                    error = 0
                 else:
                     NotImplementedError("connection_denoiser_type should be either unbiased or STF for now.")
 
                 # Retrieve connection loss denoised
                 if type(diffusion_framework['connection_threshold']) is int:
-                    connection_loss_denoised = jnp.where(
-                        current_step <= diffusion_framework['connection_threshold'], connection_loss_denoised, denoised)
-                elif diffusion_framework['connection_threshold'] in ["linear_interpolate", 'li']:
-                    li_ratio = current_step / diffusion_framework['train']["total_step"]
-                    connection_loss_denoised = (1 - li_ratio) * connection_loss_denoised + li_ratio * denoised
+                    # connection_loss_denoised = jnp.where(
+                    #     current_step <= diffusion_framework['connection_threshold'], connection_loss_denoised, denoised)
+                    error = jnp.where(
+                        current_step <= diffusion_framework['connection_threshold'], error, new_D_x - denoised)
+                # elif diffusion_framework['connection_threshold'] in ["linear_interpolate", 'li']:
+                #     li_ratio = current_step / diffusion_framework['train']["total_step"]
+                #     connection_loss_denoised = (1 - li_ratio) * connection_loss_denoised + li_ratio * denoised
 
                 if diffusion_framework.get("connection_loss_weight", "uniform") == "lognormal":
                     p_mean = -1.1
@@ -782,7 +788,8 @@ class CMFramework(DefaultModel):
                 else:
                     connection_loss_weight = 1
                 
-                connection_loss = jnp.mean(connection_loss_weight * (new_D_x - connection_loss_denoised) ** 2)
+                # connection_loss = jnp.mean(connection_loss_weight * (new_D_x - connection_loss_denoised) ** 2)
+                connection_loss = jnp.mean(connection_loss_weight * error ** 2)
 
 
                 total_loss += connection_loss

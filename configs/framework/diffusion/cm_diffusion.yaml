@@ -63,7 +63,7 @@ score_feedback_threshold: 1.0
 connection_loss: True
 connection_mc_samples: 1
 connection_threshold: 400000
-connection_denoiser_type: unbiased # unbiased, STF
+connection_denoiser_type: unbiased # unbiased, STF, none
 connection_loss_weight: "lognormal" # lognormal, uniform
 
 # augment_rate: 0.12
@@ -75,7 +75,7 @@ train:
   # learning_rate: 4.0e-4
   learning_rate: 1.0e-4
   total_batch_size: 512  
-  batch_size_per_rounds: 256   # The option for gradient accumulation, which is used for large batch size training.
+  batch_size_per_rounds: 256 # The option for gradient accumulation, which is used for large batch size training.
   # batch_size: 32
   STF_reference_batch_size: 1024
   # total_step: 800000
