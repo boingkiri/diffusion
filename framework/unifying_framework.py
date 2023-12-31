@@ -218,7 +218,7 @@ class UnifyingFramework():
                     for mode in sampling_modes:
                         # fid_score = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
                         fid_score, mu_diff = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
-                        self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode)
+                        self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode, mu_diff=mu_diff)
                         metrics = {"fid": fid_score}
                         if mode == "edm":
                             mode_metrics["head"] = metrics

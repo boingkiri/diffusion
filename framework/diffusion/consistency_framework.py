@@ -936,18 +936,18 @@ class CMFramework(DefaultModel):
 
         def sample_independent_edm_fn(params, x_cur, rng_key, gamma, t_cur, t_prev):
             head_params = params['head_state']
-            channels_dim = self.config["model"]["diffusion"].get("nf", None)
-            if embedding_dims is None:
-                embedding_dims = self.config["model"]["diffusion"]["n_channels"]
+            channels_dim = model_config.get("nf", None)
+            if channels_dim is None:
+                channels_dim = model_config["n_channels"]
             embedding_dims = channels_dim * 4
-            t_emb_dims = [x_cur.shape[0], embedding_dims]
+            t_emb_dims = [1, embedding_dims]
 
-            x_embedding_mults = self.config["model"]["diffusion"].get("ch_mults", None)
+            x_embedding_mults = model_config.get("ch_mults", None)
             if x_embedding_mults is None:
-                x_embedding_mults = self.config["model"]["diffusion"]["n_channels"]
+                x_embedding_mults = model_config["ch_mult"]
             x_embedding_mults = x_embedding_mults[0]
             x_embedding_dims = channels_dim * x_embedding_mults
-            last_x_emb_dims = [x_cur.shape[0], x_embedding_dims]
+            last_x_emb_dims = [*x_cur.shape[:-1], x_embedding_dims]
 
             rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
 
