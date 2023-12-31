@@ -63,28 +63,6 @@ class CMFramework(DefaultModel):
             self.teacher_state = checkpoints.restore_checkpoint(teacher_model_path, None, prefix="diffusion_")
 
         self.torso_state, self.head_state = self.init_model_state(config)
-        # print(parameter_overview.get_parameter_overview(self.head_state.params))
-        # self.model_state = fs_obj.load_model_state("diffusion", self.model_state, checkpoint_dir='pretrained_models/cd_750k')
-        # torso_checkpoint_dir = diffusion_framework['torso_checkpoint_path']
-        # torso_prefix = "torso"
-        # torso_prefix = "diffusion"
-        # if torso_checkpoint_dir is not None:
-        #     torso_prefix = "diffusion"
-        # else:
-        #     for checkpoint in os.listdir(config.exp.checkpoint_dir):
-        #         if torso_prefix in checkpoint:
-        #             torso_checkpoint_dir = config.exp.checkpoint_dir
-        #             break
-        # self.torso_state = fs_obj.load_model_state("torso", self.torso_state, checkpoint_dir=checkpoint_dir)
-        # FIXME: For now, "diffusion" prefix is used for torso_state because of convension. 
-        # self.torso_state = fs_obj.load_model_state(torso_prefix, self.torso_state, 
-        #                                            checkpoint_dir=torso_checkpoint_dir)
-        # self.torso_state = fs_obj.load_model_state(torso_prefix, self.torso_state)
-        
-        
-        # checkpoint_dir = "experiments/0906_verification_unet_block_1/checkpoints"
-        # states = {"diffusion": self.torso_state if self.torso_state is not None else {}, 
-        #           "head": self.head_state if self.head_state is not None else {}}
         if diffusion_framework['only_cm_training']:
             fs_obj.update_checkpoint_manager(delete_model_keys=["head"])
         
@@ -673,6 +651,15 @@ class CMFramework(DefaultModel):
             head_D_x = jax.lax.stop_gradient(D_x)
             head_F_x, head_t_emb, head_last_x_emb = jax.lax.stop_gradient(aux) if not diffusion_framework['gradient_flow_from_head'] else aux
 
+            
+            if diffusion_framework["embedding_flag"]:
+                rng_key, embedding_key = jax.random.split(rng_key, 2)
+                embedding_flag = jax.random.bernoulli(embedding_key, shape=(y.shape[0], ))
+
+                head_D_x = jnp.where(embedding_flag[:, None, None, None], head_D_x, jnp.zeros_like(head_D_x))
+                head_t_emb = jnp.where(embedding_flag[:, None], head_t_emb, jnp.zeros_like(head_t_emb))
+                head_last_x_emb = jnp.where(embedding_flag[:, None, None, None], head_last_x_emb, jnp.zeros_like(head_last_x_emb))
+
             dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
             denoised, aux = self.head.apply(
                 {'params': head_params}, x=perturbed_x, sigma=sigma, 
@@ -702,9 +689,9 @@ class CMFramework(DefaultModel):
             output_shape = (y.shape[0], 224, 224, y.shape[-1])
             lpips_D_x = jax.image.resize(D_x, output_shape, "bilinear")
             prev_lpips_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
-            lpips_loss = jnp.mean(self.perceptual_loss(lpips_D_x, prev_lpips_D_x))
             loss_weight = 1.0 if not diffusion_framework['loss_weight'] else 1 / (sigma - prev_sigma)
-            total_loss += loss_weight * lpips_loss
+            lpips_loss = jnp.mean(loss_weight * self.perceptual_loss(lpips_D_x, prev_lpips_D_x))
+            total_loss += lpips_loss
             loss_dict['train/torso_lpips_loss'] = lpips_loss
 
             # Get DSM
@@ -721,18 +708,6 @@ class CMFramework(DefaultModel):
             loss_dict['train/head_dsm_loss'] = dsm_loss
 
             if diffusion_framework['connection_loss']:
-                # connection_mc_samples = diffusion_framework.get('connection_mc_samples', 1)
-                # samples = []
-                # for _ in range(connection_mc_samples):
-                #     rng_key, noise_key = jax.random.split(rng_key, 2)
-                #     noise = jax.random.normal(noise_key, y.shape)
-                #     perturbed_D_x = D_x + sigma * noise
-                #     new_D_x, aux = self.model.apply(
-                #         {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
-                #         train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-                #     samples.append(new_D_x)
-                # new_D_x = jnp.mean(jnp.stack(samples), axis=0)
-                # current_step = total_states_dict['torso_state'].step
                 current_step = total_states_dict['torso_state'].step
                 
                 connection_mc_samples = diffusion_framework.get('connection_mc_samples', 1)
@@ -959,6 +934,66 @@ class CMFramework(DefaultModel):
                                     euler_x_prev, t_prev, x_hat, t_hat, d_cur, dropout_key_2)
             return heun_x_prev, D_x
 
+        def sample_independent_edm_fn(params, x_cur, rng_key, gamma, t_cur, t_prev):
+            head_params = params['head_state']
+            channels_dim = self.config["model"]["diffusion"].get("nf", None)
+            if embedding_dims is None:
+                embedding_dims = self.config["model"]["diffusion"]["n_channels"]
+            embedding_dims = channels_dim * 4
+            t_emb_dims = [x_cur.shape[0], embedding_dims]
+
+            x_embedding_mults = self.config["model"]["diffusion"].get("ch_mults", None)
+            if x_embedding_mults is None:
+                x_embedding_mults = self.config["model"]["diffusion"]["n_channels"]
+            x_embedding_mults = x_embedding_mults[0]
+            x_embedding_dims = channels_dim * x_embedding_mults
+            last_x_emb_dims = [x_cur.shape[0], x_embedding_dims]
+
+            rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
+
+            # Increase noise temporarily.
+            t_hat = t_cur + gamma * t_cur
+            noise = jax.random.normal(rng_key, x_cur.shape) * self.S_noise
+            x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
+
+            # Euler step
+            D_x = jnp.zeros_like(x_hat)
+            t_emb = jnp.zeros(t_emb_dims, dtype=jnp.float32)
+            last_x_emb = jnp.zeros(last_x_emb_dims, dtype=jnp.float32)
+
+            denoised, aux = self.head.apply(
+                {'params': head_params}, x=x_hat, sigma=t_hat, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                train=False, augment_labels=None, rngs={'dropout': dropout_key}
+            )
+
+            if self.head_type == 'score_pde':
+                dh_dx_inv, dh_dt = aux
+
+            # predicted_score = - (x_hat - denoised) ** 2 / (t_hat ** 2)
+            d_cur = (x_hat - denoised) / t_hat
+            euler_x_prev = x_hat + (t_prev - t_hat) * d_cur
+
+            # Apply 2nd order correction.
+            def second_order_corrections(euler_x_prev, t_prev, x_hat, t_hat, d_cur, rng_key):
+
+                denoised, aux = self.head.apply(
+                    {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+                    train=False, augment_labels=None, rngs={'dropout': dropout_key}
+                )
+
+                if self.head_type == 'score_pde':
+                    dh_dx_inv, dh_dt = aux
+
+                d_prime = (euler_x_prev - denoised) / t_prev
+                heun_x_prev = x_hat + 0.5 * (t_prev - t_hat) * (d_cur + d_prime)
+                return heun_x_prev
+            
+            heun_x_prev = jax.lax.cond(t_prev != 0.0,
+                                    second_order_corrections,
+                                    lambda euler_x_prev, t_prev, x_hat, t_hat, dx_dt, rng_key: euler_x_prev,
+                                    euler_x_prev, t_prev, x_hat, t_hat, d_cur, dropout_key_2)
+            return heun_x_prev, D_x
+
         def sample_cm_fn(params, x_cur, rng_key, gamma=None, t_cur=None, t_prev=None):
             dropout_key = rng_key
             denoised, aux = self.model.apply(
@@ -967,10 +1002,8 @@ class CMFramework(DefaultModel):
             return denoised
 
         self.p_sample_edm = jax.pmap(sample_edm_fn)
+        self.p_sample_edm_independent = jax.pmap(sample_independent_edm_fn)
         self.p_sample_cm = jax.pmap(sample_cm_fn)
-        # self.update_fn = jax.pmap(partial(jax.lax.scan, update), 
-        #                           axis_name=self.pmap_axis, 
-        #                           donate_argnums=(0,))
         self.update_fn = jax.pmap(partial(jax.lax.scan, update), 
                                   axis_name=self.pmap_axis)
         self.eval_fn = jax.pmap(monitor_metric_fn, axis_name=self.pmap_axis)
@@ -1091,9 +1124,14 @@ class CMFramework(DefaultModel):
             t_next = jnp.asarray([t_next] * jax.local_device_count())
             gamma = jnp.asarray([gamma] * jax.local_device_count())
             # latent_sample = self.p_sample_edm(self.head_state.params_ema, latent_sample, rng_key, gamma, t_cur, t_next)
-            latent_sample, _ = self.p_sample_edm(
-                {state_name: state_content.params_ema for state_name, state_content in self.training_states.items()},
-                latent_sample, rng_key, gamma, t_cur, t_next)
+            if mode == "edm":
+                latent_sample, _ = self.p_sample_edm(
+                    {state_name: state_content.params_ema for state_name, state_content in self.training_states.items()},
+                    latent_sample, rng_key, gamma, t_cur, t_next)
+            elif mode == "edm_embedding_flag":
+                latent_sample, _ = self.p_sample_edm_independent(
+                    {state_name: state_content.params_ema for state_name, state_content in self.training_states.items()},
+                    latent_sample, rng_key, gamma, t_cur, t_next)
 
         if original_data is not None:
             rec_loss = jnp.mean((latent_sample - original_data) ** 2)
@@ -1195,7 +1233,7 @@ class CMFramework(DefaultModel):
     
     def sampling(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
         # mode option: edm, cm_training, cm_not_training
-        if mode == "edm":
+        if mode == "edm" or mode == "edm_embedding_flag":
             return self.sampling_edm(num_image, img_size, original_data, mode)
         elif "cm" in mode:
             return self.sampling_cm(num_image, img_size, original_data, mode)
