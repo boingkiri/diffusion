@@ -17,8 +17,8 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: 1231_CT_joint_training_embedding_flag
-tags: [CT, joint_training, embedding_flag]
+exp_name: ict_jointtraining_alignmentloss_largehead_rev_240102
+tags: [iCT, joint_training, alignment_loss, large_head]
 do_training: True
 do_sampling: True
 num_sampling: 50000

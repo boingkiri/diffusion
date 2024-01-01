@@ -62,12 +62,12 @@ score_feedback_threshold: 1.0
 # Connection loss (new loss)
 connection_loss: True
 connection_mc_samples: 1
-connection_threshold: 400000
-connection_denoiser_type: unbiased # unbiased, STF, none
-connection_loss_weight: "lognormal" # lognormal, uniform
+connection_threshold: 50000
+connection_denoiser_type: none # unbiased, STF, none
+connection_loss_weight: "uniform" # lognormal, uniform
 
 # embedding flag for sampling SH
-embedding_flag: True
+embedding_flag: False
 
 # augment_rate: 0.12
 score_pde_regularizer: False
@@ -77,8 +77,9 @@ dh_dt_weight: 1.0
 train:
   # learning_rate: 4.0e-4
   learning_rate: 1.0e-4
-  total_batch_size: 512  
-  batch_size_per_rounds: 32   # The option for gradient accumulation, which is used for large batch size training.
+  total_batch_size: 512
+  batch_size_per_rounds: 128 # The option for gradient accumulation, which is used for large batch size training.
+  # total_batch_size / batch_size_per_rounds must be a positive integer.
   # batch_size: 32
   STF_reference_batch_size: 1024
   # total_step: 800000

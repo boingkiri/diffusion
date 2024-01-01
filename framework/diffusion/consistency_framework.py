@@ -100,6 +100,9 @@ class CMFramework(DefaultModel):
         self.head_sigma_requires_current_step = any(list(map(lambda s: s in diffusion_framework['sigma_sampling_head'], requires_steps)))
         self.torso_sigma_requires_current_step = any(list(map(lambda s: s in diffusion_framework['sigma_sampling_torso'], requires_steps)))
 
+        # state step correction
+        self.step_scale = int(diffusion_framework['train']['total_batch_size'] / diffusion_framework['train']['batch_size_per_rounds'])
+
         # Parameters
         self.sigma_min = diffusion_framework['sigma_min']
         self.sigma_max = diffusion_framework['sigma_max']
@@ -386,7 +389,7 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
             
             # Sigma sampling
-            step = total_states_dict['head_state'].step if self.head_sigma_requires_current_step else None
+            step = (total_states_dict['head_state'].step / self.step_scale).astype(int) if self.head_sigma_requires_current_step else None
             sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_head'], step_key, y, step)
             perturbed_x = y + sigma * noise
 
@@ -498,7 +501,7 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
 
             # Sigma sampling
-            step = total_states_dict['torso_state'].step if self.torso_sigma_requires_current_step else None
+            step = (total_states_dict['torso_state'].step / self.step_scale).astype(int) if self.torso_sigma_requires_current_step else None
             sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_torso'], step_key, y, step)
 
             # denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key)
@@ -526,7 +529,7 @@ class CMFramework(DefaultModel):
             if diffusion_framework['score_feedback']:
                 denoised = head_fn(head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key)
                 score_mul_sigma = (perturbed_x - denoised) / sigma # score * sigma
-                score_feedback_ratio = total_states_dict['torso_state'].step / diffusion_framework['train']["total_step"]
+                score_feedback_ratio = (total_states_dict['torso_state'].step / self.step_scale).astype(int) / diffusion_framework['train']["total_step"]
                 unbiased_score_mul_sigma = (perturbed_x - y)  / sigma
                 if diffusion_framework['score_feedback_type'] == "interpolation":
                     score_mul_sigma = score_feedback_ratio * score_mul_sigma + \
@@ -552,7 +555,7 @@ class CMFramework(DefaultModel):
             
             # Connect the consistency output and denoiser output with connection loss
             if diffusion_framework['connection_loss']:
-                current_step = total_states_dict['torso_state'].step
+                current_step = (total_states_dict['torso_state'].step / self.step_scale).astype(int)
                 
                 connection_mc_samples = diffusion_framework.get('connection_mc_samples', 1)
                 samples = []
@@ -638,7 +641,7 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
             
             # Sigma sampling
-            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_joint'], step_key, y, total_states_dict['torso_state'].step)
+            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_joint'], step_key, y, (total_states_dict['torso_state'].step / self.step_scale).astype(int))
             perturbed_x = y + sigma * noise
 
             # Get consistency function values
@@ -667,7 +670,7 @@ class CMFramework(DefaultModel):
                 train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
 
             if diffusion_framework['score_feedback']:
-                score_feedback_ratio = total_states_dict['torso_state'].step / diffusion_framework['train']["total_step"]
+                score_feedback_ratio = (total_states_dict['torso_state'].step / self.step_scale).astype(int) / diffusion_framework['train']["total_step"]
                 unbiased_score_estimator = jax.lax.stop_gradient(perturbed_x - y) / sigma
                 learned_score_estimator = jax.lax.stop_gradient(perturbed_x - denoised) / sigma
                 one_step_forward = jnp.where(
@@ -708,7 +711,7 @@ class CMFramework(DefaultModel):
             loss_dict['train/head_dsm_loss'] = dsm_loss
 
             if diffusion_framework['connection_loss']:
-                current_step = total_states_dict['torso_state'].step
+                current_step = (total_states_dict['torso_state'].step / self.step_scale).astype(int)
                 
                 connection_mc_samples = diffusion_framework.get('connection_mc_samples', 1)
                 samples = []
@@ -734,26 +737,22 @@ class CMFramework(DefaultModel):
 
                 # Connection unbiased denoiser type
                 if diffusion_framework['connection_denoiser_type'] == "unbiased":
-                    # connection_loss_denoised = y
-                    error = new_D_x - y
+                    connection_loss_denoised = y
                 elif diffusion_framework['connection_denoiser_type'] == "STF":
                     # NotImplementedError("STF is not implemented yet.") # TODO
-                    # connection_loss_denoised = STF_targets(sigma, perturbed_x, references)
-                    error = new_D_x - STF_targets(sigma, perturbed_x, references)
+                    connection_loss_denoised = STF_targets(sigma, perturbed_x, references)
                 elif diffusion_framework['connection_denoiser_type'] == "none":
-                    error = 0
+                    connection_loss_denoised = new_D_x
                 else:
                     NotImplementedError("connection_denoiser_type should be either unbiased or STF for now.")
 
                 # Retrieve connection loss denoised
                 if type(diffusion_framework['connection_threshold']) is int:
-                    # connection_loss_denoised = jnp.where(
-                    #     current_step <= diffusion_framework['connection_threshold'], connection_loss_denoised, denoised)
-                    error = jnp.where(
-                        current_step <= diffusion_framework['connection_threshold'], error, new_D_x - denoised)
-                # elif diffusion_framework['connection_threshold'] in ["linear_interpolate", 'li']:
-                #     li_ratio = current_step / diffusion_framework['train']["total_step"]
-                #     connection_loss_denoised = (1 - li_ratio) * connection_loss_denoised + li_ratio * denoised
+                    connection_loss_denoised = jnp.where(
+                        current_step <= diffusion_framework['connection_threshold'], connection_loss_denoised, denoised)
+                elif diffusion_framework['connection_threshold'] in ["linear_interpolate", 'li']:
+                    li_ratio = current_step / diffusion_framework['train']["total_step"]
+                    connection_loss_denoised = (1 - li_ratio) * connection_loss_denoised + li_ratio * denoised
 
                 if diffusion_framework.get("connection_loss_weight", "uniform") == "lognormal":
                     p_mean = -1.1
@@ -763,9 +762,7 @@ class CMFramework(DefaultModel):
                 else:
                     connection_loss_weight = 1
                 
-                # connection_loss = jnp.mean(connection_loss_weight * (new_D_x - connection_loss_denoised) ** 2)
-                connection_loss = jnp.mean(connection_loss_weight * error ** 2)
-
+                connection_loss = jnp.mean(connection_loss_weight * (new_D_x - connection_loss_denoised) ** 2)
 
                 total_loss += connection_loss
                 loss_dict['train/connection_loss'] = connection_loss
@@ -825,7 +822,7 @@ class CMFramework(DefaultModel):
                     torso_state = states['torso_state']
                     target_model_ema_decay = jnp.where(
                         diffusion_framework['sigma_sampling_torso'] == "CT", 
-                        self.target_model_ema_decay_fn(torso_state.step),
+                        self.target_model_ema_decay_fn((torso_state.step / self.step_scale).astype(int)),
                         self.target_model_ema_decay)
                     ema_updated_params = jax.tree_map(
                         lambda x, y: target_model_ema_decay * x + (1 - target_model_ema_decay) * y,
@@ -842,7 +839,7 @@ class CMFramework(DefaultModel):
                 torso_state = states['torso_state']
                 target_model_ema_decay = jnp.where(
                         diffusion_framework['sigma_sampling_joint'] == "CT", 
-                        self.target_model_ema_decay_fn(torso_state.step),
+                        self.target_model_ema_decay_fn((torso_state.step / self.step_scale).astype(int)),
                         self.target_model_ema_decay)
                 ema_updated_params = jax.tree_map(
                     lambda x, y: target_model_ema_decay * x + (1 - target_model_ema_decay) * y,
@@ -858,7 +855,7 @@ class CMFramework(DefaultModel):
                 # Target model EMA (for consistency model training procedure)
                 torso_state = states['torso_state']
                 if diffusion_framework['sigma_sampling_torso'] == "CT":
-                    target_model_ema_decay = self.target_model_ema_decay_fn(torso_state.step)
+                    target_model_ema_decay = self.target_model_ema_decay_fn((torso_state.step / self.step_scale).astype(int))
                 else:
                     target_model_ema_decay = self.target_model_ema_decay
                 ema_updated_params = jax.tree_map(
@@ -1244,6 +1241,3 @@ class CMFramework(DefaultModel):
             return self.sampling_edm(num_image, img_size, original_data, mode)
         elif "cm" in mode:
             return self.sampling_cm(num_image, img_size, original_data, mode)
-
-    
-    
