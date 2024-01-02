@@ -155,8 +155,8 @@ class iCMFramework(DefaultModel):
             output_shape = (original.shape[0], 224, 224, original.shape[-1])
             original = jax.image.resize(original, output_shape, "bilinear")
             denoised = jax.image.resize(denoised, output_shape, "bilinear")
-            original = (original + 1) / 2.0
-            denoised = (denoised + 1) / 2.0
+            # original = (original + 1) / 2.0
+            # denoised = (denoised + 1) / 2.0
             return jnp.mean(weight * self.perceptual_loss(original, denoised))
     
         def huber_loss(original, denoised, weight=1.0):

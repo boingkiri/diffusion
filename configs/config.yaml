@@ -9,9 +9,9 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: ict_originalcm_huberagain_231214
+exp_name: ict_lpips512_240102
 # tags: [cm, score_feedback, param_ema]
-tags: [ict, pseudohuber]
+tags: [ict, lpips]
 do_training: true
 do_sampling: true
 num_sampling: 50000
