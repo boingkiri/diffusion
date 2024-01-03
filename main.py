@@ -12,7 +12,7 @@ from framework.unifying_framework import UnifyingFramework
 import os
 import argparse
 
-@hydra.main(config_path="configs", config_name="config")
+# @hydra.main(config_path="configs", config_name="config")
 def start(config: DictConfig):
     rng = random.PRNGKey(config.rand_seed)
     model_type = config.type
@@ -50,20 +50,20 @@ def start(config: DictConfig):
         print(fid_score)
     
 if __name__ == "__main__":
-    # parser = argparse.ArgumentParser(description="Diffuion")
-    # parser.add_argument("--config", action="store", type=str, default="config")
-    # args = parser.parse_args()
+    parser = argparse.ArgumentParser(description="Diffuion")
+    parser.add_argument("--config", action="store", type=str, default="config")
+    args = parser.parse_args()
 
-    # config_path = "configs"
+    config_path = "configs"
     
-    # with initialize(version_base=None, config_path=config_path) as cfg:
-    #     # if args.config != "config":
-    #     #     args.config = os.path.join("examples", args.config)
-    #     #     cfg = compose(config_name=args.config)
-    #     #     cfg = cfg.examples
-    #     # else:
-    #     #     cfg = compose(config_name=args.config)
+    with initialize(version_base=None, config_path=config_path) as cfg:
+        # if args.config != "config":
+        #     args.config = os.path.join("examples", args.config)
+        #     cfg = compose(config_name=args.config)
+        #     cfg = cfg.examples
+        # else:
+        #     cfg = compose(config_name=args.config)
 
-    #     cfg = compose(config_name=args.config)
-    #     start(cfg)
-    start()
+        cfg = compose(config_name=args.config)
+        start(cfg)
+    # start()
