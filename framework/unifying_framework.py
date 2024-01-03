@@ -149,7 +149,7 @@ class UnifyingFramework():
                 # Change of the sample quality is tracked to know how much the CM model is corrupted.
                 # Sample generated image for EDM
                 if not self.config.framework.diffusion.only_cm_training:
-                    sample = self.sampling(8, original_data=batch_data, mode="edm")
+                    sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="edm")
                     edm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                     sample_image = self.fs_utils.get_pil_from_np(edm_xset)
                     # sample_path = self.fs_utils.save_comparison(edm_xset, self.step, in_process_dir)
@@ -157,7 +157,7 @@ class UnifyingFramework():
 
                 # Sample generated image for training CM
                 if not self.config.framework.diffusion.CM_freeze:
-                    sample = self.sampling(8, original_data=batch_data, mode="cm-training")
+                    sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="cm-training")
                     training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                     sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
                     log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
@@ -166,7 +166,7 @@ class UnifyingFramework():
                 
                 # Sample generated image for EDM when embedding flag configuration is existed
                 if self.config.framework.diffusion.get("embedding_flag", False):
-                    sample = self.sampling(8, original_data=batch_data, mode="edm_embedding_flag")
+                    sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="edm_embedding_flag")
                     training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                     sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
                     log['EDM embedding flag Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
@@ -174,7 +174,7 @@ class UnifyingFramework():
                     sample_image.close()
 
                 # Sample generated image for original CM 
-                sample = self.sampling(8, original_data=batch_data, mode="cm-not-training")
+                sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="cm-not-training")
                 edm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_image = self.fs_utils.get_pil_from_np(edm_xset)
                 log['Original CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
@@ -217,7 +217,7 @@ class UnifyingFramework():
                     mode_metrics = {}
                     for mode in sampling_modes:
                         # fid_score = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
-                        fid_score, mu_diff = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
+                        fid_score, mu_diff = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=self.sample_batch_size, sampling_mode=mode)
                         self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode, mu_diff=mu_diff)
                         metrics = {"fid": fid_score}
                         if mode == "edm":
@@ -252,10 +252,10 @@ class UnifyingFramework():
         current_num = 0
         batch_size = self.sample_batch_size
         while total_num > current_num:
-            effective_batch_size = total_num - current_num if current_num + batch_size > total_num else batch_size
-            samples = self.sampling(effective_batch_size, original_data=None, mode="cm-training")
+            samples = self.sampling(batch_size, original_data=None, mode="cm-training")
             self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
             current_num += batch_size
+        self.fs_utils.delete_images_from_dir(starting_pos=total_num)
     
     def reconstruction(self, total_num):
         img_size = common_utils.get_dataset_size(self.dataset_name)
