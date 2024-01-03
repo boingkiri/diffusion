@@ -14,6 +14,7 @@ def compute_statistics(path, params, apply_fn, batch_size=1, img_size=None, mode
         return mu, sigma
 
     images = []
+    act = []
     for f in tqdm(os.listdir(path)):
         img = Image.open(os.path.join(path, f))
         # convert if only a single channel
@@ -28,14 +29,12 @@ def compute_statistics(path, params, apply_fn, batch_size=1, img_size=None, mode
         img = np.array(img) / 255.0
         images.append(img)
 
-    num_batches = int(len(images) // batch_size)
-    act = []
-    for i in tqdm(range(num_batches)):
-        x = images[i * batch_size : i * batch_size + batch_size]
-        x = np.asarray(x)
-        x = 2 * x - 1
-        pred = apply_fn(params, jax.lax.stop_gradient(x))
-        act.append(pred.squeeze(axis=1).squeeze(axis=1))
+        if len(images) == batch_size:
+            x = np.asarray(images)
+            x = 2 * x - 1
+            pred = apply_fn(params, jax.lax.stop_gradient(x))
+            act.append(pred.squeeze(axis=1).squeeze(axis=1))
+            images = []
     act = jnp.concatenate(act, axis=0)
 
     mu = np.mean(act, axis=0)
