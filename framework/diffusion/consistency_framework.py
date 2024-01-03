@@ -1138,9 +1138,9 @@ class CMFramework(DefaultModel):
                     latent_sample, rng_key, gamma, t_cur, t_next)
 
         latent_sample = latent_sample.reshape(num_image, *img_size)
-        if original_data is not None:
-            rec_loss = jnp.mean((latent_sample - original_data) ** 2)
-            self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        # if original_data is not None:
+        #     rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+        #     self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample
 
     def sampling_edm_and_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
@@ -1173,9 +1173,9 @@ class CMFramework(DefaultModel):
 
         latent_sample = latent_sample.reshape(num_image, *img_size)
         cm_sample = cm_sample.reshape(num_image, *img_size)
-        if original_data is not None:
-            rec_loss = jnp.mean((latent_sample - original_data) ** 2)
-            self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        # if original_data is not None:
+        #     rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+        #     self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample, cm_sample
 
     def sampling_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="cm-training"):
@@ -1201,9 +1201,9 @@ class CMFramework(DefaultModel):
 
 
         latent_sample = latent_sample.reshape(num_image, *img_size)
-        if original_data is not None:
-            rec_loss = jnp.mean((latent_sample - original_data) ** 2)
-            self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        # if original_data is not None:
+        #     rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+        #     self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample
 
     def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sweep_timesteps=17, noise=None, sigma_scale=None):
