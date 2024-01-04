@@ -8,8 +8,8 @@ defaults:
     - diffusion/original_ict
   - model@_group_.head: 
     # - diffusion/score_head_pde
-    # - diffusion/score_head
-    - diffusion/score_head_large
+    - diffusion/score_head
+    # - diffusion/score_head_large
     # - diffusion/score_head_baseline
   # - ema: ema_edm
   - ema: ema
@@ -17,8 +17,8 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: ict_jointtraining_alignmentloss_largehead_rev_240102
-tags: [iCT, joint_training, alignment_loss, large_head]
+exp_name: ict_j_a_240105
+tags: [iCT, joint_training, alignment_loss]
 do_training: True
 do_sampling: True
 num_sampling: 50000
