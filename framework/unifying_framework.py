@@ -125,6 +125,7 @@ class UnifyingFramework():
         # best_fids = self.fs_utils.get_best_fid()
         # first_step = True
         first_step = False
+        fid_dict = {}
 
         num_used_dataset = 0
 
@@ -185,7 +186,8 @@ class UnifyingFramework():
                 self.wandblog.flush(step=self.step)
 
             # if self.step % 50000 == 0 and self.step != 0:
-            if self.step % 50000 == 0:
+            # if self.step % 50000 == 0:
+            if self.step % 50000 == 0 and self.step not in fid_dict:
                 model_state = self.framework.get_model_state()
                 # if not first_step:
                 #     self.save_model_state(model_state)
@@ -229,6 +231,7 @@ class UnifyingFramework():
                     if not first_step:
                         self.save_model_state(model_state, mode_metrics)
                     self.wandblog.flush(step=self.step)
+                    fid_dict[self.step] = mode_metrics
 
 
             if self.step >= self.total_step:
