@@ -626,7 +626,9 @@ class CMFramework(DefaultModel):
 
             torso_params = update_params['torso_state']
             head_params = update_params['head_state']
-            target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model)
+            target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model) \
+                                if diffusion_framework["sigma_sampling_joint"] != "iCT" \
+                                else jax.lax.stop_gradient(torso_params) 
 
             # Unzip arguments for loss_fn
             y, rng_key = args
@@ -1035,7 +1037,7 @@ class CMFramework(DefaultModel):
             apply_fn=self.model.apply,
             params=torso_params,
             params_ema=torso_params,
-            target_model=torso_params, # NEW!
+            target_model=torso_params if config["framework"]["diffusion"]["sigma_sampling_joint"] != "iCT" else None, # NEW!
             tx=model_tx
         )
         if config.framework.diffusion.only_cm_training:
@@ -1138,9 +1140,9 @@ class CMFramework(DefaultModel):
                     latent_sample, rng_key, gamma, t_cur, t_next)
 
         latent_sample = latent_sample.reshape(num_image, *img_size)
-        if original_data is not None:
-            rec_loss = jnp.mean((latent_sample - original_data) ** 2)
-            self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        # if original_data is not None:
+        #     rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+        #     self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample
 
     def sampling_edm_and_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
@@ -1173,9 +1175,9 @@ class CMFramework(DefaultModel):
 
         latent_sample = latent_sample.reshape(num_image, *img_size)
         cm_sample = cm_sample.reshape(num_image, *img_size)
-        if original_data is not None:
-            rec_loss = jnp.mean((latent_sample - original_data) ** 2)
-            self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        # if original_data is not None:
+        #     rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+        #     self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample, cm_sample
 
     def sampling_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="cm-training"):
@@ -1201,9 +1203,9 @@ class CMFramework(DefaultModel):
 
 
         latent_sample = latent_sample.reshape(num_image, *img_size)
-        if original_data is not None:
-            rec_loss = jnp.mean((latent_sample - original_data) ** 2)
-            self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        # if original_data is not None:
+        #     rec_loss = jnp.mean((latent_sample - original_data) ** 2)
+        #     self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
         return latent_sample
 
     def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sweep_timesteps=17, noise=None, sigma_scale=None):
