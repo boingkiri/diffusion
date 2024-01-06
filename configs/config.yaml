@@ -17,7 +17,7 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: ict_j_a_240105
+exp_name: 0106_iCT_joint_training_batch_size_check
 tags: [iCT, joint_training, alignment_loss]
 do_training: True
 do_sampling: True
