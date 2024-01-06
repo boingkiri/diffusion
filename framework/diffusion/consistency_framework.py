@@ -294,6 +294,38 @@ class CMFramework(DefaultModel):
             else:
                 NotImplementedError("sigma_sampling should be either EDM or CM for now.")
         
+        def lpips_loss_fn(pred, target, loss_weight=1):
+            # return jnp.mean(self.perceptual_loss(pred, target))
+            output_shape = (target.shape[0], 224, 224, target.shape[-1])
+            pred = jax.image.resize(pred, output_shape, "bilinear")
+            target = jax.image.resize(target, output_shape, "bilinear")
+            lpips_loss = jnp.mean(loss_weight * self.perceptual_loss(pred, target))
+            return lpips_loss
+        
+        def pseudo_huber_loss_fn(pred, target, loss_weight=1):
+            data_dim = pred.shape[1:]
+            c = 0.00054 * jnp.sqrt(data_dim[0] * data_dim[1] * data_dim[2])
+            pseudo_huber = jnp.sqrt(jnp.sum((pred - target) ** 2, axis=(-1, -2, -3)) + c ** 2) - c
+            pseudo_huber_loss = jnp.mean(loss_weight * pseudo_huber)
+            return pseudo_huber_loss
+
+        def get_loss(loss_type, pred, target, loss_weight=1, train=True, key_name=None):
+            loss = 0
+            if loss_type == "l2":
+                loss = jnp.mean(loss_weight * (pred - target) ** 2)
+            if loss_type == "lpips":
+                loss = lpips_loss_fn(pred, target, loss_weight)
+            elif loss_type in ["huber", "pseudo_huber"]:
+                loss = pseudo_huber_loss_fn(pred, target, loss_weight)
+            
+            loss_dict = {}
+            if train:
+                loss_dict[f"train/{key_name if key_name is not None else loss_type}"] = loss
+            else:
+                loss_dict[f"eval/{key_name if key_name is not None else loss_type}"] = loss
+            return loss, loss_dict
+
+        
         def STF_targets(sigmas, perturbed_samples, ref):
             perturbed_samples_vec = perturbed_samples.reshape((len(perturbed_samples), -1))
             ref_vec = ref.reshape((len(ref), -1))
@@ -493,9 +525,6 @@ class CMFramework(DefaultModel):
                 references = y
                 effective_batch_size = diffusion_framework['train']['batch_size'] // jax.local_device_count()
                 y = references[:effective_batch_size]
-            # references = y
-            # effective_batch_size = diffusion_framework['train']['batch_size'] // jax.local_device_count()
-            # y = references[:effective_batch_size]
 
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
             noise = jax.random.normal(noise_key, y.shape)
@@ -504,7 +533,6 @@ class CMFramework(DefaultModel):
             step = jnp.floor(total_states_dict['torso_state'].step / self.step_scale).astype(int) if self.torso_sigma_requires_current_step else None
             sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_torso'], step_key, y, step)
 
-            # denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key)
             perturbed_x = y + sigma * noise
 
             # Get consistency function values
@@ -512,8 +540,8 @@ class CMFramework(DefaultModel):
             D_x, aux = self.model.apply(
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-
             F_x, t_emb, last_x_emb = aux
+
             # Get score value with consistency function value
             def head_fn(head_params, y, sigma, noise, D_x, t_emb, last_x_emb, dropout_key):
                 dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
@@ -691,13 +719,10 @@ class CMFramework(DefaultModel):
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
             # Get consistency loss
-            output_shape = (y.shape[0], 224, 224, y.shape[-1])
-            lpips_D_x = jax.image.resize(D_x, output_shape, "bilinear")
-            prev_lpips_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
             loss_weight = 1.0 if not diffusion_framework['loss_weight'] else 1 / (sigma - prev_sigma)
-            lpips_loss = jnp.mean(loss_weight * self.perceptual_loss(lpips_D_x, prev_lpips_D_x))
-            total_loss += lpips_loss
-            loss_dict['train/torso_lpips_loss'] = lpips_loss
+            consistency_loss, consistency_loss_dict = get_loss(diffusion_framework['loss'], D_x, prev_D_x, loss_weight=loss_weight, train=True)
+            total_loss += consistency_loss
+            loss_dict.update(consistency_loss_dict)
 
             # Get DSM
             weight = None
@@ -707,8 +732,6 @@ class CMFramework(DefaultModel):
                 sigma_data = 0.5
                 weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
             dsm_loss = jnp.mean(weight * (denoised - y) ** 2)
-
-            # Loss and loss dict construction
             total_loss += dsm_loss
             loss_dict['train/head_dsm_loss'] = dsm_loss
 
