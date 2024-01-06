@@ -691,13 +691,23 @@ class CMFramework(DefaultModel):
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
             # Get consistency loss
-            output_shape = (y.shape[0], 224, 224, y.shape[-1])
-            lpips_D_x = jax.image.resize(D_x, output_shape, "bilinear")
-            prev_lpips_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
-            loss_weight = 1.0 if not diffusion_framework['loss_weight'] else 1 / (sigma - prev_sigma)
-            lpips_loss = jnp.mean(loss_weight * self.perceptual_loss(lpips_D_x, prev_lpips_D_x))
-            total_loss += lpips_loss
-            loss_dict['train/torso_lpips_loss'] = lpips_loss
+            if diffusion_framework['loss'] == "lpips":
+                output_shape = (y.shape[0], 224, 224, y.shape[-1])
+                lpips_D_x = jax.image.resize(D_x, output_shape, "bilinear")
+                prev_lpips_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
+                loss_weight = 1.0 if not diffusion_framework['loss_weight'] else 1 / (sigma - prev_sigma)
+                lpips_loss = jnp.mean(loss_weight * self.perceptual_loss(lpips_D_x, prev_lpips_D_x))
+                total_loss += lpips_loss
+                loss_dict['train/torso_lpips_loss'] = lpips_loss
+            elif diffusion_framework['loss'] == "huber":
+                # data_dim = jnp.prod(D_x.shape[1:])
+                data_dim = D_x.shape[1] * D_x.shape[2] * D_x.shape[3]
+                c = 0.00054 * jnp.sqrt(data_dim)
+                pseudo_huber = jnp.sqrt(jnp.sum((D_x - prev_D_x) ** 2, axis=(-1, -2, -3)) + c ** 2) - c
+                loss_weight = 1.0 if not diffusion_framework['loss_weight'] else 1 / (sigma - prev_sigma)
+                pseudo_huber_loss = jnp.mean(loss_weight * pseudo_huber)
+                total_loss += pseudo_huber_loss
+                loss_dict['train/torso_pseudo_huber_loss'] = pseudo_huber_loss
 
             # Get DSM
             weight = None
