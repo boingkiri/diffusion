@@ -520,7 +520,9 @@ class CMFramework(DefaultModel):
             head_params = total_states_dict.get('head_state', None)
             if head_params is not None:
                 head_params = jax.lax.stop_gradient(head_params.params_ema)
-            target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model)
+            target_model = jax.lax.stop_gradient(total_states_dict['torso_state'].target_model) \
+                if diffusion_framework['sigma_sampling_torso'] != "iCT" \
+                else jax.lax.stop_gradient(torso_params)
 
             # Unzip arguments for loss_fn
             y, rng_key = args
@@ -641,13 +643,17 @@ class CMFramework(DefaultModel):
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
             
-            output_shape = (y.shape[0], 224, 224, y.shape[-1])
-            D_x = jax.image.resize(D_x, output_shape, "bilinear")
-            prev_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
-            lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
+            # output_shape = (y.shape[0], 224, 224, y.shape[-1])
+            # D_x = jax.image.resize(D_x, output_shape, "bilinear")
+            # prev_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
+            # lpips_loss = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
+            # loss_weight = 1.0 if not diffusion_framework['loss_weight'] else 1 / (sigma - prev_sigma)
+            # total_loss += jnp.mean(loss_weight * lpips_loss)
+            # loss_dict['train/torso_lpips_loss'] = lpips_loss
             loss_weight = 1.0 if not diffusion_framework['loss_weight'] else 1 / (sigma - prev_sigma)
-            total_loss += jnp.mean(loss_weight * lpips_loss)
-            loss_dict['train/torso_lpips_loss'] = lpips_loss
+            consistency_loss, consistency_loss_dict = get_loss(diffusion_framework['loss'], D_x, prev_D_x, loss_weight=loss_weight, train=True)
+            total_loss += consistency_loss
+            loss_dict.update(consistency_loss_dict)
             
             return total_loss, loss_dict
 
