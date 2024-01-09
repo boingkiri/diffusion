@@ -831,6 +831,12 @@ class CMFramework(DefaultModel):
                                            jax.tree_util.tree_leaves(current_param)), 0)
             loss_dict_tail['train/weight_update_distance'] = jnp.sqrt(distance)
 
+            # gradient norm
+            torso_grads = grads_mean['torso_state']
+            grad_l2_norms = jnp.sqrt(jax.tree_util.tree_reduce(lambda acc, x: acc + jnp.sum(x ** 2), 
+                jax.tree_util.tree_leaves(torso_grads), 0))
+            loss_dict_tail['train/grad_l2_norms'] = grad_l2_norms
+
             states_dict.update(updated_states)
             return states_dict, loss_dict_tail
             
