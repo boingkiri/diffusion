@@ -96,9 +96,10 @@ class CMFramework(DefaultModel):
         self.training_states = flax.jax_utils.replicate(self.training_states)
 
         # Determine if get_sigma_sampling requires current step as input
-        requires_steps = ["CT", "Bernoulli"]
-        self.head_sigma_requires_current_step = any(list(map(lambda s: s in diffusion_framework['sigma_sampling_head'], requires_steps)))
-        self.torso_sigma_requires_current_step = any(list(map(lambda s: s in diffusion_framework['sigma_sampling_torso'], requires_steps)))
+        # requires_steps = ["CT", "Bernoulli"]
+        # self.head_sigma_requires_current_step = any(list(map(lambda s: s in diffusion_framework['sigma_sampling_head'], requires_steps)))
+        # self.torso_sigma_requires_current_step = any(list(map(lambda s: s in diffusion_framework['sigma_sampling_torso'], requires_steps)))
+        # breakpoint()
 
         # state step correction
         self.step_scale = int(diffusion_framework['train']['total_batch_size'] / diffusion_framework['train']['batch_size_per_rounds'])
@@ -422,7 +423,8 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
             
             # Sigma sampling
-            step = jnp.floor(total_states_dict['head_state'].step / self.step_scale).astype(int) if self.head_sigma_requires_current_step else None
+            # step = jnp.floor(total_states_dict['head_state'].step / self.step_scale).astype(int) if self.head_sigma_requires_current_step else None
+            step = jnp.floor(total_states_dict['head_state'].step / self.step_scale).astype(int)
             sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_head'], step_key, y, step)
             perturbed_x = y + sigma * noise
 
@@ -531,7 +533,8 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
 
             # Sigma sampling
-            step = jnp.floor(total_states_dict['torso_state'].step / self.step_scale).astype(int) if self.torso_sigma_requires_current_step else None
+            # step = jnp.floor(total_states_dict['torso_state'].step / self.step_scale).astype(int) if self.torso_sigma_requires_current_step else None
+            step = jnp.floor(total_states_dict['head_state'].step / self.step_scale).astype(int)
             sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_torso'], step_key, y, step)
 
             perturbed_x = y + sigma * noise
