@@ -305,7 +305,8 @@ class CMFramework(DefaultModel):
         def pseudo_huber_loss_fn(pred, target, loss_weight=1):
             data_dim = pred.shape[1:]
             c = 0.00054 * jnp.sqrt(data_dim[0] * data_dim[1] * data_dim[2])
-            pseudo_huber = jnp.sqrt(jnp.sum((pred - target) ** 2, axis=(-1, -2, -3)) + c ** 2) - c
+            # pseudo_huber = jnp.sqrt(jnp.sum((pred - target) ** 2, axis=(-1, -2, -3)) + c ** 2) - c
+            pseudo_huber = jnp.sqrt((pred - target) ** 2 + c ** 2) - c
             pseudo_huber_loss = jnp.mean(loss_weight * pseudo_huber)
             return pseudo_huber_loss
 
@@ -813,8 +814,8 @@ class CMFramework(DefaultModel):
 
             # Before weight update, measure the distance between current model and target model
             # if diffusion_framework['gradient_flow_from_head']: 
-            prev_param = states_dict['torso_state'].params
-            current_param = updated_states['torso_state'].params
+            prev_param = jax.lax.stop_gradient(states_dict['torso_state'].params)
+            current_param = jax.lax.stop_gradient(updated_states['torso_state'].params)
             distance = jax.tree_util.tree_reduce(lambda acc, x: acc + jnp.sum(x),
                     jax.tree_util.tree_map(lambda x, y: (x - y) ** 2, 
                                            jax.tree_util.tree_leaves(prev_param), 
