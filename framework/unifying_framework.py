@@ -1,8 +1,8 @@
 # from framework.DDPM.ddpm import DDPM
-from framework.diffusion.ddpm_framework import DDPMFramework
-from framework.diffusion.edm_framework import EDMFramework
-from framework.diffusion.consistency_framework import CMFramework
-from framework.diffusion.ctm_framework import CTMFramework
+# from framework.diffusion.ddpm_framework import DDPMFramework
+# from framework.diffusion.edm_framework import EDMFramework
+# from framework.diffusion.consistency_framework import CMFramework
+# from framework.diffusion.ctm_framework import CTMFramework
 from framework.diffusion.improved_consistency_framework import iCMFramework
 from framework.LDM import LDM
 

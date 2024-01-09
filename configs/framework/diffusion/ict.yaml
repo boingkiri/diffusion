@@ -1,6 +1,6 @@
 type: "ict"
 n_timestep: 18
-loss: lpips # l2, l1, lpips, huber
+loss: huber # l2, l1, lpips, huber
 learn_sigma: False
 
 # Consistency distillation or Consistency training
@@ -29,7 +29,7 @@ S_noise: 1.007
 
 train:
   learning_rate: 1.0e-4
-  batch_size: 512
+  batch_size: 128
   total_step: 400000
   sampling_step: 10000
   saving_step: 100000

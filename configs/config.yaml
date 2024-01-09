@@ -9,9 +9,8 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: ict_lpips512_240102
-# tags: [cm, score_feedback, param_ema]
-tags: [ict, lpips]
+exp_name: ict_128_240108
+tags: [ict]
 do_training: true
 do_sampling: true
 num_sampling: 50000
