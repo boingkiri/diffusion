@@ -144,22 +144,11 @@ class FSUtils():
                 dest_dir_path = os.path.join(dataset_name, "train")
                 os.rename(train_dir_path, dest_dir_path)
 
-    def get_start_step_from_checkpoint(self, model_type):
-        if model_type == "diffusion":
-            checkpoint_format = self.config.exp.diffusion_prefix
-        elif model_type == "autoencoder":
-            checkpoint_format = self.config.exp.autoencoder_prefix
-        elif model_type == "discriminator": # idk this is useful though.
-            checkpoint_format = self.config.exp.discriminator_prefix
-        checkpoint_dir = self.config.exp.checkpoint_dir
-        max_num = 0
-        for content in os.listdir(checkpoint_dir):
-            if checkpoint_format in content:
-                _, num = content.split(checkpoint_format)
-                num = int(num)
-                if num > max_num:
-                    max_num = num
-        return max_num
+    def get_start_step_from_checkpoint(self):
+        latest_step = self.checkpoint_manager.latest_step()
+        if latest_step is None:
+            return 0
+        return latest_step
     
     def make_image_grid(self, images):
         images = common_utils.unnormalize_minus_one_to_one(images)
