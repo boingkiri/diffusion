@@ -3,7 +3,7 @@ import os
 import shutil
 import yaml
 
-from . import common_utils, jax_utils
+from . import common_utils
 from omegaconf import DictConfig, OmegaConf
 
 from PIL import Image
@@ -12,8 +12,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import io
-
-from flax.training import checkpoints, orbax_utils
 import orbax.checkpoint
 
 class FSUtils():
@@ -210,19 +208,19 @@ class FSUtils():
         best_saved = False
         self.checkpoint_manager.save(step, states)
         for state in states:
+            breakpoint()
             best_checkpoint_manager = self.best_checkpoint_manager[state]
-            best_saved = best_saved or best_checkpoint_manager.save(step, states, metrics=metrics[state])
+            state_saved = best_checkpoint_manager.save(step, states, metrics=metrics[state])
+            best_saved = best_saved or state_saved
 
         print(f"Saving {step} complete.")
         if best_saved:
             print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")
         
 
-    # def load_model_state(self, model_type, state):
     def load_model_state(self, state):
         step = self.checkpoint_manager.latest_step()
         if step is not None:
-            # state = self.checkpoint_manager.restore(step, items=state, restore_kwargs={'transforms': None})
             state = self.checkpoint_manager.restore(step, items=state)
         return state
     

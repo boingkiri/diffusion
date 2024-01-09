@@ -709,7 +709,7 @@ class CMPrecond(nn.Module):
             F_x, t_emb, last_x_emb = net(c_in * x, c_noise.flatten(), train)
         
         D_x = c_skip * x + c_out * F_x
-        return D_x, (F_x, t_emb, last_x_emb)
+        return D_x, (t_emb, last_x_emb)
 
 class CMDMPrecond(nn.Module):
     model_kwargs : dict

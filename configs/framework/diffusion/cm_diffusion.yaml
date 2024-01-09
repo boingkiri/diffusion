@@ -1,13 +1,9 @@
 type: "cm"
 n_timestep: 18
-loss: lpips # l2, l1, lpips
-# noise_schedule: linear # cosine, linear
+loss: huber # l2, l1, lpips
 learn_sigma: False
 
 # Consistency distillation or Consistency training
-is_distillation: False
-distillation_path: experiments/edm_porting_from_torch_ve/checkpoints # Exp name or pretrained model file name
-target_model_ema_decay: 0
 params_ema_for_training: [0.9, 10, 1280] # mu_0, s_0, s_1
 
 # Sigma : Assume that the process is performing VP
@@ -15,74 +11,24 @@ sigma_min: 0.002
 sigma_max: 80
 rho: 7
 
-deterministic_sampling: True
-S_churn: 30
-S_min: 0.01
-S_max: 1
-S_noise: 1.007
-
-# Loading Checkpoint
-# torso_checkpoint: 'pretrained_models/cd_750k'
-torso_checkpoint_path: null # None
-# head_checkpoint_path: "experiments/0906_verification_unet_block_1/checkpoints" # None
-head_checkpoint_path: null
-initialize_previous_training_step: False
-
-# Option for freezing CM during training
-CM_freeze: False
-joint_training: True
-alternative_training: False
-only_cm_training: False
-# joint training and alternative training should be toggled together 
-
-# Option for sigma sampling for head, torso
-# EDM, CD, CT, 
-# EDM_Quantization, uniform_Quantization
-# Bernoulli, Bernoulli_Quantization, Bernoulli_uniform_Quantization, 
-sigma_sampling_head: iCT
-sigma_sampling_torso: iCT
+# Option for sigma sampling for joint training
+# EDM, iCT
 sigma_sampling_joint: iCT
 
-# Loss weighting
-loss_weight: True
 
-# Common training procedure
-
-# Head training procedure
-head_martingale_loss_hyperparam: 0.1
-head_connection_loss: False # The name is temporarily used for now.
-
-
-# Torso training procedure
 gradient_flow_from_head: True
-score_feedback: False
-score_feedback_type: "threshold" # interpolation, threshold # for now, interpolation is not supported
-score_feedback_threshold: 1.0
 
 # Connection loss (new loss)
-connection_loss: True
-connection_mc_samples: 1
-connection_threshold: 50000
-connection_denoiser_type: none # unbiased, STF, none
-connection_loss_weight: "lognormal" # lognormal, uniform
-
-# embedding flag for sampling SH
-embedding_flag: False
-
-# augment_rate: 0.12
-score_pde_regularizer: False
-dh_dx_inv_weight: 1.0
-dh_dt_weight: 1.0
+alignment_loss: True
+alignment_threshold: 50000
+alignment_loss_weight: "lognormal" # lognormal, uniform
 
 train:
-  # learning_rate: 4.0e-4
   learning_rate: 1.0e-4
-  total_batch_size: 1024
-  batch_size_per_rounds: 128 # The option for gradient accumulation, which is used for large batch size training.
-  # total_batch_size / batch_size_per_rounds must be a positive integer.
-  # batch_size: 32
-  STF_reference_batch_size: 1024
-  # total_step: 800000
+  # total_batch_size: 1024
+  # batch_size_per_rounds: 256 # The option for gradient accumulation, which is used for large batch size training.
+  total_batch_size: 8
+  batch_size_per_rounds: 8
   total_step: 200000
   sampling_step: 10000
   saving_step: 100000

@@ -12,13 +12,13 @@ defaults:
     # - diffusion/score_head_large
     # - diffusion/score_head_baseline
   # - ema: ema_edm
-  - ema: ema
+  - ema: ema_ict
   - dataset: cifar10
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: ict_j_a_240105
-tags: [iCT, joint_training, alignment_loss]
+exp_name: 0110_iCT_pixel_huber_joint_alignment_20_2560_half_timeperiod
+tags: [iCT, joint_training, alignment_loss, pixel_huber]
 do_training: True
 do_sampling: True
 num_sampling: 50000

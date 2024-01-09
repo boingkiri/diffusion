@@ -25,7 +25,6 @@ def get_framework_config(config: DictConfig, model_type):
       framework_config = config.framework.diffusion
   else:
     framework_config = config.framework.diffusion
-    # framework_config = config.framework[model_type]
   return framework_config
 
 def get_learning_rate_schedule(config: DictConfig, model_type):
@@ -60,9 +59,7 @@ def create_optimizer(config: DictConfig, model_type):
     optax_chain.append(optax.adam(learning_rate, b1=betas[0], b2=betas[1]))
   elif optimizer_config['type'] == "radam":
     optax_chain.append(optax.radam(learning_rate))
-  tx = optax.chain(
-    *optax_chain
-  )
+  tx = optax.chain(*optax_chain)
 
   # Create gradient accumulation
   if framework_config['train'].get("batch_size_per_rounds", None) is not None and \

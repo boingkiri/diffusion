@@ -30,7 +30,6 @@ class UnifyingFramework():
     def __init__(self, model_type, config: DictConfig, random_rng) -> None:
         self.config = config
         self.current_model_type = model_type.lower()
-        self.diffusion_model_type = ['ddpm', 'ddim', 'edm', 'cm']
         self.random_rng = random_rng
         self.dataset_name = config.dataset.name
         self.do_fid_during_training = config.fid_during_training
@@ -101,15 +100,6 @@ class UnifyingFramework():
     
     def save_model_state(self, states:dict, metrics:dict=None):
         self.fs_utils.save_model_state(states, self.step, metrics=metrics)
-        # self.fs_utils.save_model_state(states, self.step, self.checkpoint_prefix)
-
-        # for state_key in states:
-        #     jax_utils.save_train_state(
-        #         states[state_key],
-        #         self.config.exp.checkpoint_dir,
-        #         self.step,
-        #         prefix=state_key + "_"
-        #     )
 
     def train(self):
         # TODO: The connection_denoiser_type is only used in CM training. need to be fixed.
@@ -120,7 +110,6 @@ class UnifyingFramework():
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
         num_of_rounds = self.config["framework"]["diffusion"]['train']["total_batch_size"] // \
                             self.config["framework"]["diffusion"]['train']["batch_size_per_rounds"]
-        # best_fids = self.fs_utils.get_best_fid()
         # first_step = True
         first_step = False
         fid_dict = {}
@@ -147,76 +136,33 @@ class UnifyingFramework():
 
                 # Change of the sample quality is tracked to know how much the CM model is corrupted.
                 # Sample generated image for EDM
-                if not self.config.framework.diffusion.only_cm_training:
-                    sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="edm")
-                    edm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
-                    sample_image = self.fs_utils.get_pil_from_np(edm_xset)
-                    # sample_path = self.fs_utils.save_comparison(edm_xset, self.step, in_process_dir)
-                    log['Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
-
-                # Sample generated image for training CM
-                if not self.config.framework.diffusion.CM_freeze:
-                    sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="cm-training")
-                    training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
-                    sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
-                    log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
-                    sample_path = self.fs_utils.save_comparison(training_cm_xset, self.step, in_process_dir) # TMP
-                    sample_image.close()
-                
-                # Sample generated image for EDM when embedding flag configuration is existed
-                if self.config.framework.diffusion.get("embedding_flag", False):
-                    sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="edm_embedding_flag")
-                    training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
-                    sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
-                    log['EDM embedding flag Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
-                    sample_path = self.fs_utils.save_comparison(training_cm_xset, self.step, in_process_dir) # TMP
-                    sample_image.close()
-
-                # Sample generated image for original CM 
-                sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="cm-not-training")
+                sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="edm")
                 edm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_image = self.fs_utils.get_pil_from_np(edm_xset)
-                log['Original CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
+                # sample_path = self.fs_utils.save_comparison(edm_xset, self.step, in_process_dir)
+                log['Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
+
+                # Sample generated image for training CM
+                sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="cm-training")
+                training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
+                sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
+                log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
+                sample_path = self.fs_utils.save_comparison(training_cm_xset, self.step, in_process_dir) # TMP
                 sample_image.close()
                 
-
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
 
             # if self.step % 50000 == 0 and self.step != 0:
             # if self.step % 50000 == 0:
-            if self.step % 50000 == 0 and self.step not in fid_dict:
+            # if self.step % 50000 == 0 and self.step not in fid_dict:
+            if self.step % 10000 == 0 and self.step not in fid_dict:
                 model_state = self.framework.get_model_state()
-                # if not first_step:
-                #     self.save_model_state(model_state)
-
-                # Calculate FID score with 1000 samples
-                # if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
-                #     fid_score = self.fid_utils.calculate_fid_in_step(self.step, self.framework, 10000, batch_size=128)
-                #     if best_fid >= fid_score:
-                #         best_checkpoint_dir = self.config.exp.best_dir
-                #         jax_utils.save_best_state(model_state, best_checkpoint_dir, self.step, "diffusion_")
-
-                #         best_fid = fid_score
-                #     self.wandblog.update_log({"FID score": fid_score})
-                #     self.wandblog.flush(step=self.step)
+                sampling_modes = ['edm', 'cm-training']
                 
-                # TMP: Calculate FID score with 10000 samples for both EDM and CM, 
-                # which corresponds to the head and the torso, respectively.
-
-                if self.config.framework.diffusion.only_cm_training:
-                    sampling_modes = ['cm-training']
-                elif self.config.framework.diffusion.CM_freeze:
-                    sampling_modes = ['edm']
-                else:
-                    sampling_modes = ['edm', 'cm-training']
-                
-                if self.config.framework.diffusion.get("embedding_flag", False):
-                    sampling_modes.append("edm_embedding_flag")
                 if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
                     mode_metrics = {}
                     for mode in sampling_modes:
-                        # fid_score = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=128, sampling_mode=mode)
                         fid_score, mu_diff = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=self.sample_batch_size, sampling_mode=mode)
                         self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode, mu_diff=mu_diff)
                         metrics = {"fid": fid_score}
