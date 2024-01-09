@@ -114,7 +114,7 @@ class UnifyingFramework():
     def train(self):
         # TODO: The connection_denoiser_type is only used in CM training. need to be fixed.
         datasets = common_utils.load_dataset_from_tfds(self.config)
-        datasets_bar = tqdm(datasets, total=self.total_step-self.step, initial=self.step)
+        datasets_bar = tqdm(datasets, total=self.total_step, initial=self.step)
         in_process_dir = self.config.exp.in_process_dir
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
         in_process_dir = os.path.join(in_process_dir, in_process_model_dir_name)
