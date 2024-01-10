@@ -208,7 +208,6 @@ class FSUtils():
         best_saved = False
         self.checkpoint_manager.save(step, states)
         for state in states:
-            breakpoint()
             best_checkpoint_manager = self.best_checkpoint_manager[state]
             state_saved = best_checkpoint_manager.save(step, states, metrics=metrics[state])
             best_saved = best_saved or state_saved
