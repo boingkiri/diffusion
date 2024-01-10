@@ -576,6 +576,94 @@ class PDEScoreHead(nn.Module):
 
     
 
+# class TimeEmbedDependentHead(nn.Module):
+#     image_channels: int = 3
+#     n_channels: int = 128
+#     last_ch_mult: int = 2
+#     n_blocks: int = 4
+#     n_heads: int = 1
+#     n_groups: int = 32
+#     dropout_rate: float = 0.1
+#     resample_filter: Union[Tuple[int, ...], List[int]] = (1, 1)
+    
+#     def setup(self):
+#         init = create_initializer("xavier_uniform")
+#         emb_channels = self.n_channels * 4
+        
+#         block_kwargs = dict(
+#             emb_channels=emb_channels,
+#             num_heads=self.n_heads,
+#             dropout_rate=self.dropout_rate,
+#             skip_scale=jnp.sqrt(0.5),
+#             eps=1e-6,
+#             resample_filter=self.resample_filter,
+#             resample_proj=True,
+#             adaptive_scale=False
+#         )
+#         self.normalize1 = nn.GroupNorm()
+#         head_channels = self.n_channels * self.last_ch_mult
+#         first_head_channels = head_channels * 2
+#         # self.conv1 = CustomConv2d(in_channels=head_channels + self.image_channels * 2, 
+#         self.conv1 = CustomConv2d(in_channels=first_head_channels + self.image_channels * 2, 
+#                                   out_channels=head_channels, 
+#                                   kernel_channels=3,
+#                                   init_mode=init)
+        
+#         blocks = []
+
+#         for _ in range(self.n_blocks-1):
+#             blocks.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, **block_kwargs))
+#         blocks.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, attention=True, **block_kwargs))
+        
+#         self.normalize3 = nn.GroupNorm()
+        
+#         blocks2 = []
+#         for _ in range(self.n_blocks-1):
+#             blocks2.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, **block_kwargs))
+#         blocks2.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, attention=True, **block_kwargs))
+        
+#         self.blocks = blocks
+#         self.blocks2 = blocks2
+#         self.normalize2 = nn.GroupNorm()
+#         self.conv2 = CustomConv2d(in_channels=head_channels,
+#                                     out_channels=self.image_channels,
+#                                     kernel_channels=3,
+#                                     init_mode=init)
+
+#     def __call__(self, x, x_pred, x_emb, t_emb, train):
+#         x_emb_norm = self.normalize1(x_emb)
+#         x_emb = self.conv1(nn.silu(jnp.concatenate([x, x_pred, x_emb_norm], axis=-1)))
+        
+#         for block in self.blocks:
+#             x_emb = block(x_emb, t_emb, train)
+        
+#         x_emb = nn.silu(self.normalize3(x_emb))
+        
+#         for block in self.blocks2:
+#             x_emb = block(x_emb, t_emb, train)
+        
+#         x = self.conv2(nn.silu(self.normalize2(x_emb)))
+#         return x
+
+class ConvHead(nn.Module):
+    image_channels: int = 3
+    n_channels: int = 128
+    last_ch_mult: int = 2
+    
+    def setup(self):
+        init = create_initializer("xavier_uniform")
+        self.normalize = nn.GroupNorm()
+        head_channels = self.n_channels * self.last_ch_mult
+        self.conv = CustomConv2d(in_channels=head_channels * 2 + self.image_channels * 2, 
+                                  out_channels=self.image_channels, 
+                                  kernel_channels=3,
+                                  init_mode=init)
+
+    def __call__(self, x, x_pred, x_emb):
+        x_emb_norm = self.normalize(x_emb)
+        x = self.conv(nn.silu(jnp.concatenate([x, x_pred, x_emb_norm], axis=-1)))
+        return x
+
 class TimeEmbedDependentHead(nn.Module):
     image_channels: int = 3
     n_channels: int = 128
@@ -602,28 +690,16 @@ class TimeEmbedDependentHead(nn.Module):
         )
         self.normalize1 = nn.GroupNorm()
         head_channels = self.n_channels * self.last_ch_mult
-        first_head_channels = head_channels * 2
-        # self.conv1 = CustomConv2d(in_channels=head_channels + self.image_channels * 2, 
-        self.conv1 = CustomConv2d(in_channels=first_head_channels + self.image_channels * 2, 
+        self.conv1 = CustomConv2d(in_channels=head_channels * 2 + self.image_channels * 2, 
                                   out_channels=head_channels, 
                                   kernel_channels=3,
                                   init_mode=init)
         
         blocks = []
-
-        for _ in range(self.n_blocks-1):
-            blocks.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, **block_kwargs))
-        blocks.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, attention=True, **block_kwargs))
-        
-        self.normalize3 = nn.GroupNorm()
-        
-        blocks2 = []
-        for _ in range(self.n_blocks-1):
-            blocks2.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, **block_kwargs))
-        blocks2.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, attention=True, **block_kwargs))
+        for _ in range(self.n_blocks):
+            blocks.append(UNetBlock(in_channels=head_channels, out_channels=head_channels, attention=True, **block_kwargs))
         
         self.blocks = blocks
-        self.blocks2 = blocks2
         self.normalize2 = nn.GroupNorm()
         self.conv2 = CustomConv2d(in_channels=head_channels,
                                     out_channels=self.image_channels,
@@ -637,14 +713,8 @@ class TimeEmbedDependentHead(nn.Module):
         for block in self.blocks:
             x_emb = block(x_emb, t_emb, train)
         
-        x_emb = nn.silu(self.normalize3(x_emb))
-        
-        for block in self.blocks2:
-            x_emb = block(x_emb, t_emb, train)
-        
         x = self.conv2(nn.silu(self.normalize2(x_emb)))
         return x
-
         
 class EDMPrecond(nn.Module):
     model_kwargs : dict
@@ -814,7 +884,9 @@ class ScoreDistillPrecond(nn.Module):
     model_type: str = "baseline"
 
     def setup(self):
-        if self.model_type == "baseline":
+        if self.model_type == "conv":
+            self.head = ConvHead(**self.model_kwargs)
+        elif self.model_type == "baseline":
             self.head = TimeEmbedDependentHead(**self.model_kwargs)
         elif self.model_type == "unetpp":
             self.head = UNetppHead(**self.model_kwargs)
@@ -832,18 +904,19 @@ class ScoreDistillPrecond(nn.Module):
         # Layernorm for last_x_emb and t_emb
         last_x_emb = self.layer_norm_for_last_x_emb(last_x_emb)
         t_emb = self.layer_norm_for_t_emb(t_emb)
-        F_x = c_in * F_x # TMP
         
-        if self.model_type == "baseline":
-            return c_skip * x + c_out * self.head(x, F_x, last_x_emb, t_emb, train), ()
+        if self.model_type == "conv":
+            return c_skip * x + c_out * self.head(c_in * x, c_in * F_x, last_x_emb), ()
+        elif self.model_type == "baseline":
+            return c_skip * x + c_out * self.head(c_in * x, c_in * F_x, last_x_emb, t_emb, train), ()
         elif self.model_type == "unetpp":
             # return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train), ()
-            return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train), ()
+            return c_skip * x + c_out * self.head(c_in * x, c_noise, c_in * F_x, last_x_emb, t_emb, train), ()
         elif self.model_type == "score_pde": 
             # Use tweedie formula for modeling x_0
             # self.head = sigma * (score function) for simplicity
             # sigma_score, dh_dx_inv, dh_dt = self.head(x, c_noise, F_x, last_x_emb, t_emb, train)
-            sigma_score, dh_dx_inv, dh_dt = self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train)
+            sigma_score, dh_dx_inv, dh_dt = self.head(c_in * x, c_noise, c_in * F_x, last_x_emb, t_emb, train)
             return x + sigma * sigma_score, (dh_dx_inv, dh_dt)
             # return c_skip * x + c_out * self.head(c_in * x, c_noise, F_x, last_x_emb, t_emb, train)
 

@@ -1,5 +1,5 @@
 # Type of score
-# - baseline: stack of UNetblock. Not encoder-decoder model.
+# - baseline: stack of UNet blocks. Not encoder-decoder model.
 # - unet: Encdoer-decoder model with UNetBlock.
 
 type: "baseline"
@@ -8,7 +8,6 @@ image_channels: 3
 n_channels: 128
 
 last_ch_mult:  1
-# n_blocks: 4
 n_blocks: 1
 n_heads: 1
 n_groups: 32

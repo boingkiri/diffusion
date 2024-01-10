@@ -16,10 +16,10 @@ rho: 7
 sigma_sampling_joint: iCT
 
 
-gradient_flow_from_head: True
+gradient_flow_from_head: False
 
 # Connection loss (new loss)
-alignment_loss: True
+alignment_loss: False
 alignment_threshold: 50000
 alignment_loss_scale: 1.0
 alignment_loss_weight: "lognormal" # lognormal, uniform

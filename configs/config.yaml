@@ -7,8 +7,9 @@ defaults:
     # - diffusion/original_cm
     - diffusion/original_ict
   - model@_group_.head: 
+    - diffusion/score_head_conv
     # - diffusion/score_head_pde
-    - diffusion/score_head
+    # - diffusion/score_head
     # - diffusion/score_head_large
     # - diffusion/score_head_baseline
   # - ema: ema_edm
@@ -17,8 +18,8 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: 0110_iCT_pixel_huber_joint_alignment_20_2560_half_timeperiod
-tags: [iCT, joint_training, alignment_loss, pixel_huber]
+exp_name: iCT_uniexp_1024_240110
+tags: [iCT]
 do_training: True
 do_sampling: True
 num_sampling: 50000
