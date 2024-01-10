@@ -268,7 +268,7 @@ class CMFramework(DefaultModel):
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
             
-            prev_perturbed_x = perturbed_x + prev_sigma * noise
+            prev_perturbed_x = y + prev_sigma * noise
             prev_D_x, _ = self.model.apply(
                 {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
