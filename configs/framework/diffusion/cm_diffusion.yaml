@@ -24,12 +24,17 @@ alignment_threshold: 50000
 alignment_loss_scale: 1.0
 alignment_loss_weight: "lognormal" # lognormal, uniform
 
+# Option for continuous timestep
+continuous_timestep: True
+continuous_timestep_stopgrad: True
+continuous_timestep_threshold: 0
+
 train:
   learning_rate: 1.0e-4
   # total_batch_size: 1024
   # batch_size_per_rounds: 256 # The option for gradient accumulation, which is used for large batch size training.
   total_batch_size: 128
-  batch_size_per_rounds: 128
+  batch_size_per_rounds: 64
   total_step: 400000
   sampling_step: 10000
   saving_step: 100000

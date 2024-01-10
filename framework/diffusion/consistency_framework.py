@@ -142,10 +142,24 @@ class CMFramework(DefaultModel):
             sigma = self.ict_t_steps_fn(next_idx, N_k)[:, None, None, None]
             prev_sigma = self.ict_t_steps_fn(idx, N_k)[:, None, None, None]
             return sigma, prev_sigma
+    
+        def ict_continuous_sigma_sampling(rng_key, y, step):
+            p_mean = -1.1
+            p_std = 2.0
+            normal = jax.random.normal(rng_key, (y.shape[0], 1, 1, 1))
+            sigma = jnp.exp(normal * p_std + p_mean)
+            return sigma, sigma # prev_sigma is not used in this case.
+
 
         def get_sigma_sampling(sigma_sampling, rng_key, y, step=None):
             if sigma_sampling == "EDM":
                 return edm_sigma_sampling_fn(rng_key, y)
+            elif sigma_sampling == "iCT" and diffusion_framework["continuous_timestep"]:
+                return jax.lax.cond(step >= diffusion_framework["continuous_timestep_threshold"],
+                    ict_continuous_sigma_sampling,
+                    ict_sigma_sampling_fn,
+                    rng_key, y, step
+                )
             elif sigma_sampling == "iCT":
                 return ict_sigma_sampling_fn(rng_key, y, step)
             else:
@@ -166,7 +180,7 @@ class CMFramework(DefaultModel):
             pseudo_huber = jnp.sqrt((pred - target) ** 2 + c ** 2) - c
             pseudo_huber_loss = jnp.mean(loss_weight * pseudo_huber)
             return pseudo_huber_loss
-
+        
         def get_loss(loss_type, pred, target, loss_weight=1, train=True, key_name=None):
             loss = 0
             if loss_type == "l2":
@@ -259,26 +273,66 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(noise_key, y.shape)
             
             # Sigma sampling
-            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_joint'], step_key, y, jnp.floor(total_states_dict['torso_state'].step / self.step_scale).astype(int))
+            current_step = jnp.floor(total_states_dict['torso_state'].step / self.step_scale).astype(int)
+            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_joint'], step_key, y, current_step)
             perturbed_x = y + sigma * noise
+            prev_perturbed_x = y + prev_sigma * noise
 
             # Get consistency function values
             cm_dropout_key, dropout_key = jax.random.split(dropout_key, 2)
-            D_x, aux = self.model.apply(
-                {'params': torso_params}, x=perturbed_x, sigma=sigma,
-                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-            
-            prev_perturbed_x = y + prev_sigma * noise
-            prev_D_x, _ = self.model.apply(
-                {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
-            # Get consistency loss
-            loss_weight = 1 / (sigma - prev_sigma)
-            consistency_loss, consistency_loss_dict = get_loss(diffusion_framework['loss'], D_x, prev_D_x, loss_weight=loss_weight, train=True)
+            def continuous_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, dropout_key):
+                unbiased_score = (y - perturbed_x) / (sigma ** 2)
+                def model_fn(perturbed_x, sigma):
+                    D_x, aux = self.model.apply(
+                        {'params': torso_params}, x=perturbed_x, sigma=sigma,
+                        train=True, augment_labels=None, rngs={'dropout': dropout_key})
+                    return D_x, aux
+                D_x, diffs, aux = jax.jvp(
+                    model_fn, (perturbed_x, sigma), (sigma * unbiased_score, -jnp.ones_like(sigma)), has_aux=True)
+                consistency_loss_dict = {}
+                if diffusion_framework["continuous_timestep_stopgrad"]:
+                    pseudo_loss = -jax.lax.stop_gradient(diffs) * D_x
+                    pseudo_loss = jnp.sum(pseudo_loss.reshape(pseudo_loss.shape[0], -1), axis=-1)
+                    consistency_loss = jnp.mean(pseudo_loss)
+                    consistency_loss_dict.update({"train/pseudo_consistency_loss": consistency_loss})
+                    consistency_loss_dict.update({"train/consistency_loss": 0.0})
+                else:
+                    loss = diffs ** 2
+                    loss = jnp.sqrt(jnp.sum(loss.reshape(loss.shape[0], -1), axis=1))
+                    consistency_loss = jnp.mean(loss)
+                    consistency_loss_dict.update({"train/pseudo_consistency_loss": 0.0})
+                    consistency_loss_dict.update({"train/consistency_loss": consistency_loss})
+                consistency_loss_dict.update({"train/{}".format(diffusion_framework["loss"]): 0.0})
+                return consistency_loss, consistency_loss_dict, (D_x, aux)
+            
+            def discrete_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, dropout_key):
+                D_x, aux = self.model.apply(
+                    {'params': torso_params}, x=perturbed_x, sigma=sigma,
+                    train=True, augment_labels=None, rngs={'dropout': dropout_key})
+                
+                prev_D_x, _ = self.model.apply(
+                    {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
+                    train=True, augment_labels=None, rngs={'dropout': dropout_key})
+                # Get consistency loss
+                loss_weight = 1 / (sigma - prev_sigma)
+                consistency_loss, consistency_loss_dict = get_loss(diffusion_framework['loss'], D_x, prev_D_x, loss_weight=loss_weight, train=True)
+                if diffusion_framework["continuous_timestep"]:
+                    consistency_loss_dict.update({"train/pseudo_consistency_loss": 0.0})
+                    consistency_loss_dict.update({"train/consistency_loss": 0.0})
+                return consistency_loss, consistency_loss_dict, (D_x, aux)
+
+            if diffusion_framework['continuous_timestep']:
+                consistency_loss, consistency_loss_dict, func_val = jax.lax.cond(
+                    current_step >= diffusion_framework['continuous_timestep_threshold'],
+                    continuous_loss, discrete_loss,
+                    torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, cm_dropout_key)
+            else:
+                consistency_loss, consistency_loss_dict, func_val = discrete_loss()
             total_loss += consistency_loss
             loss_dict.update(consistency_loss_dict)
             
+            D_x, aux = func_val
             head_D_x = jax.lax.stop_gradient(D_x)
             head_t_emb, head_last_x_emb = jax.lax.stop_gradient(aux) if not diffusion_framework['gradient_flow_from_head'] else aux
 
