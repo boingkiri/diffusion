@@ -306,29 +306,30 @@ class CMFramework(DefaultModel):
                 consistency_loss_dict.update({"train/{}".format(diffusion_framework["loss"]): 0.0})
                 return consistency_loss, consistency_loss_dict, (D_x, aux)
             
-            def discrete_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, dropout_key):
-                D_x, aux = self.model.apply(
-                    {'params': torso_params}, x=perturbed_x, sigma=sigma,
-                    train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            # def discrete_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, dropout_key):
+            #     D_x, aux = self.model.apply(
+            #         {'params': torso_params}, x=perturbed_x, sigma=sigma,
+            #         train=True, augment_labels=None, rngs={'dropout': dropout_key})
                 
-                prev_D_x, _ = self.model.apply(
-                    {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-                    train=True, augment_labels=None, rngs={'dropout': dropout_key})
-                # Get consistency loss
-                loss_weight = 1 / (sigma - prev_sigma)
-                consistency_loss, consistency_loss_dict = get_loss(diffusion_framework['loss'], D_x, prev_D_x, loss_weight=loss_weight, train=True)
-                if diffusion_framework["continuous_timestep"]:
-                    consistency_loss_dict.update({"train/pseudo_consistency_loss": 0.0})
-                    consistency_loss_dict.update({"train/consistency_loss": 0.0})
-                return consistency_loss, consistency_loss_dict, (D_x, aux)
+            #     prev_D_x, _ = self.model.apply(
+            #         {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
+            #         train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            #     # Get consistency loss
+            #     loss_weight = 1 / (sigma - prev_sigma)
+            #     consistency_loss, consistency_loss_dict = get_loss(diffusion_framework['loss'], D_x, prev_D_x, loss_weight=loss_weight, train=True)
+            #     if diffusion_framework["continuous_timestep"]:
+            #         consistency_loss_dict.update({"train/pseudo_consistency_loss": 0.0})
+            #         consistency_loss_dict.update({"train/consistency_loss": 0.0})
+            #     return consistency_loss, consistency_loss_dict, (D_x, aux)
 
             if diffusion_framework['continuous_timestep']:
-                consistency_loss, consistency_loss_dict, func_val = jax.lax.cond(
-                    current_step >= diffusion_framework['continuous_timestep_threshold'],
-                    continuous_loss, discrete_loss,
-                    torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, cm_dropout_key)
-            else:
-                consistency_loss, consistency_loss_dict, func_val = discrete_loss()
+                # consistency_loss, consistency_loss_dict, func_val = jax.lax.cond(
+                #     current_step >= diffusion_framework['continuous_timestep_threshold'],
+                #     continuous_loss, discrete_loss,
+                #     torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, cm_dropout_key)
+                consistency_loss, consistency_loss_dict, func_val = continuous_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, cm_dropout_key)
+            # else:
+            #     consistency_loss, consistency_loss_dict, func_val = discrete_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, cm_dropout_key)
             total_loss += consistency_loss
             loss_dict.update(consistency_loss_dict)
             
