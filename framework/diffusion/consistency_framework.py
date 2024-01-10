@@ -316,10 +316,9 @@ class CMFramework(DefaultModel):
                     alignment_loss_weight *= 1 / (p_std * jnp.sqrt(2 * jnp.pi))
                 else:
                     alignment_loss_weight = 1
-                
                 alignment_loss = jnp.mean(alignment_loss_weight * (new_D_x - alignment_loss_denoised) ** 2)
 
-                total_loss += alignment_loss
+                total_loss += diffusion_framework['alignment_loss_scale'] * alignment_loss
                 loss_dict['train/alignment_loss'] = alignment_loss
 
             return total_loss, loss_dict

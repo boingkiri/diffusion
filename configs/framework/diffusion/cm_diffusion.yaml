@@ -21,6 +21,7 @@ gradient_flow_from_head: True
 # Connection loss (new loss)
 alignment_loss: True
 alignment_threshold: 50000
+alignment_loss_scale: 1.0
 alignment_loss_weight: "lognormal" # lognormal, uniform
 
 train:
