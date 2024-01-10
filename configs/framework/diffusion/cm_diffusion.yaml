@@ -27,9 +27,9 @@ train:
   learning_rate: 1.0e-4
   # total_batch_size: 1024
   # batch_size_per_rounds: 256 # The option for gradient accumulation, which is used for large batch size training.
-  total_batch_size: 8
-  batch_size_per_rounds: 8
-  total_step: 200000
+  total_batch_size: 128
+  batch_size_per_rounds: 128
+  total_step: 400000
   sampling_step: 10000
   saving_step: 100000
   optimizer:
