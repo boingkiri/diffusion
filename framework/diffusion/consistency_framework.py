@@ -312,7 +312,8 @@ class CMFramework(DefaultModel):
             # Get DSM
             sigma_data = 0.5
             weight = (sigma ** 2 + sigma_data ** 2) / ((sigma * sigma_data) ** 2)
-            dsm_loss = jnp.mean(weight * (denoised - y) ** 2)
+            joint_training_weight = diffusion_framework.get('joint_training_weight', 1)
+            dsm_loss = jnp.mean(joint_training_weight * weight * (denoised - y) ** 2)
             total_loss += dsm_loss
             loss_dict['train/head_dsm_loss'] = dsm_loss
 

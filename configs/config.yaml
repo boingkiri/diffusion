@@ -7,9 +7,9 @@ defaults:
     # - diffusion/original_cm
     - diffusion/original_ict
   - model@_group_.head: 
-    - diffusion/score_head_conv
+    # - diffusion/score_head_conv
     # - diffusion/score_head_pde
-    # - diffusion/score_head
+    - diffusion/score_head
     # - diffusion/score_head_large
     # - diffusion/score_head_baseline
   # - ema: ema_edm
@@ -18,7 +18,7 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: iCT_uniexp_1024_240110
+exp_name: 0112_iCT_512_lambda_0.1
 tags: [iCT]
 do_training: True
 do_sampling: True
