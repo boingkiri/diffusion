@@ -392,7 +392,14 @@ class CMFramework(DefaultModel):
                 loss_dict[loss_key] = jax.lax.pmean(loss_dict[loss_key], axis_name=self.pmap_axis)
             
             # Update EMA for sampling
-            states = {state_name: self.ema_obj.ema_update(state_content) for state_name, state_content in states.items()}
+            # states = {state_name: self.ema_obj.ema_update(state_content) for state_name, state_content in states.items()}
+            def ema_update_fn(states, step):
+                updated_states = {state_name: self.ema_obj.ema_update(state_content, step) for state_name, state_content in states.items()}
+                return updated_states
+            effective_step = states[head_torso_key[0]].step // self.step_scale
+            states = jax.lax.cond(
+                states[head_torso_key[0]].step % self.step_scale == 0,
+                ema_update_fn, lambda x, step: x, states, effective_step)
 
             new_carry_state = (new_rng, states)
             return new_carry_state, loss_dict
