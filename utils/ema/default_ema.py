@@ -27,8 +27,8 @@ class DefaultEMA():
         
         self.ema_update_pmap = jax.jit(ema_update_pmap_fn)
     
-    def ema_update(self, state: TrainState):
-        new_state = self.ema_update_pmap(state)
+    def ema_update(self, state: TrainState, step: int=None):
+        new_state = self.ema_update_pmap(state, step)
         return new_state
 
     def _clamp(self, value, min_value=None, max_value=None):
