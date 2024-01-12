@@ -24,10 +24,6 @@ alignment_threshold: 50000
 alignment_loss_scale: 1.0
 alignment_loss_weight: "lognormal" # lognormal, uniform
 
-# Option for continuous timestep
-continuous_timestep: True
-continuous_timestep_stopgrad: True
-continuous_timestep_threshold: 0
 
 train:
   learning_rate: 1.0e-4
