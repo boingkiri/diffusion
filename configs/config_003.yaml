@@ -18,7 +18,7 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: 0112_iCT_512_pseudo_huber_c_0.03
+exp_name: 0112_iCT_512_pseudo_huber_c_003
 tags: [iCT]
 do_training: True
 do_sampling: True
@@ -35,6 +35,10 @@ available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 #     distillation_path: None # experiments/cm_dm_230603_encoder_head_with_time_emb_1 # Exp name or pretrained model file name
     # t_emb_output: True
   # train_idx: 2
+
+framework:
+  diffusion:
+    pseudo_huber_loss_c: 0.03
 
 hydra:  
   output_subdir: null  

@@ -19,7 +19,7 @@ pseudo_huber_loss_c: 0.03
 
 
 gradient_flow_from_head: True
-joint_training_weight: 0.1
+joint_training_weight: 1
 
 # Connection loss (new loss)
 alignment_loss: False
@@ -30,8 +30,8 @@ alignment_loss_weight: "lognormal" # lognormal, uniform
 
 train:
   learning_rate: 1.0e-4
-  total_batch_size: 1024
-  batch_size_per_rounds: 256 # The option for gradient accumulation, which is used for large batch size training.
+  total_batch_size: 512
+  batch_size_per_rounds: 64 # The option for gradient accumulation, which is used for large batch size training.
   # total_batch_size: 512
   # batch_size_per_rounds: 128
   total_step: 400000
