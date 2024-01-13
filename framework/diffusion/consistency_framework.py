@@ -175,7 +175,8 @@ class CMFramework(DefaultModel):
         
         def pseudo_huber_loss_fn(pred, target, loss_weight=1):
             data_dim = pred.shape[1:]
-            c = 0.00054 * jnp.sqrt(data_dim[0] * data_dim[1] * data_dim[2])
+            # c = 0.00054 * jnp.sqrt(data_dim[0] * data_dim[1] * data_dim[2])
+            c = diffusion_framework.get("pseudo_huber_loss_c", 0.00054 * jnp.sqrt(data_dim[0] * data_dim[1] * data_dim[2]))
             # pseudo_huber = jnp.sqrt(jnp.sum((pred - target) ** 2, axis=(-1, -2, -3)) + c ** 2) - c
             pseudo_huber = jnp.sqrt((pred - target) ** 2 + c ** 2) - c
             pseudo_huber_loss = jnp.mean(loss_weight * pseudo_huber)
