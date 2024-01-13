@@ -1,16 +1,16 @@
 # deep learning framework
-torch
+# torch
 tensorflow
 tensorflow_datasets
 
 -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
-jax[tpu]
+jax[tpu]==0.4.12
 
 # -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 # jax[cuda11_pip]
 
 # JAX family framework
-orbax-checkpoint
+orbax-checkpoint==0.4.1
 flax
 optax
 lpips_jax
