@@ -265,7 +265,7 @@ class CMFramework(DefaultModel):
 
             torso_params = update_params['torso_state']
             head_params = update_params['head_state']
-            target_model = jax.lax.stop_gradient(torso_params) 
+            target_model = jax.lax.stop_gradient(torso_params)
 
             # Unzip arguments for loss_fn
             y, rng_key = args
@@ -283,24 +283,29 @@ class CMFramework(DefaultModel):
             cm_dropout_key, dropout_key = jax.random.split(dropout_key, 2)
 
           
-            def discrete_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, dropout_key):
-                D_x, aux = self.model.apply(
-                    {'params': torso_params}, x=perturbed_x, sigma=sigma,
-                    train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            # def discrete_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, dropout_key):
+            #     D_x, aux = self.model.apply(
+            #         {'params': torso_params}, x=perturbed_x, sigma=sigma,
+            #         train=True, augment_labels=None, rngs={'dropout': dropout_key})
                 
-                prev_D_x, _ = self.model.apply(
-                    {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
-                    train=True, augment_labels=None, rngs={'dropout': dropout_key})
-                # Get consistency loss
-                loss_weight = 1 / (sigma - prev_sigma)
-                consistency_loss, consistency_loss_dict = get_loss(diffusion_framework['loss'], D_x, prev_D_x, loss_weight=loss_weight, train=True)
-                return consistency_loss, consistency_loss_dict, (D_x, aux)
+            #     prev_D_x, _ = self.model.apply(
+            #         {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
+            #         train=True, augment_labels=None, rngs={'dropout': dropout_key})
+            #     # Get consistency loss
+            #     loss_weight = 1 / (sigma - prev_sigma)
+            #     consistency_loss, consistency_loss_dict = get_loss(diffusion_framework['loss'], D_x, prev_D_x, loss_weight=loss_weight, train=True)
+            #     return consistency_loss, consistency_loss_dict, (D_x, aux)
 
-            consistency_loss, consistency_loss_dict, func_val = discrete_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, cm_dropout_key)
-            total_loss += consistency_loss
-            loss_dict.update(consistency_loss_dict)
+            # consistency_loss, consistency_loss_dict, func_val = discrete_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, cm_dropout_key)
+            # total_loss += consistency_loss
+            # loss_dict.update(consistency_loss_dict)
             
-            D_x, aux = func_val
+            # D_x, aux = func_val
+
+            D_x, aux = self.model.apply(
+                {'params': torso_params}, x=perturbed_x, sigma=sigma,
+                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+            
             head_D_x = jax.lax.stop_gradient(D_x)
             head_t_emb, head_last_x_emb = jax.lax.stop_gradient(aux) if not diffusion_framework['gradient_flow_from_head'] else aux
 
@@ -353,7 +358,8 @@ class CMFramework(DefaultModel):
                 loss_fn, 
                 loss_fn_args, 
                 loss_dict_tail: dict = {}):
-            update_params_dict = {params_key: states_dict[params_key].params for params_key in update_states_key_list}
+            # update_params_dict = {params_key: states_dict[params_key].params for params_key in update_states_key_list}
+            update_params_dict = {"torso_state": states_dict["torso_state"].params_ema, "head_state": states_dict["head_state"].params}
             (_, loss_dict), grads = jax.value_and_grad(loss_fn, has_aux=True)(update_params_dict, states_dict, loss_fn_args)
             grads_mean = {params_key: jax.lax.pmean(grads[params_key], axis_name=self.pmap_axis) for params_key in update_states_key_list}
             updated_states = {params_key: states_dict[params_key].apply_gradients(grads=grads_mean[params_key]) 

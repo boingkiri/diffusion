@@ -18,7 +18,7 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: 0112_iCT_512_lambda_0.1
+exp_name: ict_finetune_240115
 tags: [iCT]
 do_training: True
 do_sampling: True
