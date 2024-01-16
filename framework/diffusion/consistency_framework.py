@@ -113,8 +113,10 @@ class CMFramework(DefaultModel):
             return sigma, prev_sigma
         
         def ict_sigma_sampling_fn(rng_key, y, step):
-            p_mean = -1.1
-            p_std = 2.0
+            # p_mean = -1.1
+            # p_std = 2.0
+            p_mean = -1.2
+            p_std = 1.2
             N_k = self.ict_maximum_step_fn(cur_step=step)
 
             # First, prepare range list from 0 to self.s_1 (include)
@@ -405,9 +407,13 @@ class CMFramework(DefaultModel):
                 updated_states = {state_name: self.ema_obj.ema_update(state_content, step) for state_name, state_content in states.items()}
                 return updated_states
             effective_step = states[head_torso_key[0]].step // self.step_scale
-            states = jax.lax.cond(
+            # states = jax.lax.cond(
+            #     states[head_torso_key[0]].step % self.step_scale == 0,
+            #     ema_update_fn, lambda x, step: x, states, effective_step)
+            ema_updated_state = jax.lax.cond(
                 states[head_torso_key[0]].step % self.step_scale == 0,
-                ema_update_fn, lambda x, step: x, states, effective_step)
+                ema_update_fn, lambda x, step: x, {"head_state" : states["head_state"]}, effective_step)
+            states = {"head_state" : ema_updated_state["head_state"], "torso_state" : states["torso_state"]}
 
             new_carry_state = (new_rng, states)
             return new_carry_state, loss_dict

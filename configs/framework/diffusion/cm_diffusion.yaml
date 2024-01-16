@@ -4,7 +4,7 @@ loss: huber # l2, l1, lpips
 learn_sigma: False
 
 # Consistency distillation or Consistency training
-params_ema_for_training: [0.9, 10, 1280] # mu_0, s_0, s_1
+params_ema_for_training: [0.9, 1280, 1280] # mu_0, s_0, s_1
 
 # Sigma : Assume that the process is performing VP
 sigma_min: 0.002
@@ -31,7 +31,7 @@ train:
   learning_rate: 1.0e-4
   total_batch_size: 512
   batch_size_per_rounds: 512 # The option for gradient accumulation, which is used for large batch size training.
-  total_step: 400000
+  total_step: 200000
   sampling_step: 10000
   saving_step: 100000
   optimizer:
