@@ -46,10 +46,6 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
   dataset_name = config["dataset"]["name"] if dataset_name is None else dataset_name
   batch_size = config["framework"]["diffusion"]["train"]["batch_size_per_rounds"] if batch_size is None else batch_size
 
-  STF_flag = config["framework"]["diffusion"].get("connection_loss", False)
-  alignment_denoiser_type = config["framework"]["diffusion"].get("connection_denoiser_type", None)
-  STF_flag = STF_flag and alignment_denoiser_type == "STF"  
-
   n_jitted_steps = config["n_jitted_steps"] if n_jitted_steps is None else n_jitted_steps
   x_flip = config["dataset"].get("x_flip", x_flip)
 
@@ -75,11 +71,7 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
   train_ds, _ = ds['train'], ds['test']
 
   device_count = jax.local_device_count()
-  if STF_flag:
-    batch_size = config["framework"]["diffusion"]["train"]["STF_reference_batch_size"]
-    batch_dims= [device_count, n_jitted_steps, batch_size]
-  else:
-    batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 
+  batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 
 
   train_ds = train_ds.shuffle(1000)
   train_ds = train_ds.repeat()
