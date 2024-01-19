@@ -324,8 +324,11 @@ class CMFramework(DefaultModel):
                 rng_key, noise_key = jax.random.split(rng_key, 2)
                 noise = jax.random.normal(noise_key, y.shape)
                 perturbed_D_x = D_x + sigma * noise
+                # new_D_x, aux = self.model.apply(
+                #     {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
+                #     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
                 new_D_x, aux = self.model.apply(
-                    {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
+                    {'params': torso_params}, x=jax.lax.stop_gradient(perturbed_D_x), sigma=sigma,
                     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
                 # Retrieve connection loss denoised
@@ -339,7 +342,8 @@ class CMFramework(DefaultModel):
                     alignment_loss_weight *= 1 / (p_std * jnp.sqrt(2 * jnp.pi))
                 else:
                     alignment_loss_weight = 1
-                alignment_loss = jnp.mean(alignment_loss_weight * (new_D_x - alignment_loss_denoised) ** 2)
+                # alignment_loss = jnp.mean(alignment_loss_weight * (new_D_x - alignment_loss_denoised) ** 2)
+                alignment_loss = jnp.mean(alignment_loss_weight * (new_D_x - jax.lax.stop_gradient(alignment_loss_denoised)) ** 2)
 
                 total_loss += diffusion_framework['alignment_loss_scale'] * alignment_loss
                 loss_dict['train/alignment_loss'] = alignment_loss
