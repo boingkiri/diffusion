@@ -9,7 +9,7 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: ict_128_240108
+exp_name: ict_512_sigmarescale_240124
 tags: [ict]
 do_training: true
 do_sampling: true

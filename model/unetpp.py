@@ -928,7 +928,7 @@ class iCMPrecond(nn.Module):
         c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
         c_out = ((sigma - self.sigma_min) * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
         c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
-        c_noise = jnp.log(sigma) / 4
+        c_noise = jnp.log(sigma) / 4 * 1000
 
         # Predict F_x. There is only UNetpp case for now. 
         # Should add more cases. (ex, DhariwalUNet (ADM)) 
