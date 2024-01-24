@@ -1,0 +1,46 @@
+type: "lcm"
+n_timestep: 18
+loss: huber # l2, l1, lpips
+learn_sigma: False
+
+# Consistency distillation or Consistency training
+params_ema_for_training: [0.9, 10, 1280] # mu_0, s_0, s_1
+
+# Sigma : Assume that the process is performing VP
+sigma_min: 0.002
+sigma_max: 80
+rho: 7
+
+# Option for sigma sampling for joint training
+# EDM, iCT
+sigma_sampling_joint: iCT
+
+pseudo_huber_loss_c: 0.03
+
+
+gradient_flow_from_head: False
+joint_training_weight: 0.1
+
+# Connection loss (new loss)
+alignment_loss: False
+alignment_threshold: 50000
+alignment_loss_scale: 1.0
+alignment_loss_weight: "lognormal" # lognormal, uniform
+
+# Latent diffusion
+# pretrained_ae: CompVis/ldm-celebahq-256 # 512x512
+# pretrained_subfolder: vqvae
+# pretrained_ae: stabilityai/stable-diffusion-2-1 # 768x768
+pretrained_ae_checkpoint_path: /mnt/home/jeongjun/diffusion_new/diffusion/experiments/ldm
+
+train:
+  learning_rate: 8.0e-6
+  total_batch_size: 16
+  batch_size_per_rounds: 16 # The option for gradient accumulation, which is used for large batch size training.
+  # total_batch_size: 512
+  # batch_size_per_rounds: 128
+  total_step: 400000
+  sampling_step: 10000
+  saving_step: 100000
+  optimizer:
+    type: "radam"

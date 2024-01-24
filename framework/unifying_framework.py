@@ -2,6 +2,7 @@
 from framework.diffusion.ddpm_framework import DDPMFramework
 from framework.diffusion.edm_framework import EDMFramework
 from framework.diffusion.consistency_framework import CMFramework
+from framework.diffusion.latent_consistency_framework import LCMFramework
 from framework.diffusion.ctm_framework import CTMFramework
 from framework.diffusion.improved_consistency_framework import iCMFramework
 from framework.LDM import LDM
@@ -32,6 +33,7 @@ class UnifyingFramework():
         self.current_model_type = model_type.lower()
         self.random_rng = random_rng
         self.dataset_name = config.dataset.name
+        self.sample_size = config["dataset"].get("latent_size", config["dataset"]["data_size"])
         self.do_fid_during_training = config.fid_during_training
         self.n_jitted_steps = config.get("n_jitted_steps", 1)
         self.dataset_x_flip = self.config.framework.diffusion.get("augment_rate", None) is None
@@ -69,6 +71,9 @@ class UnifyingFramework():
         elif self.current_model_type == "ict":
             diffusion_rng, self.random_rng = jax.random.split(self.random_rng, 2)
             self.framework = iCMFramework(config, diffusion_rng, self.fs_utils, self.wandblog)
+        elif self.current_model_type == "lcm":
+            ldm_rng, self.random_rng = jax.random.split(self.random_rng, 2)
+            self.framework = LCMFramework(config, ldm_rng, self.fs_utils, self.wandblog)
         else:
             NotImplementedError("Model Type cannot be identified. Please check model name.")
         
@@ -90,11 +95,11 @@ class UnifyingFramework():
             self.total_step = config['framework']['diffusion']['train']['total_step']
             self.checkpoint_prefix = config.exp.diffusion_prefix
 
-    def sampling(self, num_img, original_data=None, mode=None):
+    def sampling(self, num_img, original_data=None, mode=None, img_size=(32, 32, 3)):
         if mode is None:
-            sample = self.framework.sampling(num_img, original_data=original_data)
+            sample = self.framework.sampling(num_img, original_data=original_data, img_size=img_size)
         else:
-            sample = self.framework.sampling(num_img, original_data=original_data, mode=mode)
+            sample = self.framework.sampling(num_img, original_data=original_data, mode=mode, img_size=img_size)
         sample = jnp.reshape(sample, (num_img, *sample.shape[-3:]))
         return sample
     
@@ -136,14 +141,14 @@ class UnifyingFramework():
 
                 # Change of the sample quality is tracked to know how much the CM model is corrupted.
                 # Sample generated image for EDM
-                sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="edm")
+                sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="edm", img_size=self.sample_size)
                 edm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_image = self.fs_utils.get_pil_from_np(edm_xset)
                 # sample_path = self.fs_utils.save_comparison(edm_xset, self.step, in_process_dir)
                 log['Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
 
                 # Sample generated image for training CM
-                sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="cm-training")
+                sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="cm-training", img_size=self.sample_size)
                 training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
                 log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
@@ -153,9 +158,6 @@ class UnifyingFramework():
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
 
-            # if self.step % 50000 == 0 and self.step != 0:
-            # if self.step % 50000 == 0:
-            # if self.step % 50000 == 0 and self.step not in fid_dict:
             if self.step % 10000 == 0 and self.step not in fid_dict:
                 model_state = self.framework.get_model_state()
                 sampling_modes = ['edm', 'cm-training']
@@ -163,7 +165,7 @@ class UnifyingFramework():
                 if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
                     mode_metrics = {}
                     for mode in sampling_modes:
-                        fid_score, mu_diff = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=self.sample_batch_size, sampling_mode=mode)
+                        fid_score, mu_diff = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=self.sample_batch_size, sampling_mode=mode, img_size=self.sample_size)
                         self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode, mu_diff=mu_diff)
                         metrics = {"fid": fid_score}
                         if mode == "edm":
@@ -199,7 +201,7 @@ class UnifyingFramework():
         current_num = 0
         batch_size = self.sample_batch_size
         while total_num > current_num:
-            samples = self.sampling(batch_size, original_data=None, mode="cm-training")
+            samples = self.sampling(batch_size, original_data=None, mode="cm-training", img_size=self.sample_size)
             self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
             current_num += batch_size
         self.fs_utils.delete_images_from_dir(starting_pos=total_num)

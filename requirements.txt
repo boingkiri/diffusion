@@ -3,11 +3,13 @@
 tensorflow
 tensorflow_datasets
 
--f https://storage.googleapis.com/jax-releases/libtpu_releases.html
-jax[tpu]==0.4.12
+# -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+# jax[tpu]==0.4.12
 
-# -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-# jax[cuda11_pip]
+-f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+jax[cuda11_pip]==0.4.12
+
+# torch==2.1.0
 
 # JAX family framework
 orbax-checkpoint==0.4.1
@@ -22,3 +24,7 @@ einops
 # "jax[tpu]>=0.2.16" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 pillow
 matplotlib
+
+# Huggingface packages for LCM
+# transformers
+# diffusers

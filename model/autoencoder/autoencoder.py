@@ -4,8 +4,9 @@ import jax.numpy as jnp
 from flax.core.frozen_dict import unfreeze, freeze
 
 from typing import Union, Tuple, List 
-from model.modules import UnetUp, UnetMiddle, UnetDown, Downsample, Upsample, VectorQuantizer
-from framework.autoencoder.distribution import DiagonalGaussianDistribution
+from model.modules import UnetUp, UnetMiddle, UnetDown, Downsample, Upsample
+from model.autoencoder.distribution import DiagonalGaussianDistribution
+from model.autoencoder.quantize import VectorQuantizer
 
 
 class Encoder(nn.Module):

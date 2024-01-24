@@ -69,16 +69,16 @@ class FIDUtils():
         mu_diff = fid.compute_mean_difference(src_mu, dest_mu)
         return fid_score, mu_diff
     
-    def save_images_for_fid(self, model_obj, total_num_samples, batch_size, sampling_mode=None):
+    def save_images_for_fid(self, model_obj, total_num_samples, batch_size, sampling_mode=None, img_size=(32, 32, 3)):
         tmp_dir = self.get_tmp_dir()
         tmp_dir = os.path.join(self.in_process_dir, "tmp")
 
         current_num_samples = 0
         while current_num_samples < total_num_samples:
             if sampling_mode is not None:
-                sample = model_obj.sampling(batch_size, mode=sampling_mode)
+                sample = model_obj.sampling(batch_size, mode=sampling_mode, img_size=img_size)
             else:
-                sample = model_obj.sampling(batch_size)
+                sample = model_obj.sampling(batch_size, img_size=img_size)
             sample = jnp.reshape(sample, (batch_size, *sample.shape[-3:]))
             current_num_samples += self.fs_utils.save_images_to_dir(sample, tmp_dir, current_num_samples)
         
@@ -88,8 +88,8 @@ class FIDUtils():
             current_num_samples -= remained_samples
         return tmp_dir
 
-    def calculate_fid_in_step(self, model_obj, total_num_samples, batch_size=128, sampling_mode=None):
-        tmp_dir = self.save_images_for_fid(model_obj, total_num_samples, batch_size, sampling_mode)
+    def calculate_fid_in_step(self, model_obj, total_num_samples, batch_size=128, sampling_mode=None, img_size=(32, 32, 3)):
+        tmp_dir = self.save_images_for_fid(model_obj, total_num_samples, batch_size, sampling_mode, img_size)
         # fid_score, mu_diff = self.calculate_fid(tmp_dir)
         fid_score, mu_diff = self.calculate_fid_and_mu_diff(tmp_dir)
         shutil.rmtree(tmp_dir)

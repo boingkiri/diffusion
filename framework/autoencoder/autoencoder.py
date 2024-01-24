@@ -1,5 +1,5 @@
-from model.autoencoder import AutoEncoderKL as AEKL
-from model.autoencoder import AutoEncoderVQ as AEVQ
+from model.autoencoder.autoencoder import AutoEncoderKL as AEKL
+from model.autoencoder.autoencoder import AutoEncoderVQ as AEVQ
 from framework.autoencoder.discriminator import LPIPSwithDiscriminator_KL, LPIPSwithDiscriminator_VQ
 from utils import jax_utils
 from utils.ema.ema_ddpm import DDPMEMA

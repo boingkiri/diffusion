@@ -6,7 +6,7 @@ import flax.linen as nn
 
 from functools import partial
 
-from model.autoencoder import AbstractAutoEncoder
+from model.autoencoder.autoencoder import AbstractAutoEncoder
 
 def hinge_d_loss(logits_real, logits_fake, weights=1.0):
     # loss_real = jnp.mean(nn.relu(1. - logits_real))

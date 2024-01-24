@@ -1,8 +1,7 @@
 defaults:
   - framework: 
     # - diffusion/ict
-    # - diffusion/cm_diffusion
-    - diffusion/latent_cm_diffusion
+    - diffusion/cm_diffusion
   - model@_group_.diffusion: 
     # - diffusion/unetpp_cm
     # - diffusion/original_cm
@@ -13,15 +12,13 @@ defaults:
     - diffusion/score_head
     # - diffusion/score_head_large
     # - diffusion/score_head_baseline
-  - model@_group_.autoencoder: 
-    - autoencoder/autoencoder_torch_vq_f4
   # - ema: ema_edm
-  - ema: ema_ict_lcm
+  - ema: ema_ict
   - dataset: cifar10
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: 0121_iCT_ldm_check
+exp_name: 0112_iCT_512_lambda_0.1
 tags: [iCT]
 do_training: True
 do_sampling: True
