@@ -9,8 +9,8 @@ defaults:
   - model@_group_.head: 
     # - diffusion/score_head_conv
     # - diffusion/score_head_pde
-    # - diffusion/score_head
-    - diffusion/score_head_large
+    - diffusion/score_head
+    # - diffusion/score_head_large
     # - diffusion/score_head_baseline
   # - ema: ema_edm
   - ema: ema_ict
@@ -18,7 +18,7 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: lambda0.1_c0.01_largehead_240124
+exp_name: unbiasedpa_240124
 tags: [iCT]
 do_training: True
 do_sampling: True
@@ -26,7 +26,7 @@ num_sampling: 50000
 sampling_batch: 256
 rand_seed: 42
 fid_during_training: True # True when calculating fid during training, otherwise, false.
-n_jitted_steps: 1
+n_jitted_steps: 10
 
 available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 

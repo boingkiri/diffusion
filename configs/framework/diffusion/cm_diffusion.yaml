@@ -15,14 +15,13 @@ rho: 7
 # EDM, iCT
 sigma_sampling_joint: iCT
 
-pseudo_huber_loss_c: 0.01
+pseudo_huber_loss_c: 0.003
 
-
-gradient_flow_from_head: True
+gradient_flow_from_head: False
 joint_training_weight: 0.1
 
 # Connection loss (new loss)
-alignment_loss: False
+alignment_loss: True
 alignment_threshold: 50000
 alignment_loss_scale: 0.1
 alignment_loss_weight: "uniform" # lognormal, uniform
