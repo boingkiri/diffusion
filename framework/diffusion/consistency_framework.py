@@ -300,7 +300,7 @@ class CMFramework(DefaultModel):
             total_loss += consistency_loss
             loss_dict.update(consistency_loss_dict)
             
-            # D_x, aux = func_val
+            D_x, aux = func_val
             # head_D_x = jax.lax.stop_gradient(D_x)
             # head_t_emb, head_last_x_emb = jax.lax.stop_gradient(aux) if not diffusion_framework['gradient_flow_from_head'] else aux
 
