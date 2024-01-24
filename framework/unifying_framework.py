@@ -20,6 +20,8 @@ from tqdm import tqdm
 import os
 import wandb
 
+import orbax.checkpoint as ocp
+
 from omegaconf import DictConfig
 
 
@@ -176,6 +178,9 @@ class UnifyingFramework():
                         self.save_model_state(model_state, mode_metrics)
                     self.wandblog.flush(step=self.step)
                     fid_dict[self.step] = mode_metrics
+            
+                if self.step == 200000 or self.step == 300000:
+                    self.fs_utils.save_tmp_model_state(model_state, self.step)
 
 
             if self.step >= self.total_step:

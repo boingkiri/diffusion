@@ -19,7 +19,8 @@ class FSUtils():
         self.config = config
 
         # Create pytree checkpointer and its manager
-        self.checkpoint_manager, self.best_checkpoint_manager = self.create_checkpoint_manager() # orbax.checkpoint.CheckpointManager. Dict[CheckpointManager]
+        # self.checkpoint_manager, self.best_checkpoint_manager = self.create_checkpoint_manager() # orbax.checkpoint.CheckpointManager. Dict[CheckpointManager]
+        self.checkpoint_manager, self.best_checkpoint_manager, self.tmp_checkpoint_manager = self.create_checkpoint_manager() # orbax.checkpoint.CheckpointManager. Dict[CheckpointManager]
 
     def create_checkpoint_manager(self):
         model_keys = self.config.model.keys()
@@ -31,6 +32,13 @@ class FSUtils():
             {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
             model_checkpoint_manager_options)
 
+        # TMP: to save checkpoint at 200k or 300k
+        tmp_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2)
+        tmp_checkpoint_manager = orbax.checkpoint.CheckpointManager(
+            abs_path_ + self.config.exp.checkpoint_dir + "/tmp", 
+            {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
+            tmp_checkpoint_manager_options)
+
         for model_key in model_keys:
             best_checkpoint_dir = self.config.exp.best_dir + "/" + model_key
             model_best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(
@@ -40,8 +48,9 @@ class FSUtils():
                 {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys}, 
                 model_best_checkpoint_manager_options)
             best_checkpoint_manager[model_key] = model_best_checkpoint_manager
+        
 
-        return model_checkpoint_manager, best_checkpoint_manager
+        return model_checkpoint_manager, best_checkpoint_manager, tmp_checkpoint_manager
     
     def update_checkpoint_manager(self, add_model_keys=None, delete_model_keys=None):
         model_keys = set(self.config.model.keys())
@@ -203,6 +212,10 @@ class FSUtils():
             number = int(content.split(".")[0])
             if number >= starting_pos:
                 os.remove(os.path.join(save_path_dir, content))
+
+    def save_tmp_model_state(self, states, step):
+        self.tmp_checkpoint_manager.save(step, states)
+        print(f"TMP SAVE: Saving {step} complete.")
 
     def save_model_state(self, states, step, metrics=None):
         best_saved = False
