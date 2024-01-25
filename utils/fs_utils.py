@@ -200,8 +200,11 @@ class FSUtils():
         current_sampling = 0
         if save_path_dir is None:
             save_path_dir = self.config.exp.sampling_dir
-        for np in numpy_batch:
-            np.save(os.path.join(save_path_dir, f"{starting_pos + current_sampling}.npy"), np)
+        elif not os.path.isdir(save_path_dir):
+            os.makedirs(save_path_dir)
+        for np_elem in numpy_batch:
+            np_elem = np.asarray(np_elem)
+            np.save(os.path.join(save_path_dir, f"{starting_pos + current_sampling}.npy"), np_elem)
             current_sampling += 1
         return current_sampling
     
@@ -216,10 +219,11 @@ class FSUtils():
     def save_model_state(self, states, step, metrics=None):
         best_saved = False
         self.checkpoint_manager.save(step, states)
-        for state in states:
-            best_checkpoint_manager = self.best_checkpoint_manager[state]
-            state_saved = best_checkpoint_manager.save(step, states, metrics=metrics[state])
-            best_saved = best_saved or state_saved
+        if metrics is not None:
+            for state in states:
+                best_checkpoint_manager = self.best_checkpoint_manager[state]
+                state_saved = best_checkpoint_manager.save(step, states, metrics=metrics[state])
+                best_saved = best_saved or state_saved
 
         print(f"Saving {step} complete.")
         if best_saved:

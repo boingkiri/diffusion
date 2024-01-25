@@ -21,7 +21,7 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: 0125_iCT_ldm_check
+exp_name: 0125_iCT_ldm_joint
 tags: [iCT]
 do_training: True
 do_sampling: True
@@ -29,7 +29,7 @@ num_sampling: 50000
 sampling_batch: 256
 rand_seed: 42
 fid_during_training: True # True when calculating fid during training, otherwise, false.
-n_jitted_steps: 10
+n_jitted_steps: 1
 
 available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 

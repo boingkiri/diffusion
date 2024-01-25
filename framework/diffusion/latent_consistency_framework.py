@@ -635,7 +635,7 @@ class LCMFramework(DefaultModel):
         latent_sample = self.p_sample_cm(sampling_params, latent_sample, rng_key, gamma, t_max, t_min)
 
         latent_sample = latent_sample.reshape(num_image, *img_size)
-        latent_sample = self.ae.decode(latent_sample)
+        # latent_sample = self.ae.decode(latent_sample)
         return latent_sample
 
     def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sweep_timesteps=17, noise=None, sigma_scale=None):

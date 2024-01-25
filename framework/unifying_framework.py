@@ -132,7 +132,6 @@ class UnifyingFramework():
                 x = x.detach().cpu().numpy()
             x = jnp.reshape(x, tuple(batch_dim) + (*x.shape[-3:],))
             log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
-            breakpoint()
 
             description_str = "Step: {step}/{total_step} lr*1e4: {lr:.4f} ".format(
                 step=self.step,
@@ -150,18 +149,20 @@ class UnifyingFramework():
 
                 # Change of the sample quality is tracked to know how much the CM model is corrupted.
                 # Sample generated image for EDM
-                sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="edm", img_size=self.sample_size)
-                edm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
-                sample_image = self.fs_utils.get_pil_from_np(edm_xset)
+                # sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="edm", img_size=self.sample_size)
+                # edm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
+                # sample_image = self.fs_utils.get_pil_from_np(edm_xset)
                 # log['Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
 
                 # Sample generated image for training CM
                 sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="cm-training", img_size=self.sample_size)
-                training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
-                sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
+                # training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
+                # sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
                 # log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
                 # sample_path = self.fs_utils.save_comparison(training_cm_xset, self.step, in_process_dir) # TMP
-                sample_image.close()
+                # sample_path = self.fs_utils.save_comparison(training_cm_xset, self.step, in_process_dir)
+                self.fs_utils.save_numpy_to_dir(sample, starting_pos=0, save_path_dir=in_process_dir + f"/{self.step}")
+                # sample_image.close()
                 
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
@@ -172,18 +173,20 @@ class UnifyingFramework():
                 
                 if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
                     mode_metrics = {}
-                    for mode in sampling_modes:
-                        fid_score, mu_diff = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=self.sample_batch_size, sampling_mode=mode, img_size=self.sample_size)
-                        self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode, mu_diff=mu_diff)
-                        metrics = {"fid": fid_score}
-                        if mode == "edm":
-                            mode_metrics["head"] = metrics
-                            self.wandblog.update_log({"Head FID score": fid_score})
-                        else:
-                            mode_metrics['diffusion'] = metrics
-                            self.wandblog.update_log({"Torso FID score": fid_score})
-                    if not first_step:
-                        self.save_model_state(model_state, mode_metrics)
+                    # for mode in sampling_modes:
+                    #     fid_score, mu_diff = self.fid_utils.calculate_fid_in_step(self.framework, 10000, batch_size=self.sample_batch_size, sampling_mode=mode, img_size=self.sample_size)
+                    #     self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode, mu_diff=mu_diff)
+                    #     metrics = {"fid": fid_score}
+                    #     if mode == "edm":
+                    #         mode_metrics["head"] = metrics
+                    #         self.wandblog.update_log({"Head FID score": fid_score})
+                    #     else:
+                    #         mode_metrics['diffusion'] = metrics
+                    #         self.wandblog.update_log({"Torso FID score": fid_score})
+                    # if not first_step:
+                    #     self.save_model_state(model_state, mode_metrics)
+                    self.save_model_state(model_state, None)
+                    self.sampling_and_save(10000, save_path_dir=self.config.exp.sampling_dir + f"/{self.step}")
                     self.wandblog.flush(step=self.step)
                     fid_dict[self.step] = mode_metrics
 
@@ -203,15 +206,16 @@ class UnifyingFramework():
             first_step = False
             
 
-    def sampling_and_save(self, total_num, img_size=None):
+    def sampling_and_save(self, total_num, img_size=None, save_path_dir=None):
         if img_size is None:
-            img_size = common_utils.get_dataset_size(self.dataset_name)
+            # img_size = common_utils.get_dataset_size(self.dataset_name)
+            img_size = self.sample_size
         current_num = 0
         batch_size = self.sample_batch_size
         while total_num > current_num:
             samples = self.sampling(batch_size, original_data=None, mode="cm-training", img_size=self.sample_size)
             # self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
-            self.fs_utils.save_numpy_to_dir(samples, starting_pos=current_num)
+            self.fs_utils.save_numpy_to_dir(samples, starting_pos=current_num, save_path_dir=save_path_dir)
             current_num += batch_size
         self.fs_utils.delete_images_from_dir(starting_pos=total_num)
     
