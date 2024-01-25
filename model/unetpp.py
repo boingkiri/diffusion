@@ -361,7 +361,8 @@ class UNetpp(nn.Module):
         self.map_layer0 = Linear(noise_channels, emb_channels, init_mode=init)
         self.map_layer1 = Linear(emb_channels, emb_channels, init_mode=init)
 
-        self.map_noise_proj = Linear(2 * emb_channels, emb_channels, init_mode=init) if self.input_t_embed else None
+        # self.map_noise_proj = Linear(2 * emb_channels, emb_channels, init_mode=init) if self.input_t_embed else None
+        self.map_noise_proj = Linear(4 * self.input_channels + emb_channels, emb_channels, init_mode=init) if self.input_t_embed else None
 
         # Encoder
         enc_modules = {}
@@ -376,7 +377,8 @@ class UNetpp(nn.Module):
         for level, mult in enumerate(self.ch_mults):
             res = img_res >> level
             if level == 0:
-                cin = cout if self.input_channels is None else self.input_channels
+                # cin = cout if self.input_channels is None else self.input_channels
+                cin = cout if self.input_channels is None else self.ch_mults[0] * self.n_channels
                 cout = self.n_channels
                 enc_modules[f'{res}x{res}_conv'] = CustomConv2d(in_channels=cin, out_channels=cout, kernel_channels=3, init_mode=init)
                 skips.append(cout)
@@ -505,7 +507,7 @@ class UNetppHead(UNetpp):
         init = create_initializer("xavier_uniform")
         self.normalize1 = nn.GroupNorm()
         head_channels = self.n_channels * self.ch_mults[0]
-        self.conv1 = CustomConv2d(in_channels=head_channels + self.image_channels * 2, 
+        self.conv1 = CustomConv2d(in_channels=self.input_channels + self.image_channels * 2, 
                                   out_channels=head_channels, 
                                   kernel_channels=3,
                                   init_mode=init)

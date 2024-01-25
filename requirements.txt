@@ -3,16 +3,26 @@
 tensorflow
 tensorflow_datasets
 
-# -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+-f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+jax[tpu]
 # jax[tpu]==0.4.12
 
--f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-jax[cuda11_pip]==0.4.12
+
+# -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+# jax[cuda11_pip]==0.4.12
 
 # torch==2.1.0
+# -f  https://storage.googleapis.com/libtpu-releases/index.html
+# torch~=2.1.0 
+
+# -f  https://storage.googleapis.com/libtpu-releases/index.html
+# torch_xla[tpu]~=2.1.0
+
+torch
 
 # JAX family framework
-orbax-checkpoint==0.4.1
+# orbax-checkpoint==0.4.1
+orbax-checkpoint
 flax
 optax
 lpips_jax
@@ -26,5 +36,5 @@ pillow
 matplotlib
 
 # Huggingface packages for LCM
-# transformers
-# diffusers
+transformers
+diffusers

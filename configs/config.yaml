@@ -6,22 +6,22 @@ defaults:
   - model@_group_.diffusion: 
     # - diffusion/unetpp_cm
     # - diffusion/original_cm
-    - diffusion/original_ict
+    # - diffusion/original_ict
+    - diffusion/original_ict_latent
   - model@_group_.head: 
-    # - diffusion/score_head_conv
-    # - diffusion/score_head_pde
-    - diffusion/score_head
+    # - diffusion/score_head
     # - diffusion/score_head_large
-    # - diffusion/score_head_baseline
-  - model@_group_.autoencoder: 
-    - autoencoder/autoencoder_torch_vq_f4
+    - diffusion/score_head_latent
+  # - model@_group_.autoencoder: 
+  #   - autoencoder/autoencoder_torch_vq_f4
   # - ema: ema_edm
   - ema: ema_ict_lcm
-  - dataset: cifar10
+  # - dataset: cifar10
+  - dataset: celebahq
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: 0121_iCT_ldm_check
+exp_name: 0125_iCT_ldm_check
 tags: [iCT]
 do_training: True
 do_sampling: True
@@ -32,6 +32,9 @@ fid_during_training: True # True when calculating fid during training, otherwise
 n_jitted_steps: 10
 
 available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
+
+dataset:
+  dataset_path: "celebahq"
 
 # framework:
 #   diffusion:

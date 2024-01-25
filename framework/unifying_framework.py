@@ -12,6 +12,8 @@ import jax.numpy as jnp
 from flax.training import orbax_utils
 import orbax.checkpoint
 
+import torch
+
 from utils.fs_utils import FSUtils
 from utils import jax_utils, common_utils
 from utils.fid_utils import FIDUtils
@@ -33,7 +35,7 @@ class UnifyingFramework():
         self.current_model_type = model_type.lower()
         self.random_rng = random_rng
         self.dataset_name = config.dataset.name
-        self.sample_size = config["dataset"].get("latent_size", config["dataset"]["data_size"])
+        self.sample_size = config["dataset"].get("sample_size", config["dataset"]["data_size"])
         self.do_fid_during_training = config.fid_during_training
         self.n_jitted_steps = config.get("n_jitted_steps", 1)
         self.dataset_x_flip = self.config.framework.diffusion.get("augment_rate", None) is None
@@ -108,7 +110,10 @@ class UnifyingFramework():
 
     def train(self):
         # TODO: The connection_denoiser_type is only used in CM training. need to be fixed.
-        datasets = common_utils.load_dataset_from_tfds(self.config)
+        if self.config["dataset"].get("dataset_path", False):
+            datasets, batch_dim = common_utils.load_dataset_from_local_file(self.config)
+        else:
+            datasets, batch_dim = common_utils.load_dataset_from_tfds(self.config)
         datasets_bar = tqdm(datasets, total=self.total_step, initial=self.step)
         in_process_dir = self.config.exp.in_process_dir
         in_process_model_dir_name = "AE" if self.current_model_type == 'ldm' and self.train_idx == 2 else 'diffusion'
@@ -123,7 +128,11 @@ class UnifyingFramework():
 
         for x, _ in datasets_bar:
             eval_during_training = self.step % 1000 == 0
+            if self.config["dataset"].get("dataset_path", False):
+                x = x.detach().cpu().numpy()
+            x = jnp.reshape(x, tuple(batch_dim) + (*x.shape[-3:],))
             log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
+            breakpoint()
 
             description_str = "Step: {step}/{total_step} lr*1e4: {lr:.4f} ".format(
                 step=self.step,
@@ -144,15 +153,14 @@ class UnifyingFramework():
                 sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="edm", img_size=self.sample_size)
                 edm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_image = self.fs_utils.get_pil_from_np(edm_xset)
-                # sample_path = self.fs_utils.save_comparison(edm_xset, self.step, in_process_dir)
-                log['Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
+                # log['Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
 
                 # Sample generated image for training CM
                 sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="cm-training", img_size=self.sample_size)
                 training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
-                log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
-                sample_path = self.fs_utils.save_comparison(training_cm_xset, self.step, in_process_dir) # TMP
+                # log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
+                # sample_path = self.fs_utils.save_comparison(training_cm_xset, self.step, in_process_dir) # TMP
                 sample_image.close()
                 
                 self.wandblog.update_log(log)
@@ -202,7 +210,8 @@ class UnifyingFramework():
         batch_size = self.sample_batch_size
         while total_num > current_num:
             samples = self.sampling(batch_size, original_data=None, mode="cm-training", img_size=self.sample_size)
-            self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
+            # self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
+            self.fs_utils.save_numpy_to_dir(samples, starting_pos=current_num)
             current_num += batch_size
         self.fs_utils.delete_images_from_dir(starting_pos=total_num)
     
@@ -214,7 +223,8 @@ class UnifyingFramework():
         for x, _ in datasets_bar:
             batch_size = x.shape[0]
             samples = self.sampling(batch_size, img_size, original_data=x)
-            self.fs_utils.save_images_to_dir(samples, starting_pos = current_num)
+            # self.fs_utils.save_images_to_dir(samples, starting_pos = current_num)
+            self.fs_utils.save_numpy_to_dir(samples, starting_pos=current_num)
             current_num += batch_size
             if current_num >= total_num:
                 break

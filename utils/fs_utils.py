@@ -195,6 +195,15 @@ class FSUtils():
             im.save(sample_path)
             current_sampling += 1
         return current_sampling
+
+    def save_numpy_to_dir(self, numpy_batch, save_path_dir=None, starting_pos=0):
+        current_sampling = 0
+        if save_path_dir is None:
+            save_path_dir = self.config.exp.sampling_dir
+        for np in numpy_batch:
+            np.save(os.path.join(save_path_dir, f"{starting_pos + current_sampling}.npy"), np)
+            current_sampling += 1
+        return current_sampling
     
     def delete_images_from_dir(self, save_path_dir=None, starting_pos=50000):
         if save_path_dir is None:

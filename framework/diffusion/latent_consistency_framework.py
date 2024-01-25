@@ -7,7 +7,7 @@ from flax.training import checkpoints
 import orbax.checkpoint as ocp
 
 from model.unetpp import CMPrecond, ScoreDistillPrecond, EDMPrecond
-from model.autoencoder.torch.autoencoder import VQModelInterface
+# from model.autoencoder.torch.autoencoder import VQModelInterface
 
 from utils import jax_utils
 from utils.fs_utils import FSUtils
@@ -24,6 +24,8 @@ from functools import partial
 
 import os
 from typing import Any
+
+# from diffusers import VQModel
 
 class LCMFramework(DefaultModel):
     def __init__(self, config: DictConfig, rand_key, fs_obj: FSUtils, wandblog: WandBLog):
@@ -103,11 +105,12 @@ class LCMFramework(DefaultModel):
         # Define loss functions
         self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16', replicate=False)
 
-        # Define Autoencoder for LCM
-        self.ae = VQModelInterface(**config.model.autoencoder)
-        self.ae_ocp = ocp.StandardCheckpointer()
-        self.ae_params = self.ae_ocp.restore(diffusion_framework["pretrained_ae_checkpoint_path"])
-        breakpoint()
+        # Define Autoencoder for LCM[]
+        # self.ae = VQModelInterface(**config.model.autoencoder)
+        # self.ae_ocp = ocp.StandardCheckpointer()
+        # self.ae_params = self.ae_ocp.restore(diffusion_framework["pretrained_ae_checkpoint_path"])
+        # self.ae = VQModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="vqvae")
+        # breakpoint()
 
         def edm_sigma_sampling_fn(rng_key, y):
             p_mean = -1.2
@@ -263,7 +266,7 @@ class LCMFramework(DefaultModel):
             y, rng_key = args
 
             # Get latent code from AE
-            y = self.ae.encode(y)
+            # y = self.ae.encode(y)
             
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
             noise = jax.random.normal(noise_key, y.shape)
@@ -473,7 +476,9 @@ class LCMFramework(DefaultModel):
     def init_model_state(self, config: DictConfig):
         self.rand_key, param_rng, dropout_rng = jax.random.split(self.rand_key, 3)
         rng_dict = {"params": param_rng, 'dropout': dropout_rng}
-        input_format = jnp.ones([1, *config.dataset.data_size])
+        # input_format = jnp.ones([1, *config.dataset.data_size])
+        input_size = config["dataset"].get("sample_size", config["dataset"]["data_size"])
+        input_format = jnp.ones([1, *input_size])
         
         torso_params = self.model.init(
             rng_dict, x=input_format, sigma=jnp.ones([1,]), train=False, augment_labels=None)['params']
@@ -489,7 +494,7 @@ class LCMFramework(DefaultModel):
             params_ema=torso_params,
             tx=model_tx
         )
-        
+
         t_emb, last_x_emb = aux
         self.rand_key, param_rng, dropout_rng = jax.random.split(self.rand_key, 3)
         rng_dict = {"params": param_rng, 'dropout': dropout_rng}
@@ -516,8 +521,6 @@ class LCMFramework(DefaultModel):
     def fit(self, x0, cond=None, step=0, eval_during_training=False):
         key, dropout_key = jax.random.split(self.rand_key, 2)
         self.rand_key = key
-
-        breakpoint()
 
         # Apply pmap
         dropout_key = jax.random.split(dropout_key, jax.local_device_count())
@@ -572,7 +575,7 @@ class LCMFramework(DefaultModel):
         latent_sample = latent_sample.reshape(num_image, *img_size)
 
         # Decode latent code to image
-        latent_sample = self.ae.decode(latent_sample)
+        # latent_sample = self.ae.decode(latent_sample)
         return latent_sample
 
     def sampling_edm_and_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
@@ -606,8 +609,8 @@ class LCMFramework(DefaultModel):
         cm_sample = cm_sample.reshape(num_image, *img_size)
 
         # Decode latent code to image
-        latent_sample = self.ae.decode(latent_sample)
-        cm_sample = self.ae.decode(cm_sample)
+        # latent_sample = self.ae.decode(latent_sample)
+        # cm_sample = self.ae.decode(cm_sample)
         return latent_sample, cm_sample
 
     def sampling_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="cm-training"):
