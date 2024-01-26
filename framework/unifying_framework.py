@@ -217,7 +217,8 @@ class UnifyingFramework():
             # self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
             self.fs_utils.save_numpy_to_dir(samples, starting_pos=current_num, save_path_dir=save_path_dir)
             current_num += batch_size
-        self.fs_utils.delete_images_from_dir(starting_pos=total_num)
+        # self.fs_utils.delete_images_from_dir(starting_pos=total_num)
+        self.fs_utils.delete_numpy_from_dir(starting_pos=total_num, step=self.step, save_path_dir=save_path_dir)
     
     def reconstruction(self, total_num):
         img_size = common_utils.get_dataset_size(self.dataset_name)

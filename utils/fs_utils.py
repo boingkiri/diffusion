@@ -215,6 +215,15 @@ class FSUtils():
             number = int(content.split(".")[0])
             if number >= starting_pos:
                 os.remove(os.path.join(save_path_dir, content))
+    
+    def delete_numpy_from_dir(self, step, save_path_dir, starting_pos=50000):
+        save_path_dir = self.config.exp.sampling_dir
+        save_path_dir += "/" + str(step)
+
+        for content in os.listdir(save_path_dir):
+            number = int(content.split(".")[0])
+            if number >= starting_pos:
+                os.remove(os.path.join(save_path_dir, content))
 
     def save_model_state(self, states, step, metrics=None):
         best_saved = False
