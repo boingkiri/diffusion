@@ -30,6 +30,22 @@ class CustomNumpyDataset(Dataset):
         numpy = self.transform(numpy) if self.transform is not None else numpy
         return numpy, []
 
+class InfiniteDataLoader:
+    def __init__(self, data_loader):
+        self.data_loader = data_loader
+        self.data_iter = iter(data_loader)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        try:
+            data = next(self.data_iter)
+        except StopIteration:
+            self.data_iter = iter(self.data_loader)  # Reset the data loader
+            data = next(self.data_iter)
+        return data
+
 def download(url: str, dest_folder: str):
     if not os.path.exists(dest_folder):
         os.makedirs(dest_folder)  # create folder if it does not exist
@@ -136,6 +152,7 @@ def load_dataset_from_local_file(config, dataset_name=None, batch_size=None, n_j
   batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 
 
   dataloader = DataLoader(ds, batch_size=int(np.prod(batch_dims)), shuffle=True, num_workers=16, drop_last=True)
+  dataloader = InfiniteDataLoader(dataloader)
 
   # train_ds = train_ds.shuffle(1000)
   # train_ds = train_ds.repeat()

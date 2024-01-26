@@ -11,7 +11,8 @@ defaults:
   - model@_group_.head: 
     # - diffusion/score_head
     # - diffusion/score_head_large
-    - diffusion/score_head_latent
+    # - diffusion/score_head_latent
+    - diffusion/score_head_latent_large
   # - model@_group_.autoencoder: 
   #   - autoencoder/autoencoder_torch_vq_f4
   # - ema: ema_edm
@@ -21,10 +22,10 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: 0125_iCT_ldm_joint
+exp_name: 0126_iCT_ldm_joint
 tags: [iCT]
 do_training: True
-do_sampling: True
+do_sampling: False
 num_sampling: 50000
 sampling_batch: 256
 rand_seed: 42

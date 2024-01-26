@@ -103,7 +103,7 @@ class LCMFramework(DefaultModel):
         self.ema_obj = CMEMA(**ema_config)
 
         # Define loss functions
-        self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16', replicate=False)
+        # self.perceptual_loss = lpips_jax.LPIPSEvaluator(net='vgg16', replicate=False)
 
         # Define Autoencoder for LCM[]
         # self.ae = VQModelInterface(**config.model.autoencoder)

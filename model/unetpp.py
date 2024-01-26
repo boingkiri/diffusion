@@ -362,7 +362,9 @@ class UNetpp(nn.Module):
         self.map_layer1 = Linear(emb_channels, emb_channels, init_mode=init)
 
         # self.map_noise_proj = Linear(2 * emb_channels, emb_channels, init_mode=init) if self.input_t_embed else None
-        self.map_noise_proj = Linear(4 * self.input_channels + emb_channels, emb_channels, init_mode=init) if self.input_t_embed else None
+        # self.map_noise_proj = Linear(4 * self.input_channels + emb_channels, emb_channels, init_mode=init) if self.input_t_embed else None
+        self.map_noise_proj = Linear(2 * self.input_channels + emb_channels, emb_channels, init_mode=init) if self.input_t_embed else None
+        # TODO: 2 * self.input_channels assumes that the input channels are given as (2 * n_channels) in the CM model.
 
         # Encoder
         enc_modules = {}

@@ -1,6 +1,6 @@
 type: "original_unetpp"
 
-image_channels: 3
+image_channels: 4 # Changed
 
 sigma_min : 0.002
 sigma_max : 80.0
@@ -17,10 +17,10 @@ name : "ncsnpp"
 ema_rate : 0.9999
 normalization : "GroupNorm"
 nonlinearity : "swish"
-nf : 192 # Changed
-ch_mult : [1, 2, 3, 4] # Changed
-num_res_blocks : 2 # Changed
-attn_resolutions : [32, 16, 8] # Changed
+nf : 128 # Changed
+ch_mult : [2, 2, 2] # Changed
+num_res_blocks : 4 # Changed
+attn_resolutions : [16] # Changed
 resamp_with_conv : True
 conditional : True
 fir : True
