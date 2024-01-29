@@ -92,7 +92,8 @@ class CMFramework(DefaultModel):
 
         # Add iCT training steps
         k_prime = jnp.floor(diffusion_framework['train']['total_step'] / (jnp.log2(jnp.floor(self.s_1 / self.s_0)) + 1))
-        self.ict_maximum_step_fn = lambda cur_step: jnp.minimum(self.s_0 * jnp.power(2, jnp.floor(cur_step / k_prime)), self.s_1) + 1
+        # self.ict_maximum_step_fn = lambda cur_step: jnp.minimum(self.s_0 * jnp.power(2, jnp.floor(cur_step / k_prime)), self.s_1) + 1
+        self.ict_maximum_step_fn = lambda cur_step: 1280 + 1 # TMP: For alignment loss finetuning, 
         self.ict_t_steps_fn = lambda idx, N_k: (self.sigma_min ** (1 / self.rho) + idx / (N_k - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
 
         # Create ema obj
@@ -649,7 +650,7 @@ class CMFramework(DefaultModel):
         t_max = jnp.asarray([self.sigma_max] * jax.local_device_count())
         t_min = jnp.asarray([self.sigma_min] * jax.local_device_count())
 
-        if mode == "cm-training":
+        if mode == "cm-training" or mode == "one-step":
             sampling_params = self.training_states['torso_state'].params_ema
         elif mode == "cm-not-training":
             sampling_params = self.torso_state.params_ema
@@ -660,6 +661,61 @@ class CMFramework(DefaultModel):
 
         latent_sample = latent_sample.reshape(num_image, *img_size)
         return latent_sample
+    
+    def sampling_cm_two_step(self, num_image, img_size=(32, 32, 3), original_data=None, mode="two-step"):
+        latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
+        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+
+        # One-step generation
+        # latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
+        
+        # rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        # rng_key = jax.random.split(rng_key, jax.local_device_count())
+        # gamma = jnp.asarray([0] * jax.local_device_count())
+        # t_max = jnp.asarray([self.sigma_max] * jax.local_device_count())
+        # t_min = jnp.asarray([self.sigma_min] * jax.local_device_count())
+
+        # if mode == "cm-training":
+        #     sampling_params = self.training_states['torso_state'].params_ema
+        # elif mode == "cm-not-training":
+        #     sampling_params = self.torso_state.params_ema
+        #     sampling_params = flax.jax_utils.replicate(sampling_params)
+
+        # latent_sample = self.p_sample_cm(sampling_params, latent_sample, rng_key, gamma, t_max, t_min)
+        ts = [self.sigma_max, 0.661, self.sigma_min]
+        
+        x = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
+
+        # if mode == "cm-training":
+            # sampling_params = self.training_states['torso_state'].params_ema
+        # elif mode == "cm-not-training":
+        #     sampling_params = self.torso_state.params_ema
+        #     sampling_params = flax.jax_utils.replicate(sampling_params)    
+        sampling_params = self.training_states['torso_state'].params_ema
+
+        for i in range(len(ts) - 1):
+            # t = (t_max_rho + ts[i] / (steps - 1) * (t_min_rho - t_max_rho)) ** rho
+            t = ts[i]
+
+            # x0 = distiller(x, t * s_in)
+            sampling_key, p_sample_key = jax.random.split(sampling_key, 2)
+            p_sample_key = jax.random.split(p_sample_key, jax.local_device_count())
+            
+            t_param = jnp.asarray([t] * jax.local_device_count())
+            t_min = jnp.asarray([self.sigma_min] * jax.local_device_count())
+            gamma = jnp.zeros((jax.local_device_count(),))
+
+            # x0 = sampling_fn(params, x, p_sample_key, gamma, t_param, t_min_param)
+            # next_t = (t_max_rho + ts[i + 1] / (steps - 1) * (t_min_rho - t_max_rho)) ** rho
+            x = self.p_sample_cm(sampling_params, x, p_sample_key, gamma, t_param, t_min)
+            next_t = ts[i+1]
+            next_t = jnp.clip(next_t, self.sigma_min, self.sigma_max)
+
+            sampling_key, normal_rng = jax.random.split(sampling_key, 2)
+            x = x + jax.random.normal(normal_rng, latent_sampling_tuple) * jnp.sqrt(next_t**2 - self.sigma_min**2)
+
+        x = x.reshape(num_image, *img_size)
+        return x
 
     def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sweep_timesteps=17, noise=None, sigma_scale=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
@@ -696,3 +752,7 @@ class CMFramework(DefaultModel):
             return self.sampling_edm(num_image, img_size, original_data, mode)
         elif "cm" in mode:
             return self.sampling_cm(num_image, img_size, original_data, mode)
+        elif "one-step" in mode:
+            return self.sampling_cm(num_image, img_size, original_data, mode)
+        elif "two-step" in mode:
+            return self.sampling_cm_two_step(num_image, img_size, original_data, mode)
