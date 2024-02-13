@@ -92,8 +92,7 @@ class CMFramework(DefaultModel):
 
         # Add iCT training steps
         k_prime = jnp.floor(diffusion_framework['train']['total_step'] / (jnp.log2(jnp.floor(self.s_1 / self.s_0)) + 1))
-        # self.ict_maximum_step_fn = lambda cur_step: jnp.minimum(self.s_0 * jnp.power(2, jnp.floor(cur_step / k_prime)), self.s_1) + 1
-        self.ict_maximum_step_fn = lambda cur_step: 1280 + 1 # TMP: For alignment loss finetuning, 
+        self.ict_maximum_step_fn = lambda cur_step: jnp.minimum(self.s_0 * jnp.power(2, jnp.floor(cur_step / k_prime)), self.s_1) + 1
         self.ict_t_steps_fn = lambda idx, N_k: (self.sigma_min ** (1 / self.rho) + idx / (N_k - 1) * (self.sigma_max ** (1 / self.rho) - self.sigma_min ** (1 / self.rho))) ** self.rho
 
         # Create ema obj
