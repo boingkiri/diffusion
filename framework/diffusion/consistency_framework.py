@@ -63,6 +63,84 @@ class CMFramework(DefaultModel):
         
         states = fs_obj.load_model_state(states)
         self.torso_state, self.head_state = states.get("diffusion"), states.get("head")
+
+        # TODO: Make tx and opt_state robust to the change of gradient accumulation steps.
+        torso_tx = jax_utils.create_optimizer(config, "diffusion")
+        head_tx = jax_utils.create_optimizer(config, "diffusion")
+        self.torso_state = self.torso_state.replace(tx=torso_tx)
+        self.head_state = self.head_state.replace(tx=head_tx)
+
+        # torso_tx = jax_utils.create_optimizer(config, "diffusion")
+        # head_tx = jax_utils.create_optimizer(config, "diffusion")
+        # import optax
+        # num_of_rounds = diffusion_framework['train']["total_batch_size"] // diffusion_framework['train']["batch_size_per_rounds"]
+        # torso_tx = optax.MultiSteps(torso_tx, every_k_schedule=num_of_rounds)
+        # head_tx = optax.MultiSteps(head_tx, every_k_schedule=num_of_rounds)
+        # dummy_torso_state = jax_utils.TrainState.create(
+        #     apply_fn=self.model.apply,
+        #     params=self.torso_state.params,
+        #     params_ema=self.torso_state.params_ema,
+        #     tx=torso_tx
+        # )
+        # dummy_head_state = jax_utils.TrainState.create(
+        #     apply_fn=self.head.apply,
+        #     params=self.head_state.params,
+        #     params_ema=self.head_state.params_ema,
+        #     tx=head_tx
+        # )
+        # if type(self.torso_state.opt_state) is optax.MultiSteps:
+        #     effective_inner_opt_torso_state = self.torso_state.opt_state.inner_opt_state
+        #     effective_inner_opt_head_state = self.head_state.opt_state.inner_opt_state
+        # else:
+        #     # TODO: need to deal with various type of optax gradient transformation.
+        #     # For now, it only deals with naive opt_state.
+        #     effective_inner_opt_torso_state = self.torso_state.opt_state
+        #     effective_inner_opt_head_state = self.head_state.opt_state
+        # effective_multistep_torso_state = optax.MultiStepsState(
+        #     mini_step=dummy_torso_state.opt_state.mini_step,
+        #     gradient_step=dummy_torso_state.opt_state.gradient_step,
+        #     inner_opt_state=effective_inner_opt_torso_state, # Reflect loaded opt state
+        #     acc_grads=dummy_torso_state.opt_state.acc_grads,
+        #     skip_state=dummy_torso_state.opt_state.skip_state)
+        # effective_multistep_head_state = optax.MultiStepsState(
+        #     mini_step=dummy_head_state.opt_state.mini_step,
+        #     gradient_step=dummy_head_state.opt_state.gradient_step,
+        #     inner_opt_state=effective_inner_opt_head_state, # Reflect loaded opt state
+        #     acc_grads=dummy_head_state.opt_state.acc_grads,
+        #     skip_state=dummy_head_state.opt_state.skip_state)
+        # dummy_torso_state = jax_utils.TrainState(
+        #     step=self.torso_state.step,
+        #     apply_fn=self.model.apply,
+        #     params=self.torso_state.params,
+        #     params_ema=self.torso_state.params_ema,
+        #     tx=torso_tx,
+        #     opt_state=effective_multistep_torso_state
+        # )
+        # dummy_head_state = jax_utils.TrainState(
+        #     step=self.head_state.step,
+        #     apply_fn=self.head.apply,
+        #     params=self.head_state.params,
+        #     params_ema=self.head_state.params_ema,
+        #     tx=head_tx,
+        #     opt_state=effective_multistep_head_state
+        # )
+        # # dummy_torso_state = jax_utils.TrainState.create(
+        # #     apply_fn=self.model.apply,
+        # #     params=self.torso_state.params,
+        # #     params_ema=self.torso_state.params_ema,
+        # #     tx=torso_tx,
+        # #     opt_state=effective_multistep_torso_state
+        # # )
+        # # dummy_head_state = jax_utils.TrainState.create(
+        # #     apply_fn=self.head.apply,
+        # #     params=self.head_state.params,
+        # #     params_ema=self.head_state.params_ema,
+        # #     tx=head_tx,
+        # #     opt_state=effective_multistep_head_state
+        # # )
+        # self.torso_state = dummy_torso_state
+        # self.head_state = dummy_head_state
+        
         
         # Replicate states for training with pmap
         self.training_states = {}
