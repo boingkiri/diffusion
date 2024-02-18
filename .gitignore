@@ -8,6 +8,8 @@ tensorflow_datasets
 wandb
 nohup.out
 cifar
+lsun_church
+celebahq
 test/outputs
 outputs
 main.log
