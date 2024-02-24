@@ -18,7 +18,7 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: largehead_300k_align0.1_240213
+exp_name: largehead_300k_align0.03_240218
 tags: [iCT]
 do_training: True
 do_sampling: True

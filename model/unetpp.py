@@ -422,10 +422,10 @@ class UNetpp(nn.Module):
         emb = self.map_noise(noise_labels)
 
         # Swap sin/cos
-        # emb_shape = emb.shape
-        # emb = emb.reshape(emb.shape[0], 2, -1)
-        # emb = jnp.flip(emb, axis=1)
-        # emb = emb.reshape(*emb_shape)
+        emb_shape = emb.shape
+        emb = emb.reshape(emb.shape[0], 2, -1)
+        emb = jnp.flip(emb, axis=1)
+        emb = emb.reshape(*emb_shape)
 
         # Add augment embedding if exists
         if augment_labels is not None:
