@@ -428,8 +428,8 @@ class UNetpp(nn.Module):
         emb = emb.reshape(*emb_shape)
 
         # Add augment embedding if exists
-        if augment_labels is not None:
-            emb += self.map_augment(augment_labels)
+        # if augment_labels is not None:
+        #     emb += self.map_augment(augment_labels)
 
         # TODO: Add conditional stuffs in here
         emb = nn.silu(self.map_layer0(emb))
