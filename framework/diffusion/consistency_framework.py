@@ -479,29 +479,53 @@ class CMFramework(DefaultModel):
             #     loss_dict['train/alignment_loss'] = alignment_loss
             if diffusion_framework['alignment_loss']:
                 # current_step = jnp.floor(total_states_dict['torso_state'].step / self.step_scale).astype(int)
-                current_step = jnp.floor(total_states_dict['torso_state'].opt_state.gradient_step).astype(int)
+                # current_step = jnp.floor(total_states_dict['torso_state'].opt_state.gradient_step).astype(int)
 
-                rng_key, noise_1_key, noise_2_key = jax.random.split(rng_key, 3)
+                def alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, cm_dropout_key, current_step):
+                    rng_key, noise_1_key, noise_2_key = jax.random.split(rng_key, 3)
 
-                noise_1 = jax.random.normal(noise_1_key, y.shape)
-                noise_2 = jax.random.normal(noise_2_key, y.shape)
+                    noise_1 = jax.random.normal(noise_1_key, y.shape)
+                    noise_2 = jax.random.normal(noise_2_key, y.shape)
 
-                stopgrad_D_x = jax.lax.stop_gradient(D_x)
-                perturbed_D_x_1 = stopgrad_D_x + sigma * noise_1
-                perturbed_D_x_2 = stopgrad_D_x + sigma * noise_2
+                    stopgrad_D_x = jax.lax.stop_gradient(D_x)
+                    perturbed_D_x_1 = stopgrad_D_x + sigma * noise_1
+                    perturbed_D_x_2 = stopgrad_D_x + sigma * noise_2
+
+                    new_D_x_1, _ = self.model.apply(
+                        {'params': torso_params}, x=perturbed_D_x_1, sigma=sigma,
+                        train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+                    new_D_x_2, _ = self.model.apply(
+                        {'params': target_model}, x=perturbed_D_x_2, sigma=sigma,
+                        train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+                    return jnp.mean(new_D_x_1 * (new_D_x_2 - y))
+
+                # rng_key, noise_1_key, noise_2_key = jax.random.split(rng_key, 3)
+
+                # noise_1 = jax.random.normal(noise_1_key, y.shape)
+                # noise_2 = jax.random.normal(noise_2_key, y.shape)
+
+                # stopgrad_D_x = jax.lax.stop_gradient(D_x)
+                # perturbed_D_x_1 = stopgrad_D_x + sigma * noise_1
+                # perturbed_D_x_2 = stopgrad_D_x + sigma * noise_2
                 
-                new_D_x_1, _ = self.model.apply(
-                    {'params': torso_params}, x=perturbed_D_x_1, sigma=sigma,
-                    train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-                new_D_x_2, _ = self.model.apply(
-                    {'params': target_model}, x=perturbed_D_x_2, sigma=sigma,
-                    train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+                # new_D_x_1, _ = self.model.apply(
+                #     {'params': torso_params}, x=perturbed_D_x_1, sigma=sigma,
+                #     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+                # new_D_x_2, _ = self.model.apply(
+                #     {'params': target_model}, x=perturbed_D_x_2, sigma=sigma,
+                #     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
-                # Retrieve connection loss denoised
-                alignment_term = jnp.where(
+                # # Retrieve connection loss denoised
+                # alignment_term = jnp.where(
+                #     current_step <= diffusion_framework['alignment_threshold'],
+                #     0,
+                #     jnp.mean(new_D_x_1 * (new_D_x_2 - y)))
+                alignment_term = jax.lax.cond(
                     current_step <= diffusion_framework['alignment_threshold'],
-                    0,
-                    jnp.mean(new_D_x_1 * (new_D_x_2 - y)))
+                    lambda *args: 0.0,
+                    alignment_loss_fn,
+                    rng_key, torso_params, target_model, y, sigma, cm_dropout_key, current_step
+                )
 
                 if diffusion_framework.get("alignment_loss_weight", "uniform") == "lognormal":
                     p_mean = -1.1
