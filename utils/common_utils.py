@@ -41,7 +41,7 @@ def unnormalize_minus_one_to_one(images):
     return (images + 1) * 0.5 
 
 # def load_dataset_from_tfds(config, dataset_name="cifar10", batch_size=128, n_jitted_steps=1, x_flip=True, stf=False):
-def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_steps=None, x_flip=True):
+def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_steps=None, x_flip=True, shuffle=True):
 
   dataset_name = config["dataset"]["name"] if dataset_name is None else dataset_name
   batch_size = config["framework"]["diffusion"]["train"]["batch_size_per_rounds"] if batch_size is None else batch_size
@@ -73,7 +73,8 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
   device_count = jax.local_device_count()
   batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 
 
-  train_ds = train_ds.shuffle(1000)
+  if shuffle:
+    train_ds = train_ds.shuffle(1000)
   train_ds = train_ds.repeat()
   train_ds = train_ds.map(augmentation, num_parallel_calls=AUTOTUNE)
   for dim in reversed(batch_dims):
