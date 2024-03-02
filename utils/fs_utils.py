@@ -234,6 +234,9 @@ class FSUtils():
         step = self.checkpoint_manager.latest_step()
         if step is not None:
             state = self.checkpoint_manager.restore(step, items=state)
+            print(f"Loading ckpt of Step {step} complete.")
+        else:
+            print("No ckpt loaded. Start from scratch.")
         return state
     
     def get_best_fid(self):
