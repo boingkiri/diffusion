@@ -63,109 +63,6 @@ class CMFramework(DefaultModel):
         
         states = fs_obj.load_model_state(states)
         self.torso_state, self.head_state = states.get("diffusion"), states.get("head")
-
-        # TODO: Make tx and opt_state robust to the change of gradient accumulation steps.
-        # torso_tx = jax_utils.create_optimizer(config, "diffusion")
-        # head_tx = jax_utils.create_optimizer(config, "diffusion")
-        # self.torso_state = self.torso_state.replace(tx=torso_tx)
-        # self.head_state = self.head_state.replace(tx=head_tx)
-
-        # import optax
-        # effective_multistep_torso_state = torso_tx.init(self.torso_state.params)
-        # effective_multistep_head_state = head_tx.init(self.head_state.params)
-        # # effective_multistep_torso_state.inner_opt_state = self.torso_state.opt_state.inner_opt_state
-        # # effective_multistep_head_state.inner_opt_state = self.head_state.opt_state.inner_opt_state
-        # # effective_multistep_torso_state = effective_multistep_torso_state.inner_opt_state(
-        # #     inner_opt_state=self.torso_state.opt_state.inner_opt_state)
-        # # effective_multistep_head_state = effective_multistep_torso_state._replace(
-        # #     inner_opt_state=self.head_state.opt_state.inner_opt_state)
-        # effective_multistep_torso_state = optax.MultiStepsState(
-        #     mini_step=effective_multistep_torso_state.mini_step,
-        #     gradient_step=self.torso_state.opt_state.gradient_step,
-        #     inner_opt_state=self.torso_state.opt_state.inner_opt_state, # Reflect loaded opt state
-        #     acc_grads=effective_multistep_torso_state.acc_grads,
-        #     skip_state=effective_multistep_torso_state.skip_state)
-        # effective_multistep_head_state = optax.MultiStepsState(
-        #     mini_step=effective_multistep_head_state.mini_step,
-        #     gradient_step=self.head_state.opt_state.gradient_step,
-        #     inner_opt_state=self.head_state.opt_state.inner_opt_state, # Reflect loaded opt state
-        #     acc_grads=effective_multistep_head_state.acc_grads,
-        #     skip_state=effective_multistep_head_state.skip_state)
-        # breakpoint()
-        # self.torso_state = self.torso_state.replace(opt_state=effective_multistep_torso_state)
-        # self.head_state = self.head_state.replace(opt_state=effective_multistep_head_state)
-
-        # torso_tx = jax_utils.create_optimizer(config, "diffusion")
-        # head_tx = jax_utils.create_optimizer(config, "diffusion")
-        # import optax
-        # num_of_rounds = diffusion_framework['train']["total_batch_size"] // diffusion_framework['train']["batch_size_per_rounds"]
-        # torso_tx = optax.MultiSteps(torso_tx, every_k_schedule=num_of_rounds)
-        # head_tx = optax.MultiSteps(head_tx, every_k_schedule=num_of_rounds)
-        # dummy_torso_state = jax_utils.TrainState.create(
-        #     apply_fn=self.model.apply,
-        #     params=self.torso_state.params,
-        #     params_ema=self.torso_state.params_ema,
-        #     tx=torso_tx
-        # )
-        # dummy_head_state = jax_utils.TrainState.create(
-        #     apply_fn=self.head.apply,
-        #     params=self.head_state.params,
-        #     params_ema=self.head_state.params_ema,
-        #     tx=head_tx
-        # )
-        # if type(self.torso_state.opt_state) is optax.MultiSteps:
-        #     effective_inner_opt_torso_state = self.torso_state.opt_state.inner_opt_state
-        #     effective_inner_opt_head_state = self.head_state.opt_state.inner_opt_state
-        # else:
-        #     # TODO: need to deal with various type of optax gradient transformation.
-        #     # For now, it only deals with naive opt_state.
-        #     effective_inner_opt_torso_state = self.torso_state.opt_state
-        #     effective_inner_opt_head_state = self.head_state.opt_state
-        # effective_multistep_torso_state = optax.MultiStepsState(
-        #     mini_step=dummy_torso_state.opt_state.mini_step,
-        #     gradient_step=dummy_torso_state.opt_state.gradient_step,
-        #     inner_opt_state=effective_inner_opt_torso_state, # Reflect loaded opt state
-        #     acc_grads=dummy_torso_state.opt_state.acc_grads,
-        #     skip_state=dummy_torso_state.opt_state.skip_state)
-        # effective_multistep_head_state = optax.MultiStepsState(
-        #     mini_step=dummy_head_state.opt_state.mini_step,
-        #     gradient_step=dummy_head_state.opt_state.gradient_step,
-        #     inner_opt_state=effective_inner_opt_head_state, # Reflect loaded opt state
-        #     acc_grads=dummy_head_state.opt_state.acc_grads,
-        #     skip_state=dummy_head_state.opt_state.skip_state)
-        # dummy_torso_state = jax_utils.TrainState(
-        #     step=self.torso_state.step,
-        #     apply_fn=self.model.apply,
-        #     params=self.torso_state.params,
-        #     params_ema=self.torso_state.params_ema,
-        #     tx=torso_tx,
-        #     opt_state=effective_multistep_torso_state
-        # )
-        # dummy_head_state = jax_utils.TrainState(
-        #     step=self.head_state.step,
-        #     apply_fn=self.head.apply,
-        #     params=self.head_state.params,
-        #     params_ema=self.head_state.params_ema,
-        #     tx=head_tx,
-        #     opt_state=effective_multistep_head_state
-        # )
-        # # dummy_torso_state = jax_utils.TrainState.create(
-        # #     apply_fn=self.model.apply,
-        # #     params=self.torso_state.params,
-        # #     params_ema=self.torso_state.params_ema,
-        # #     tx=torso_tx,
-        # #     opt_state=effective_multistep_torso_state
-        # # )
-        # # dummy_head_state = jax_utils.TrainState.create(
-        # #     apply_fn=self.head.apply,
-        # #     params=self.head_state.params,
-        # #     params_ema=self.head_state.params_ema,
-        # #     tx=head_tx,
-        # #     opt_state=effective_multistep_head_state
-        # # )
-        # self.torso_state = dummy_torso_state
-        # self.head_state = dummy_head_state
-        
         
         # Replicate states for training with pmap
         self.training_states = {}
@@ -173,9 +70,6 @@ class CMFramework(DefaultModel):
         self.training_states["head_state"] = self.head_state
         
         self.training_states = flax.jax_utils.replicate(self.training_states)
-
-        # state step correction
-        # self.step_scale = int(diffusion_framework['train']['total_batch_size'] / diffusion_framework['train']['batch_size_per_rounds'])
 
         # Parameters
         self.sigma_min = diffusion_framework['sigma_min']
@@ -246,23 +140,10 @@ class CMFramework(DefaultModel):
             prev_sigma = self.ict_t_steps_fn(idx, N_k)[:, None, None, None]
             return sigma, prev_sigma
     
-        # def ict_continuous_sigma_sampling(rng_key, y, step):
-        #     p_mean = -1.1
-        #     p_std = 2.0
-        #     normal = jax.random.normal(rng_key, (y.shape[0], 1, 1, 1))
-        #     sigma = jnp.exp(normal * p_std + p_mean)
-        #     return sigma, sigma # prev_sigma is not used in this case.
-
 
         def get_sigma_sampling(sigma_sampling, rng_key, y, step=None):
             if sigma_sampling == "EDM":
                 return edm_sigma_sampling_fn(rng_key, y)
-            # elif sigma_sampling == "iCT" and diffusion_framework["continuous_timestep"]:
-            #     return jax.lax.cond(step >= diffusion_framework["continuous_timestep_threshold"],
-            #         ict_continuous_sigma_sampling,
-            #         ict_sigma_sampling_fn,
-            #         rng_key, y, step
-            #     )
             elif sigma_sampling == "iCT":
                 return ict_sigma_sampling_fn(rng_key, y, step)
             else:
@@ -301,63 +182,70 @@ class CMFramework(DefaultModel):
                 loss_dict[f"eval/{key_name if key_name is not None else loss_type}"] = loss
             return loss, loss_dict
 
+        def original_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
+            rng_key, noise_key = jax.random.split(rng_key, 2)
+
+            noise = jax.random.normal(noise_key, y.shape)
+
+            stopgrad_D_x = jax.lax.stop_gradient(D_x)
+            perturbed_D_x = stopgrad_D_x + sigma * noise
+
+            new_D_x_1, _ = self.model.apply(
+                {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
+                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+            # return jnp.mean(new_D_x_1 * (new_D_x_2 - y))
+            return jnp.mean((new_D_x_1 - y) ** 2)
+
+        def pseudo_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
+            rng_key, noise_1_key, noise_2_key = jax.random.split(rng_key, 3)
+
+            noise_1 = jax.random.normal(noise_1_key, y.shape)
+            noise_2 = jax.random.normal(noise_2_key, y.shape)
+
+            stopgrad_D_x = jax.lax.stop_gradient(D_x)
+            perturbed_D_x_1 = stopgrad_D_x + sigma * noise_1
+            perturbed_D_x_2 = stopgrad_D_x + sigma * noise_2
+
+            new_D_x_1, _ = self.model.apply(
+                {'params': torso_params}, x=perturbed_D_x_1, sigma=sigma,
+                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+            new_D_x_2, _ = self.model.apply(
+                {'params': target_model}, x=perturbed_D_x_2, sigma=sigma,
+                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+            return jnp.mean(new_D_x_1 * (new_D_x_2 - y))
+
         @jax.jit
-        def monitor_metric_fn(params, y, rng_key):
-            torso_params = params.get('torso_state', self.torso_state.params_ema)
-            head_params = params['head_state']
+        def monitor_metric_fn(params, y, rng_key, current_step):
+            torso_params = jax.lax.stop_gradient(params.get('torso_state', self.torso_state.params_ema))
 
             rng_key, step_key, noise_key, dropout_key = jax.random.split(rng_key, 4)
 
-            idx = jax.random.randint(step_key, (y.shape[0], ), minval=1, maxval=self.n_timestep)
-            sigma = self.t_steps[idx][:, None, None, None]
-            prev_sigma = self.t_steps[idx-1][:, None, None, None]
+            # idx = jax.random.randint(step_key, (y.shape[0], ), minval=1, maxval=self.n_timestep)
+            # sigma = self.t_steps[idx][:, None, None, None]
+            # prev_sigma = self.t_steps[idx-1][:, None, None, None]
+            # sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling'], step_key, y, current_step)
+            sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_joint'], step_key, y, current_step)
             
             noise = jax.random.normal(noise_key, y.shape)
             perturbed_x = y + sigma * noise
 
-            # denoised, D_x, aux = model_default_output_fn(params, y, sigma, prev_sigma, noise, rng_key, eval_mode=True)
-            # Get consistency function values
-            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
+            # Get D_x
             D_x, aux = self.model.apply(
                 {'params': torso_params}, x=perturbed_x, sigma=sigma,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+                train=True, augment_labels=None, rngs={'dropout': dropout_key})
             
-            t_emb, last_x_emb = aux
 
-            dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-            denoised, head_aux = self.head.apply(
-                {'params': head_params}, x=perturbed_x, sigma=sigma, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key_2})
+            # Pseudo alignment loss
+            rng_key, pseudo_alignment_key = jax.random.split(rng_key, 2)
+            pseudo_alignment_loss = pseudo_alignment_loss_fn(pseudo_alignment_key, torso_params, torso_params, y, sigma, D_x, dropout_key)
 
-            # Additional loss for monitoring training.
-            dx_dt = (perturbed_x - denoised) / sigma
-            prev_perturbed_x = perturbed_x + (prev_sigma - sigma) * dx_dt # Euler step
-            
-            rng_key, dropout_key = jax.random.split(rng_key, 2)
-            prev_D_x, aux = self.model.apply(
-                {'params': torso_params}, x=prev_perturbed_x, sigma=prev_sigma,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key})
-
-            # Monitor distillation loss (l2 loss)
-            l2_dist = jnp.mean((D_x - prev_D_x) ** 2)
-            
-            # Monitor distillation loss (perceptual loss)
-            output_shape = (y.shape[0], 224, 224, y.shape[-1])
-            D_x = jax.image.resize(D_x, output_shape, "bilinear")
-            prev_D_x = jax.image.resize(prev_D_x, output_shape, "bilinear")
-            lpips_dist = jnp.mean(self.perceptual_loss(D_x, prev_D_x))
-
-            # Monitor difference between original CM and trained (perturbed) CM
-            original_D_x, aux = self.model.apply(
-                {'params': self.torso_state.params_ema}, x=y, sigma=sigma,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key})
-            original_D_x = jax.image.resize(original_D_x, output_shape, "bilinear")
-            lpips_dist_btw_training_and_original_cm = jnp.mean(self.perceptual_loss(D_x, original_D_x))
+            # Original alignment loss
+            rng_key, original_alignment_key = jax.random.split(rng_key, 2)
+            original_alignment_loss = original_alignment_loss_fn(original_alignment_key, torso_params, torso_params, y, sigma, D_x, dropout_key)
 
             loss_dict = {}
-            loss_dict['eval/l2_dist'] = l2_dist
-            loss_dict['eval/lpips_dist_for_training_cm'] = lpips_dist
-            loss_dict['eval/lpips_dist_btw_training_and_original_cm'] = lpips_dist_btw_training_and_original_cm
+            loss_dict['eval/pseudo_alignment_loss'] = pseudo_alignment_loss
+            loss_dict['eval/original_alignment_loss'] = original_alignment_loss
             return loss_dict
 
 
@@ -385,7 +273,6 @@ class CMFramework(DefaultModel):
 
             # Get consistency function values
             cm_dropout_key, dropout_key = jax.random.split(dropout_key, 2)
-
           
             def discrete_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, dropout_key):
                 D_x, aux = self.model.apply(
@@ -408,11 +295,6 @@ class CMFramework(DefaultModel):
             head_D_x = jax.lax.stop_gradient(D_x)
             head_t_emb, head_last_x_emb = jax.lax.stop_gradient(aux) if not diffusion_framework['gradient_flow_from_head'] else aux
 
-            # dropout_key_2, dropout_key = jax.random.split(dropout_key, 2)
-            # denoised, aux = self.head.apply(
-            #     {'params': head_params}, x=perturbed_x, sigma=sigma,
-            #     F_x=head_D_x, t_emb=head_t_emb, last_x_emb=head_last_x_emb,
-            #     train=True, augment_labels=None, rngs={'dropout': dropout_key_2})
             denoised, aux = self.head.apply(
                 {'params': head_params}, x=perturbed_x, sigma=sigma, 
                 F_x=head_D_x, t_emb=head_t_emb, last_x_emb=head_last_x_emb,
@@ -426,105 +308,14 @@ class CMFramework(DefaultModel):
             total_loss += dsm_loss
             loss_dict['train/head_dsm_loss'] = dsm_loss
 
-            # if diffusion_framework['alignment_loss']:
-            #     current_step = jnp.floor(total_states_dict['torso_state'].step / self.step_scale).astype(int)
-                
-            #     # rng_key, noise_key = jax.random.split(rng_key, 2)
-            #     # noise = jax.random.normal(noise_key, y.shape)
-            #     # perturbed_D_x = D_x + sigma * noise
-            #     # # new_D_x, aux = self.model.apply(
-            #     # #     {'params': jax.lax.stop_gradient(torso_params)}, x=perturbed_D_x, sigma=sigma,
-            #     # #     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-            #     # new_D_x, aux = self.model.apply(
-            #     #     {'params': torso_params}, x=jax.lax.stop_gradient(perturbed_D_x), sigma=sigma,
-            #     #     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-
-            #     # # Retrieve connection loss denoised
-            #     # alignment_loss_denoised = jnp.where(
-            #     #     current_step <= diffusion_framework['alignment_threshold'], new_D_x, denoised)
-
-            #     rng_key, noise_1_key, noise_2_key = jax.random.split(rng_key, 3)
-
-            #     noise_1 = jax.random.normal(noise_1_key, y.shape)
-            #     noise_2 = jax.random.normal(noise_2_key, y.shape)
-
-            #     stopgrad_D_x = jax.lax.stop_gradient(D_x)
-            #     perturbed_D_x_1 = stopgrad_D_x + sigma * noise_1
-            #     perturbed_D_x_2 = stopgrad_D_x + sigma * noise_2
-
-            #     new_D_x_1, _ = self.model.apply(
-            #         {'params': torso_params}, x=perturbed_D_x_1, sigma=sigma,
-            #         train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-            #     new_D_x_2, _ = self.model.apply(
-            #         {'params': torso_params}, x=perturbed_D_x_2, sigma=sigma,
-            #         train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-
-            #     # Retrieve connection loss denoised
-            #     stopgrad_denoised = jax.lax.stop_gradient(denoised)
-            #     alignment_term = jnp.where(
-            #         current_step <= diffusion_framework['alignment_threshold'],
-            #         0,
-            #         jnp.mean((new_D_x_1 - stopgrad_denoised) * (new_D_x_2 - stopgrad_denoised)))
-
-            #     if diffusion_framework.get("alignment_loss_weight", "uniform") == "lognormal":
-            #         p_mean = -1.1
-            #         p_std = 2.0
-            #         alignment_loss_weight = jnp.exp(-0.5 * ((jnp.log(sigma) - p_mean) / p_std) ** 2)
-            #         alignment_loss_weight *= 1 / (p_std * jnp.sqrt(2 * jnp.pi))
-            #     else:
-            #         alignment_loss_weight = 1
-            #     alignment_loss = jnp.mean(alignment_loss_weight * alignment_term)
-
-            #     total_loss += diffusion_framework['alignment_loss_scale'] * alignment_loss
-            #     loss_dict['train/alignment_loss'] = alignment_loss
             if diffusion_framework['alignment_loss']:
-                # current_step = jnp.floor(total_states_dict['torso_state'].step / self.step_scale).astype(int)
-                # current_step = jnp.floor(total_states_dict['torso_state'].opt_state.gradient_step).astype(int)
-
-                def alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, cm_dropout_key, current_step):
-                    rng_key, noise_1_key, noise_2_key = jax.random.split(rng_key, 3)
-
-                    noise_1 = jax.random.normal(noise_1_key, y.shape)
-                    noise_2 = jax.random.normal(noise_2_key, y.shape)
-
-                    stopgrad_D_x = jax.lax.stop_gradient(D_x)
-                    perturbed_D_x_1 = stopgrad_D_x + sigma * noise_1
-                    perturbed_D_x_2 = stopgrad_D_x + sigma * noise_2
-
-                    new_D_x_1, _ = self.model.apply(
-                        {'params': torso_params}, x=perturbed_D_x_1, sigma=sigma,
-                        train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-                    new_D_x_2, _ = self.model.apply(
-                        {'params': target_model}, x=perturbed_D_x_2, sigma=sigma,
-                        train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-                    return jnp.mean(new_D_x_1 * (new_D_x_2 - y))
-
-                # rng_key, noise_1_key, noise_2_key = jax.random.split(rng_key, 3)
-
-                # noise_1 = jax.random.normal(noise_1_key, y.shape)
-                # noise_2 = jax.random.normal(noise_2_key, y.shape)
-
-                # stopgrad_D_x = jax.lax.stop_gradient(D_x)
-                # perturbed_D_x_1 = stopgrad_D_x + sigma * noise_1
-                # perturbed_D_x_2 = stopgrad_D_x + sigma * noise_2
-                
-                # new_D_x_1, _ = self.model.apply(
-                #     {'params': torso_params}, x=perturbed_D_x_1, sigma=sigma,
-                #     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-                # new_D_x_2, _ = self.model.apply(
-                #     {'params': target_model}, x=perturbed_D_x_2, sigma=sigma,
-                #     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-
-                # # Retrieve connection loss denoised
-                # alignment_term = jnp.where(
-                #     current_step <= diffusion_framework['alignment_threshold'],
-                #     0,
-                #     jnp.mean(new_D_x_1 * (new_D_x_2 - y)))
+                alignment_loss_fn = pseudo_alignment_loss_fn if diffusion_framework['alignment_loss'] != "original" else original_alignment_loss_fn
                 alignment_term = jax.lax.cond(
                     current_step <= diffusion_framework['alignment_threshold'],
                     lambda *args: 0.0,
+                    # pseudo_alignment_loss_fn,
                     alignment_loss_fn,
-                    rng_key, torso_params, target_model, y, sigma, cm_dropout_key, current_step
+                    rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key
                 )
 
                 if diffusion_framework.get("alignment_loss_weight", "uniform") == "lognormal":
@@ -734,13 +525,14 @@ class CMFramework(DefaultModel):
         self.training_states = training_states
 
         eval_dict = {}
-        # if eval_during_training:
-        #     eval_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        #     eval_key = jnp.asarray(jax.random.split(eval_key, jax.local_device_count()))
-        #     # TODO: self.eval_fn is called using small batch size. This is not good for evaluation.
-        #     # Need to use large batch size (e.g. using scan function.)
-        #     eval_dict = self.eval_fn(self.get_training_states_params(), x0[:, 0], eval_key)
-        #     eval_dict = jax.tree_util.tree_map(lambda x: jnp.mean(x), eval_dict)
+        if eval_during_training:
+            eval_key, self.rand_key = jax.random.split(self.rand_key, 2)
+            eval_key = jnp.asarray(jax.random.split(eval_key, jax.local_device_count()))
+            current_step = jnp.asarray([step] * jax.local_device_count())
+            # TODO: self.eval_fn is called using small batch size. This is not good for evaluation.
+            # Need to use large batch size (e.g. using scan function.)
+            eval_dict = self.eval_fn(self.get_training_states_params(), x0[:, 0], eval_key, current_step)
+            eval_dict = jax.tree_util.tree_map(lambda x: jnp.mean(x), eval_dict)
 
         return_dict = {}
         return_dict.update(loss_dict)
