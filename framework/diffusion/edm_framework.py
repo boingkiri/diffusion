@@ -233,6 +233,7 @@ class EDMFramework(DefaultModel):
         # if original_data is not None:
         #     rec_loss = jnp.mean((latent_sample - original_data) ** 2)
         #     self.wandblog.update_log({"Diffusion Reconstruction loss": rec_loss})
+        latent_sample = jnp.reshape(latent_sample, (-1, *img_size))
         return latent_sample
 
     def sampling_denoiser(self, num_image, img_size=(32, 32, 3), original_data=None, sweep_timesteps=None, noise=None, sigma_scale=None):
