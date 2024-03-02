@@ -15,6 +15,7 @@ from utils.fs_utils import FSUtils
 from utils import jax_utils, common_utils
 from utils.fid_utils import FIDUtils
 from utils.log_utils import WandBLog
+from utils.pae_utils import PAEUtils
 
 from tqdm import tqdm
 import os
@@ -51,6 +52,10 @@ class UnifyingFramework():
         self.fs_utils = FSUtils(config)
         self.wandblog = WandBLog()
         self.fs_utils.verify_and_create_workspace()
+
+        # TMP
+        if config["PAE_evaluation"]:
+            self.pae_utils = PAEUtils(config, self.wandblog)
 
     def set_model(self, config: DictConfig):
         if self.current_model_type in ['ddpm', 'ddim']:
@@ -115,25 +120,13 @@ class UnifyingFramework():
         # first_step = True
         first_step = False
         fid_dict = {}
+        log = {}
 
         num_used_dataset = 0
 
         for x, _ in datasets_bar:
-            eval_during_training = self.step % 1000 == 0
-            log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
-
-            description_str = "Step: {step}/{total_step} lr*1e4: {lr:.4f} ".format(
-                step=self.step,
-                total_step=self.total_step,
-                lr=self.learning_rate_schedule(self.step)*(1e+4)
-            )
-            for key in log:
-                if key.startswith("train"):
-                    represented_key = key.replace("train/", "")
-                    description_str += f"{represented_key}: {log[key]:.4f} "
-            datasets_bar.set_description(description_str)
-
-            if self.step % 1000 == 0:
+            # if self.step % 1000 == 0:
+            if self.step % self.config["sampling_step"] == 0:
                 batch_data = x[0, 0, :8] # (device_idx, n_jitted_steps, batch_size)
 
                 # Change of the sample quality is tracked to know how much the CM model is corrupted.
@@ -155,10 +148,7 @@ class UnifyingFramework():
                 self.wandblog.update_log(log)
                 self.wandblog.flush(step=self.step)
 
-            # if self.step % 50000 == 0 and self.step != 0:
-            # if self.step % 50000 == 0:
-            # if self.step % 50000 == 0 and self.step not in fid_dict:
-            if self.step % 10000 == 0 and self.step not in fid_dict:
+            if self.step % self.config["saving_step"] == 0 and self.step not in fid_dict:
                 model_state = self.framework.get_model_state()
                 # sampling_modes = ['edm', 'cm-training']
                 sampling_modes = ['one-step', 'two-step']
@@ -188,10 +178,23 @@ class UnifyingFramework():
                         self.save_model_state(model_state, mode_metrics)
                     self.wandblog.flush(step=self.step)
                     fid_dict[self.step] = mode_metrics
-            
-                if self.step == 200000 or self.step == 300000:
-                    self.fs_utils.save_tmp_model_state(model_state, self.step)
 
+                # TMP: Calculate Pixel alignment loss for each saving step
+                if self.config["PAE_evaluation"]:
+                    self.pae_utils.calculate_pae(self.framework, self.step)
+                # if self.step == 200000 or self.step == 300000:
+                #     self.fs_utils.save_tmp_model_state(model_state, self.step)
+
+            eval_during_training = self.step % 1000 == 0
+            training_log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
+            log.update(training_log)
+
+            
+            for key in log:
+                if key.startswith("train"):
+                    represented_key = key.replace("train/", "")
+                    description_str += f"{represented_key}: {log[key]:.4f} "
+            datasets_bar.set_description(description_str)
 
             if self.step >= self.total_step:
                 if not self.next_step():
@@ -205,6 +208,12 @@ class UnifyingFramework():
             datasets_bar.update(update_step)
             # self.step += self.n_jitted_steps
             self.step += update_step
+
+            description_str = "Step: {step}/{total_step} lr*1e4: {lr:.4f} ".format(
+                step=self.step,
+                total_step=self.total_step,
+                lr=self.learning_rate_schedule(self.step)*(1e+4)
+            )
             first_step = False
             
 
