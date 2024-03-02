@@ -189,6 +189,11 @@ class UnifyingFramework():
             training_log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
             log.update(training_log)
 
+            description_str = "Step: {step}/{total_step} lr*1e4: {lr:.4f} ".format(
+                step=self.step,
+                total_step=self.total_step,
+                lr=self.learning_rate_schedule(self.step)*(1e+4)
+            )
             
             for key in log:
                 if key.startswith("train"):
@@ -209,11 +214,7 @@ class UnifyingFramework():
             # self.step += self.n_jitted_steps
             self.step += update_step
 
-            description_str = "Step: {step}/{total_step} lr*1e4: {lr:.4f} ".format(
-                step=self.step,
-                total_step=self.total_step,
-                lr=self.learning_rate_schedule(self.step)*(1e+4)
-            )
+            
             first_step = False
             
 
