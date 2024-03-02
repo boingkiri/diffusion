@@ -309,7 +309,7 @@ class CMFramework(DefaultModel):
             loss_dict['train/head_dsm_loss'] = dsm_loss
 
             if diffusion_framework['alignment_loss']:
-                alignment_loss_fn = pseudo_alignment_loss_fn if diffusion_framework['alignment_loss'] != "original" else original_alignment_loss_fn
+                alignment_loss_fn = pseudo_alignment_loss_fn if diffusion_framework['alignment_type'] != "original" else original_alignment_loss_fn
                 alignment_term = jax.lax.cond(
                     current_step <= diffusion_framework['alignment_threshold'],
                     lambda *args: 0.0,
