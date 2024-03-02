@@ -12,6 +12,8 @@ from framework.unifying_framework import UnifyingFramework
 import os
 import argparse
 
+from jax_smi import initialise_tracking
+
 # @hydra.main(config_path="configs", config_name="config")
 def start(config: DictConfig):
     rng = random.PRNGKey(config.rand_seed)
@@ -23,6 +25,8 @@ def start(config: DictConfig):
         if hasattr(config, "available_gpus"):
             os.environ["CUDA_VISIBLE_DEVICES"] = config.available_gpus
     
+    initialise_tracking()
+
     print("-------------------Config Setting---------------------")
     print(OmegaConf.to_yaml(config))
     print("------------------------------------------------------")
