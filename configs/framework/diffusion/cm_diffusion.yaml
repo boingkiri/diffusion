@@ -22,7 +22,8 @@ gradient_flow_from_head: True
 joint_training_weight: 0.3
 
 # Connection loss (new loss)
-alignment_loss: True
+alignment_loss: false
+alignment_type: original # original, pseudo
 alignment_threshold: 50000
 alignment_loss_scale: 0.1
 alignment_loss_weight: "uniform" # lognormal, uniform
@@ -30,10 +31,8 @@ alignment_loss_weight: "uniform" # lognormal, uniform
 
 train:
   learning_rate: 1.0e-4
-  total_batch_size: 1024
+  total_batch_size: 512
   batch_size_per_rounds: 256 # The option for gradient accumulation, which is used for large batch size training.
   total_step: 400000
-  sampling_step: 10000
-  saving_step: 100000
   optimizer:
     type: "radam"

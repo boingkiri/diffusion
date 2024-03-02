@@ -9,26 +9,35 @@ defaults:
   - model@_group_.head: 
     # - diffusion/score_head_conv
     # - diffusion/score_head_pde
-    # - diffusion/score_head
-    - diffusion/score_head_large
+    - diffusion/score_head
+    # - diffusion/score_head_large
     # - diffusion/score_head_baseline
   # - ema: ema_edm
   - ema: ema_ict
   - dataset: cifar10
   - exp: exp_setting
 
-type: ${framework.diffusion.type}
-exp_name: largehead_300k_align0.03_240218
-tags: [iCT]
+# Training mode / evaluation model
 do_training: True
 do_sampling: True
+fid_during_training: True # True when calculating fid during training, otherwise, false.
+sampling_step: 1000
+saving_step: 10000
+
+# Training type
+type: ${framework.diffusion.type}
+exp_name: 0301_iCT_512_n_1_no_alignment_logging
+tags: [iCT]
+
+# Miscellaneous
 num_sampling: 50000
 sampling_batch: 256
 rand_seed: 42
-fid_during_training: True # True when calculating fid during training, otherwise, false.
-n_jitted_steps: 4
-
+n_jitted_steps: 10
 available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
+
+# Evaluation mode
+PAE_evaluation: True
 
 # framework:
 #   diffusion:
