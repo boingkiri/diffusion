@@ -11,22 +11,37 @@ import tensorflow_datasets as tfds
 
 import torch
 from torch.utils.data import Dataset, DataLoader
-
+from multiprocessing import Manager
+from typing import Optional
 import numpy as np
 
 class CustomNumpyDataset(Dataset):
-    def __init__(self, numpy_dir, transform=None, target_transform=None):
+    def __init__(self, numpy_dir, transform=None, target_transform=None, cache=None):
         self.numpy_dir = numpy_dir
         self.transform = transform
         self.target_transform = target_transform
-
+        self.cache = cache
+        self.use_cache = cache is not None
+           
     def __len__(self):
-        # return len(self.img_labels)
         return len(os.listdir(self.numpy_dir))
+      #  return len(self.cached_data)
 
-    def __getitem__(self, idx):
+    def load_numpy(self, idx):
         numpy_path = os.path.join(self.numpy_dir, os.listdir(self.numpy_dir)[idx])
         numpy = np.load(numpy_path)
+        return numpy
+
+    def __getitem__(self, idx):
+        # numpy_path = os.path.join(self.numpy_dir, os.listdir(self.numpy_dir)[idx])
+        # numpy = np.load(numpy_path)
+        if self.use_cache:
+          if idx not in self.cache:
+            self.cache[idx] = self.load_numpy(idx)
+          numpy = self.cache[idx]
+        else:
+          numpy_path = os.path.join(self.numpy_dir, os.listdir(self.numpy_dir)[idx])
+          numpy = np.load(numpy_path)
         numpy = self.transform(numpy) if self.transform is not None else numpy
         return numpy, []
 
@@ -142,7 +157,9 @@ def load_dataset_from_local_file(config, dataset_name=None, batch_size=None, n_j
   
 
   if dataset_name == "celebahq":
-     ds = CustomNumpyDataset(config["dataset"]["dataset_path"])
+     use_cache = config["dataset"].get("use_cache", False)
+     cache_dict = Manager().dict() if use_cache else None
+     ds = CustomNumpyDataset(config["dataset"]["dataset_path"], cache=cache_dict)
     
   # elif dataset_name == "imagenet_64": # TODO
   #   ds = tfds.load("imagenet2012", split="train", as_supervised=True)
