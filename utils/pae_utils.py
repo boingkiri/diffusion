@@ -82,7 +82,7 @@ class PAEUtils():
     def calculate_pae(self, consistency_framework: CMFramework, step: int):
         self.reset_dataset()
         data = next(self.datasets)
-        data = data[0][:, 0, ...] # 256 samples
+        data = data[0][:, 0, ...] # 256 samples (8 * 32)
 
         error_x_label = []
         error_y_label = []
@@ -117,7 +117,7 @@ class PAEUtils():
                 second_consistency_output = consistency_framework.sampling_cm_intermediate(
                     self.num_denoiser_samples, original_data=consistency_output, sweep_timesteps=timestep, noise=new_noise)
                 sampling_list.append(second_consistency_output)
-                second_consistency_output = jnp.reshape(second_consistency_output, data.shape)
+                # second_consistency_output = jnp.reshape(second_consistency_output, data.shape)
 
             # sampling_list = jnp.concatenate(sampling_list, axis=0)
             sampling_list = jnp.stack(sampling_list, axis=0)
@@ -126,15 +126,12 @@ class PAEUtils():
             pixel_alignment_error = jnp.mean(jnp.abs(sampling_list - denoiser_output), axis=(-1, -2, -3))
 
             sample_images.append([denoiser_output[0], sampling_list[0]])
-
             # second_consistency_output_empirical_mean = jnp.mean(sampling_list, axis=0)
             # error = jnp.mean(jnp.abs(second_consistency_output_empirical_mean - denoiser_output), axis=(-1, -2, -3))
             print("Total mean of error: ", jnp.mean(pixel_alignment_error))
 
             error_x_label.append(timestep)
             error_y_label.append(jnp.mean(pixel_alignment_error))
-
-        self.rng = rng
 
         total_pixel_alignment_error = jnp.mean(jnp.array(error_y_label))
         total_pixel_alignment_error_var = jnp.var(jnp.array(error_y_label))
@@ -169,7 +166,8 @@ if __name__=="__main__":
 
     from utils.log_utils import WandBLog
 
-    consistency_config_path = "config_consistency"
+    # consistency_config_path = "config_consistency"
+    consistency_config_path = "config"
 
     args ={
             "project": "test",
@@ -177,9 +175,10 @@ if __name__=="__main__":
         }
     wandb.init(**args)
 
-    with initialize(config_path="../configs") as cfg:
-    # with initialize(config_path="configs") as cfg:
+    # with initialize(config_path="../configs") as cfg:
+    with initialize(config_path="configs") as cfg:
         consistency_config = compose(config_name=consistency_config_path)
+        consistency_config["do_training"] = False
         consistency_fs_obj = FSUtils(consistency_config)
         wandb_obj = WandBLog()
         pae_utils = PAEUtils(consistency_config, wandb_obj)
