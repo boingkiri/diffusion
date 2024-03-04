@@ -16,7 +16,7 @@ n_heads: 1
 n_groups: 32
 dropout_rate: 0.0
 label_dropout_rate: 0.0
-input_channels: 128 # Changed
+input_channels: 256 # Changed
 input_t_embed: True
 
 embedding_type: positional
