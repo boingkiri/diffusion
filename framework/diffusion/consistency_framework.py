@@ -702,7 +702,7 @@ class CMFramework(DefaultModel):
 
         # sampling_params = self.torso_state.params_ema
         sampling_params = self.training_states["torso_state"].params_ema
-        sampling_params = flax.jax_utils.replicate(sampling_params)
+        # sampling_params = flax.jax_utils.replicate(sampling_params)
 
         latent_sample = self.p_sample_cm(sampling_params, latent_sample, rng_key, gamma, current_t, t_min)
         latent_sample = latent_sample.reshape(num_image, *img_size)
