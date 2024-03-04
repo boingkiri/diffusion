@@ -700,7 +700,8 @@ class CMFramework(DefaultModel):
         current_t = jnp.asarray([sampling_t_steps[sweep_timesteps]] * jax.local_device_count())
         t_min = jnp.asarray([self.sigma_min] * jax.local_device_count())
 
-        sampling_params = self.torso_state.params_ema
+        # sampling_params = self.torso_state.params_ema
+        sampling_params = self.training_states["torso_state"].params_ema
         sampling_params = flax.jax_utils.replicate(sampling_params)
 
         latent_sample = self.p_sample_cm(sampling_params, latent_sample, rng_key, gamma, current_t, t_min)

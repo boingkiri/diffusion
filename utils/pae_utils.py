@@ -154,7 +154,7 @@ class PAEUtils():
 
         np_image = self.viz_sample(sample_images)
         wandb_image = [wandb.Image(image, caption="Sample images") for image in np_image]
-        wandb.log({"train/Sample images": wandb_image})
+        wandb.log({"train/Sample images": wandb_image}, step=step)
         return total_pixel_alignment_error, total_pixel_alignment_error_var
             
 
