@@ -19,7 +19,8 @@ class FSUtils():
         self.config = config
 
         # Create pytree checkpointer and its manager
-        self.checkpoint_manager, self.best_checkpoint_manager = self.create_checkpoint_manager() # orbax.checkpoint.CheckpointManager. Dict[CheckpointManager]
+        # self.checkpoint_manager, self.best_checkpoint_manager = self.create_checkpoint_manager() # orbax.checkpoint.CheckpointManager. Dict[CheckpointManager]
+        self.checkpoint_manager, self.best_checkpoint_manager, self.tmp_checkpoint_manager = self.create_checkpoint_manager() # orbax.checkpoint.CheckpointManager. Dict[CheckpointManager]
 
     def create_checkpoint_manager(self):
         model_keys = self.config.model.keys()
@@ -31,6 +32,13 @@ class FSUtils():
             {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
             model_checkpoint_manager_options)
 
+        # TMP: to save checkpoint at 200k or 300k
+        tmp_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=10)
+        tmp_checkpoint_manager = orbax.checkpoint.CheckpointManager(
+            abs_path_ + self.config.exp.checkpoint_dir + "/tmp", 
+            {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
+            tmp_checkpoint_manager_options)
+
         for model_key in model_keys:
             best_checkpoint_dir = self.config.exp.best_dir + "/" + model_key
             model_best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(
@@ -40,8 +48,9 @@ class FSUtils():
                 {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys}, 
                 model_best_checkpoint_manager_options)
             best_checkpoint_manager[model_key] = model_best_checkpoint_manager
+        
 
-        return model_checkpoint_manager, best_checkpoint_manager
+        return model_checkpoint_manager, best_checkpoint_manager, tmp_checkpoint_manager
     
     def update_checkpoint_manager(self, add_model_keys=None, delete_model_keys=None):
         model_keys = set(self.config.model.keys())
@@ -195,18 +204,6 @@ class FSUtils():
             im.save(sample_path)
             current_sampling += 1
         return current_sampling
-
-    def save_numpy_to_dir(self, numpy_batch, save_path_dir=None, starting_pos=0):
-        current_sampling = 0
-        if save_path_dir is None:
-            save_path_dir = self.config.exp.sampling_dir
-        elif not os.path.isdir(save_path_dir):
-            os.makedirs(save_path_dir)
-        for np_elem in numpy_batch:
-            np_elem = np.asarray(np_elem)
-            np.save(os.path.join(save_path_dir, f"{starting_pos + current_sampling}.npy"), np_elem)
-            current_sampling += 1
-        return current_sampling
     
     def delete_images_from_dir(self, save_path_dir=None, starting_pos=50000):
         if save_path_dir is None:
@@ -215,24 +212,18 @@ class FSUtils():
             number = int(content.split(".")[0])
             if number >= starting_pos:
                 os.remove(os.path.join(save_path_dir, content))
-    
-    def delete_numpy_from_dir(self, step, save_path_dir, starting_pos=50000):
-        save_path_dir = self.config.exp.sampling_dir
-        save_path_dir += "/" + str(step)
 
-        for content in os.listdir(save_path_dir):
-            number = int(content.split(".")[0])
-            if number >= starting_pos:
-                os.remove(os.path.join(save_path_dir, content))
+    def save_tmp_model_state(self, states, step):
+        self.tmp_checkpoint_manager.save(step, states)
+        print(f"TMP SAVE: Saving {step} complete.")
 
     def save_model_state(self, states, step, metrics=None):
         best_saved = False
         self.checkpoint_manager.save(step, states)
-        if metrics is not None:
-            for state in states:
-                best_checkpoint_manager = self.best_checkpoint_manager[state]
-                state_saved = best_checkpoint_manager.save(step, states, metrics=metrics[state])
-                best_saved = best_saved or state_saved
+        for state in states:
+            best_checkpoint_manager = self.best_checkpoint_manager[state]
+            state_saved = best_checkpoint_manager.save(step, states, metrics=metrics[state])
+            best_saved = best_saved or state_saved
 
         print(f"Saving {step} complete.")
         if best_saved:
@@ -243,6 +234,9 @@ class FSUtils():
         step = self.checkpoint_manager.latest_step()
         if step is not None:
             state = self.checkpoint_manager.restore(step, items=state)
+            print(f"Loading ckpt of Step {step} complete.")
+        else:
+            print("No ckpt loaded. Start from scratch.")
         return state
     
     def get_best_fid(self):
@@ -266,4 +260,3 @@ class FSUtils():
                         elif best_fid[fid_log_key] >= value:
                             best_fid[fid_log_key] = value
         return best_fid
-
