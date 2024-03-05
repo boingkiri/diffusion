@@ -128,9 +128,6 @@ class UnifyingFramework():
 
         for x, _ in datasets_bar:
             eval_during_training = self.step % 1000 == 0
-            if self.config["dataset"].get("dataset_path", False):
-                x = x.detach().cpu().numpy()
-            x = jnp.reshape(x, tuple(batch_dim) + (*x.shape[-3:],))
             log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
 
             description_str = "Step: {step}/{total_step} lr*1e4: {lr:.4f} ".format(

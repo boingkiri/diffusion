@@ -9,57 +9,9 @@ from jax.lib import xla_bridge
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
-import torch
-from torch.utils.data import Dataset, DataLoader
-from multiprocessing import Manager
-from typing import Optional
 import numpy as np
+import pathlib
 
-class CustomNumpyDataset(Dataset):
-    def __init__(self, numpy_dir, transform=None, target_transform=None, cache=None):
-        self.numpy_dir = numpy_dir
-        self.transform = transform
-        self.target_transform = target_transform
-        self.cache = cache
-        self.use_cache = cache is not None
-           
-    def __len__(self):
-        return len(os.listdir(self.numpy_dir))
-      #  return len(self.cached_data)
-
-    def load_numpy(self, idx):
-        numpy_path = os.path.join(self.numpy_dir, os.listdir(self.numpy_dir)[idx])
-        numpy = np.load(numpy_path)
-        return numpy
-
-    def __getitem__(self, idx):
-        # numpy_path = os.path.join(self.numpy_dir, os.listdir(self.numpy_dir)[idx])
-        # numpy = np.load(numpy_path)
-        if self.use_cache:
-          if idx not in self.cache:
-            self.cache[idx] = self.load_numpy(idx)
-          numpy = self.cache[idx]
-        else:
-          numpy_path = os.path.join(self.numpy_dir, os.listdir(self.numpy_dir)[idx])
-          numpy = np.load(numpy_path)
-        numpy = self.transform(numpy) if self.transform is not None else numpy
-        return numpy, []
-
-class InfiniteDataLoader:
-    def __init__(self, data_loader):
-        self.data_loader = data_loader
-        self.data_iter = iter(data_loader)
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        try:
-            data = next(self.data_iter)
-        except StopIteration:
-            self.data_iter = iter(self.data_loader)  # Reset the data loader
-            data = next(self.data_iter)
-        return data
 
 def download(url: str, dest_folder: str):
     if not os.path.exists(dest_folder):
@@ -140,7 +92,6 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
 
 
 def load_dataset_from_local_file(config, dataset_name=None, batch_size=None, n_jitted_steps=None, x_flip=False):
-
   dataset_name = config["dataset"]["name"] if dataset_name is None else dataset_name
   batch_size = config["framework"]["diffusion"]["train"]["batch_size_per_rounds"] if batch_size is None else batch_size
 
@@ -149,41 +100,33 @@ def load_dataset_from_local_file(config, dataset_name=None, batch_size=None, n_j
 
   assert n_jitted_steps >= 1
 
-  def normalize_channel_scale(image, label):
-    image = tf.cast(image, tf.float32)
-    image = (image / 255.0)
-    image = normalize_to_minus_one_to_one(image)
-    return image, label
-  
+  def add_dummy_label(data):
+    return data, []
+
+  def convert_path_to_numpy(data): ## Problematic
+    np_data = np.load(data)
+    return np_data
 
   if dataset_name == "celebahq":
-     use_cache = config["dataset"].get("use_cache", False)
-     cache_dict = Manager().dict() if use_cache else None
-     ds = CustomNumpyDataset(config["dataset"]["dataset_path"], cache=cache_dict)
+    numpy_dir = pathlib.Path(config["dataset"]["dataset_path"])
+    train_ds = tf.data.Dataset.list_files(str(numpy_dir/'*.npy'), shuffle=False)
     
-  # elif dataset_name == "imagenet_64": # TODO
-  #   ds = tfds.load("imagenet2012", split="train", as_supervised=True)
-  # train_ds, _ = ds['train'], ds['test']
-
+  AUTOTUNE = tf.data.experimental.AUTOTUNE
   device_count = jax.local_device_count()
   batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 
 
-  dataloader = DataLoader(ds, batch_size=int(np.prod(batch_dims)), shuffle=True, num_workers=16, drop_last=True)
-  dataloader = InfiniteDataLoader(dataloader)
+  train_ds = train_ds.shuffle(1000)
+  train_ds = train_ds.repeat()
+  train_ds = train_ds.map(lambda path: tf.numpy_function(convert_path_to_numpy, [path], [tf.float32]), num_parallel_calls=AUTOTUNE)
+  train_ds = train_ds.map(add_dummy_label, num_parallel_calls=AUTOTUNE)
+  for dim in reversed(batch_dims):
+    train_ds = train_ds.batch(dim)
+  train_ds = train_ds.prefetch(AUTOTUNE)
+  train_ds = map(lambda data: (data[0]._numpy(), data[1]), train_ds)
 
-  # train_ds = train_ds.shuffle(1000)
-  # train_ds = train_ds.repeat()
-  # train_ds = train_ds.map(augmentation, num_parallel_calls=AUTOTUNE)
-  # for dim in reversed(batch_dims):
-  #   train_ds = train_ds.batch(dim)
-  # augmented_train_ds = train_ds.prefetch(AUTOTUNE)
-  # it = tfds.as_numpy(augmented_train_ds)
-  # it = map(lambda data: jax.tree_map(lambda x: x._numpy(), data), augmented_train_ds)
-  # if xla_bridge.get_backend().platform == "gpu":
-  #   it = flax.jax_utils.prefetch_to_device(it, 2)
-
-  # return it
-  return dataloader, batch_dims
+  if xla_bridge.get_backend().platform == "gpu":
+    train_ds = flax.jax_utils.prefetch_to_device(train_ds, 2)
+  return train_ds, batch_dims
 
 def get_image_size_from_dataset(dataset):
   if dataset == "cifar10":
