@@ -205,9 +205,30 @@ class FSUtils():
             current_sampling += 1
         return current_sampling
     
+    def save_numpy_to_dir(self, numpy_batch, save_path_dir=None, starting_pos=0):
+        current_sampling = 0
+        if save_path_dir is None:
+            save_path_dir = self.config.exp.sampling_dir
+        elif not os.path.isdir(save_path_dir):
+            os.makedirs(save_path_dir)
+        for np_elem in numpy_batch:
+            np_elem = np.asarray(np_elem)
+            np.save(os.path.join(save_path_dir, f"{starting_pos + current_sampling}.npy"), np_elem)
+            current_sampling += 1
+        return current_sampling
+    
     def delete_images_from_dir(self, save_path_dir=None, starting_pos=50000):
         if save_path_dir is None:
             save_path_dir = self.config.exp.sampling_dir
+        for content in os.listdir(save_path_dir):
+            number = int(content.split(".")[0])
+            if number >= starting_pos:
+                os.remove(os.path.join(save_path_dir, content))
+
+    def delete_numpy_from_dir(self, step, save_path_dir, starting_pos=50000):
+        save_path_dir = self.config.exp.sampling_dir
+        save_path_dir += "/" + str(step)
+
         for content in os.listdir(save_path_dir):
             number = int(content.split(".")[0])
             if number >= starting_pos:
