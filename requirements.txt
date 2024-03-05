@@ -11,19 +11,6 @@ jax[tpu]==0.4.12
 # -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 # jax[cuda11_pip]==0.4.12
 
-# torch==2.1.0
-# -f  https://storage.googleapis.com/libtpu-releases/index.html
-# torch~=2.1.0 
-
-# -f  https://storage.googleapis.com/libtpu-releases/index.html
-# torch_xla[tpu]~=2.1.0
-
--i https://download.pytorch.org/whl/cpu
-torch==2.2.0 
--i https://download.pytorch.org/whl/cpu
-torchvision==0.17.0 
--i https://download.pytorch.org/whl/cpu
-torchaudio==2.2.0 
 
 # JAX family framework
 orbax-checkpoint==0.4.1
