@@ -101,7 +101,7 @@ def load_dataset_from_local_file(config, dataset_name=None, batch_size=None, n_j
   assert n_jitted_steps >= 1
 
   def add_dummy_label(data):
-    return data, []
+    return data, tf.zeros((1,), dtype=tf.float32)
 
   def convert_path_to_numpy(data): ## Problematic
     np_data = np.load(data)
@@ -122,7 +122,8 @@ def load_dataset_from_local_file(config, dataset_name=None, batch_size=None, n_j
   for dim in reversed(batch_dims):
     train_ds = train_ds.batch(dim)
   train_ds = train_ds.prefetch(AUTOTUNE)
-  train_ds = map(lambda data: (data[0]._numpy(), data[1]), train_ds)
+  train_ds = map(lambda data: jax.tree_map(lambda x: x._numpy(), data), train_ds)
+  # train_ds = map(lambda data: (data[0]._numpy(), data[1]), train_ds)
 
   if xla_bridge.get_backend().platform == "gpu":
     train_ds = flax.jax_utils.prefetch_to_device(train_ds, 2)
