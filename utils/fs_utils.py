@@ -241,10 +241,11 @@ class FSUtils():
     def save_model_state(self, states, step, metrics=None):
         best_saved = False
         self.checkpoint_manager.save(step, states)
-        for state in states:
-            best_checkpoint_manager = self.best_checkpoint_manager[state]
-            state_saved = best_checkpoint_manager.save(step, states, metrics=metrics[state])
-            best_saved = best_saved or state_saved
+        if metrics is not None:
+            for state in states:
+                best_checkpoint_manager = self.best_checkpoint_manager[state]
+                state_saved = best_checkpoint_manager.save(step, states, metrics=metrics[state])
+                best_saved = best_saved or state_saved
 
         print(f"Saving {step} complete.")
         if best_saved:
