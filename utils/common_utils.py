@@ -107,7 +107,7 @@ def load_dataset_from_local_file(config, dataset_name=None, batch_size=None, n_j
     np_data = np.load(data)
     return np_data
 
-  if dataset_name == "celebahq":
+  if dataset_name == "celebahq" or dataset_name == "lsun_church":
     numpy_dir = pathlib.Path(config["dataset"]["dataset_path"])
     train_ds = tf.data.Dataset.list_files(str(numpy_dir/'*.npy'), shuffle=False)
     

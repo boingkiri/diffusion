@@ -1,0 +1,50 @@
+defaults:
+  - framework: 
+    # - diffusion/ict
+    # - diffusion/cm_diffusion
+    - diffusion/latent_cm_diffusion
+  - model@_group_.diffusion: 
+    # - diffusion/unetpp_cm
+    # - diffusion/original_cm
+    # - diffusion/original_ict
+    - diffusion/original_ict_latent
+  - model@_group_.head: 
+    # - diffusion/score_head
+    # - diffusion/score_head_large
+    # - diffusion/score_head_latent
+    - diffusion/score_head_latent_large
+  # - model@_group_.autoencoder: 
+  #   - autoencoder/autoencoder_torch_vq_f4
+  # - ema: ema_edm
+  - ema: ema_ict_lcm
+  # - dataset: cifar10
+  # - dataset: celebahq
+  - dataset: lsun_church
+  - exp: exp_setting
+
+type: ${framework.diffusion.type}
+exp_name: 0306_iCT_ldm_joint_n_4_lsun_church
+tags: [iCT]
+do_training: True
+do_sampling: False
+num_sampling: 50000
+sampling_batch: 256
+rand_seed: 42
+fid_during_training: True # True when calculating fid during training, otherwise, false.
+n_jitted_steps: 10
+
+available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
+
+dataset:
+  dataset_path: "celebahq"
+
+# framework:
+#   diffusion:
+#     distillation_path: None # experiments/cm_dm_230603_encoder_head_with_time_emb_1 # Exp name or pretrained model file name
+    # t_emb_output: True
+  # train_idx: 2
+
+hydra:  
+  output_subdir: null  
+  run:  
+    dir: .
