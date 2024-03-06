@@ -2,3 +2,4 @@ name: "lsun_church"
 data_size: [256, 256, 3]
 sample_size: [32, 32, 4]
 use_cache: True
+dataset_path: "lsun_church"

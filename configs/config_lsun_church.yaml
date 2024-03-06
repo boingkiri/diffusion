@@ -12,7 +12,8 @@ defaults:
     # - diffusion/score_head
     # - diffusion/score_head_large
     # - diffusion/score_head_latent
-    - diffusion/score_head_latent_large
+    # - diffusion/score_head_latent_large
+    - diffusion/score_head_latent_conv
   # - model@_group_.autoencoder: 
   #   - autoencoder/autoencoder_torch_vq_f4
   # - ema: ema_edm
@@ -23,7 +24,7 @@ defaults:
   - exp: exp_setting
 
 type: ${framework.diffusion.type}
-exp_name: 0306_iCT_ldm_joint_n_4_lsun_church
+exp_name: 0306_iCT_ldm_vanilla_lsun_church
 tags: [iCT]
 do_training: True
 do_sampling: False
@@ -34,9 +35,6 @@ fid_during_training: True # True when calculating fid during training, otherwise
 n_jitted_steps: 10
 
 available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
-
-dataset:
-  dataset_path: "celebahq"
 
 # framework:
 #   diffusion:

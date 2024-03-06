@@ -34,9 +34,6 @@ n_jitted_steps: 10
 
 available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 
-dataset:
-  dataset_path: "celebahq"
-
 # framework:
 #   diffusion:
 #     distillation_path: None # experiments/cm_dm_230603_encoder_head_with_time_emb_1 # Exp name or pretrained model file name

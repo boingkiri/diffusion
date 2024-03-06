@@ -12,8 +12,6 @@ import jax.numpy as jnp
 from flax.training import orbax_utils
 import orbax.checkpoint
 
-import torch
-
 from utils.fs_utils import FSUtils
 from utils import jax_utils, common_utils
 from utils.fid_utils import FIDUtils

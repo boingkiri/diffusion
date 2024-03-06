@@ -2,3 +2,4 @@ name: "celebahq"
 data_size: [256, 256, 3]
 # sample_size: [64, 64, 3]
 sample_size: [32, 32, 4]
+dataset_path: "celebahq"
