@@ -46,7 +46,9 @@ class EDMFramework(DefaultModel):
         self.S_noise = 1 if diffusion_framework['deterministic_sampling'] else diffusion_framework['S_noise']
 
         # Replicate model state to use multiple compuatation units 
-        self.model_state = flax.jax_utils.replicate(self.model_state)
+        # self.model_state = flax.jax_utils.replicate(self.model_state)
+        self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
+                            for model_key in self.model_state.keys()}
 
         # Create ema obj
         # ema_config = config.ema
