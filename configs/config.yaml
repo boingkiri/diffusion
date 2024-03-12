@@ -1,51 +1,45 @@
 defaults:
+  # - framework: ldm
   - framework: 
-    # - diffusion/ict
-    - diffusion/cm_diffusion
-  - model@_group_.diffusion: 
-    # - diffusion/unetpp_cm
-    # - diffusion/original_cm
-    - diffusion/original_ict
-  - model@_group_.head: 
-    # - diffusion/score_head_conv
-    # - diffusion/score_head_pde
-    - diffusion/score_head
-    # - diffusion/score_head_large
-    # - diffusion/score_head_baseline
+    # - diffusion/ddim
+    # - diffusion/ddpm
+    # - diffusion/improved_ddpm
+    # - diffusion/edm
+    - diffusion/cm
+    # - diffusion/cm_diffusion
+  - model: 
+    # - autoencoder/autoencoder_kl
+    # - discriminator/discriminator_kl
+    # - diffusion/dit_b
+    # - diffusion/unet
+    # - diffusion/unetpp
+    - diffusion/unetpp_cm
   # - ema: ema_edm
-  - ema: ema_ict
+  - ema: ema
   - dataset: cifar10
   - exp: exp_setting
 
-# Training mode / evaluation model
-do_training: True
-do_sampling: True
-fid_during_training: True # True when calculating fid during training, otherwise, false.
-sampling_step: 1000
-saving_step: 10000
-
-# Training type
-type: ${framework.diffusion.type}
-exp_name: 0301_iCT_512_n_1_no_alignment_logging
-tags: [iCT]
-
-# Miscellaneous
+# type: ddpm ddim ldm edm (const_dist, const_train: NEW!)
+# type: edm
+type: cm_diffusion
+# type: ${framework.diffusion.type}
+exp_name: cm_default_experiment
+do_training: true
+do_sampling: true
 num_sampling: 50000
 sampling_batch: 256
 rand_seed: 42
-n_jitted_steps: 10
-available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
+fid_during_training: true # True when calculating fid during training, otherwise, false.
+n_jitted_steps: 100
 
-# Evaluation mode
-PAE_evaluation: True
+distributed_training: True
 
-# framework:
-#   diffusion:
-#     distillation_path: None # experiments/cm_dm_230603_encoder_head_with_time_emb_1 # Exp name or pretrained model file name
-    # t_emb_output: True
-  # train_idx: 2
+framework:
+  train_idx: 2
+  # pretrained_ae: "ldm_vq_cifar10_with_gan"
 
 hydra:  
   output_subdir: null  
   run:  
     dir: .
+

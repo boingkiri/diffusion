@@ -26,8 +26,11 @@ def start(config: DictConfig):
             os.environ["CUDA_VISIBLE_DEVICES"] = config.available_gpus
     
     initialise_tracking()
-    ## TMP: Add this option to the config
-    jax.distributed.initialize()
+
+    if config.get("distributed_training", False):
+        # Assume that the running environment is TPU
+        # If there is a need to use GPU, the code should be modified: TODO
+        jax.distributed.initialize()
 
     print("-------------------Config Setting---------------------")
     print(OmegaConf.to_yaml(config))
