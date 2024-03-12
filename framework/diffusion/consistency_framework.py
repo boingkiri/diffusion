@@ -36,6 +36,7 @@ class CMFramework(DefaultModel):
         self.fs_obj = fs_obj
         self.wandblog = wandblog        
         self.pmap_axis = "batch"
+        self.distributed_training = config.get("distributed_training", False)
 
         # Create UNet and its state
         model_config = {**config.model.diffusion}
@@ -513,10 +514,16 @@ class CMFramework(DefaultModel):
         #     "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
         # }
         # jax.tree_util.tree_map(lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), self.training_states["torso_state"])
-        return {
-            "diffusion": orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(self.training_states['torso_state']), 
-            "head": orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(self.training_states['head_state'])
-        }
+        if self.distributed_training:
+            return {
+                "diffusion": jax.tree_util.tree_map(lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), self.training_states["torso_state"]), 
+                "head": jax.tree_util.tree_map(lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), self.training_states["head_state"])
+            }
+        else:
+            return {
+                "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']), 
+                "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
+            }
     
     def fit(self, x0, cond=None, step=0, eval_during_training=False):
         key, dropout_key = jax.random.split(self.rand_key, 2)
