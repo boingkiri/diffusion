@@ -26,6 +26,8 @@ def start(config: DictConfig):
             os.environ["CUDA_VISIBLE_DEVICES"] = config.available_gpus
     
     initialise_tracking()
+    ## TMP: Add this option to the config
+    jax.distributed.initialize()
 
     print("-------------------Config Setting---------------------")
     print(OmegaConf.to_yaml(config))
