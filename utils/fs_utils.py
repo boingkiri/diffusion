@@ -20,6 +20,7 @@ class FSUtils():
 
         # Create pytree checkpointer and its manager
         # self.checkpoint_manager, self.best_checkpoint_manager = self.create_checkpoint_manager() # orbax.checkpoint.CheckpointManager. Dict[CheckpointManager]
+
         self.checkpoint_manager, self.best_checkpoint_manager, self.tmp_checkpoint_manager = self.create_checkpoint_manager() # orbax.checkpoint.CheckpointManager. Dict[CheckpointManager]
 
     def create_checkpoint_manager(self):
@@ -27,6 +28,7 @@ class FSUtils():
         best_checkpoint_manager = {}
         abs_path_ = os.getcwd()+"/"
         model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1)
+        self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir)
         model_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir, 
             {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
@@ -34,6 +36,7 @@ class FSUtils():
 
         # TMP: to save checkpoint at 200k or 300k
         tmp_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2)
+        self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir + "/tmp")
         tmp_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir + "/tmp", 
             {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
@@ -43,6 +46,7 @@ class FSUtils():
             best_checkpoint_dir = self.config.exp.best_dir + "/" + model_key
             model_best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(
                 max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min')
+            self.verify_and_create_dir(abs_path_ + best_checkpoint_dir)
             model_best_checkpoint_manager = orbax.checkpoint.CheckpointManager(
                 abs_path_ + best_checkpoint_dir,
                 {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys}, 
@@ -81,8 +85,6 @@ class FSUtils():
             best_checkpoint_manager[model_key] = model_best_checkpoint_manager
         self.checkpoint_manager = model_checkpoint_manager
         self.best_checkpoint_manager = best_checkpoint_manager
-
-
 
     def verify_and_create_dir(self, dir_path):
         if not os.path.exists(dir_path):
