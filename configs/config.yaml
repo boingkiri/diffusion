@@ -32,7 +32,10 @@ rand_seed: 42
 fid_during_training: true # True when calculating fid during training, otherwise, false.
 n_jitted_steps: 100
 
+available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
+
 distributed_training: True
+PAE_evaluation: True
 
 framework:
   train_idx: 2
