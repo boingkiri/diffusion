@@ -523,6 +523,10 @@ class CMFramework(DefaultModel):
         if self.distributed_training:
             training_states = {model_key: jax.tree_util.tree_map(lambda x: jax_utils.fully_replicated_host_local_array_to_global_array(x), self.training_states[model_key])
                                 for model_key in self.training_states.keys()}
+            return {
+                "diffusion": training_states['torso_state'], 
+                "head": training_states['head_state']
+            }
         else:
             training_states = self.training_states
             # return {
@@ -542,10 +546,10 @@ class CMFramework(DefaultModel):
         #         "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']), 
         #         "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
         #     }
-        return {
-            "diffusion": flax.jax_utils.unreplicate(training_states['torso_state']), 
-            "head": flax.jax_utils.unreplicate(training_states['head_state'])
-        }
+            return {
+                "diffusion": flax.jax_utils.unreplicate(training_states['torso_state']), 
+                "head": flax.jax_utils.unreplicate(training_states['head_state'])
+            }
     
     def fit(self, x0, cond=None, step=0, eval_during_training=False):
         key, dropout_key = jax.random.split(self.rand_key, 2)
