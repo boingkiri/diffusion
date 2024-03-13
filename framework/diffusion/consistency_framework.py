@@ -73,7 +73,8 @@ class CMFramework(DefaultModel):
         # self.training_states = flax.jax_utils.replicate(self.training_states)
         # self.training_states = {}
         # XXX: Convert orbax.checkpoint.composite_checkpoint_handler.CompositeArgs to dict of flax.TrainState
-        replicated_devices = jax_utils.create_replicated_sharding() if config.get("distributed_training", False) else None 
+        # replicated_devices = jax_utils.create_replicated_sharding() if config.get("distributed_training", False) else None 
+        replicated_devices = jax.devices()
         self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key], replicated_devices) 
                             for model_key in self.training_states.keys()}
         # breakpoint()
