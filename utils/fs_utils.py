@@ -2,6 +2,7 @@
 import os
 import shutil
 import yaml
+import io
 
 from . import common_utils
 from omegaconf import DictConfig, OmegaConf
@@ -11,7 +12,7 @@ from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 
-import io
+import jax
 import orbax.checkpoint
 
 class FSUtils():
@@ -229,6 +230,9 @@ class FSUtils():
 
     def save_model_state(self, states, step, metrics=None):
         best_saved = False
+        if self.config.get("distributed_training", False):
+            states = jax.tree_map(
+                lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), states)
         self.checkpoint_manager.save(step, states)
         for state in states:
             best_checkpoint_manager = self.best_checkpoint_manager[state]
