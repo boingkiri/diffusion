@@ -32,7 +32,7 @@ class FSUtils():
         self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir)
         model_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir, 
-            checkpointers= {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
+            # checkpointers= {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
             options=model_checkpoint_manager_options,
             # item_handlers={model_key: orbax.checkpoint.StandardCheckpointHandler() for model_key in model_keys}
         )
@@ -42,7 +42,7 @@ class FSUtils():
         self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir + "/tmp")
         tmp_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir + "/tmp", 
-            checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
+            # checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
             options=tmp_checkpoint_manager_options,)
             # item_handlers={model_key: orbax.checkpoint.StandardCheckpointHandler() for model_key in model_keys})
 
@@ -53,7 +53,7 @@ class FSUtils():
             self.verify_and_create_dir(abs_path_ + best_checkpoint_dir)
             model_best_checkpoint_manager = orbax.checkpoint.CheckpointManager(
                 abs_path_ + best_checkpoint_dir,
-                checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys}, 
+                # checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys}, 
                 options=model_best_checkpoint_manager_options,)
                 # item_handlers={model_key: orbax.checkpoint.StandardCheckpointHandler() for model_key in model_keys})
             best_checkpoint_manager[model_key] = model_best_checkpoint_manager
@@ -77,7 +77,7 @@ class FSUtils():
         self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir)
         model_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir, 
-            checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
+            # checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
             options=model_checkpoint_manager_options,)
             # item_handlers={model_key: orbax.checkpoint.StandardCheckpointHandler() for model_key in model_keys})
 
@@ -88,7 +88,7 @@ class FSUtils():
             self.verify_and_create_dir(abs_path_ + best_checkpoint_dir)
             model_best_checkpoint_manager = orbax.checkpoint.CheckpointManager(
                 abs_path_ + best_checkpoint_dir,
-                checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys}, 
+                # checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys}, 
                 options=model_best_checkpoint_manager_options,)
                 # item_handlers={model_key: orbax.checkpoint.StandardCheckpointHandler() for model_key in model_keys})
             best_checkpoint_manager[model_key] = model_best_checkpoint_manager
