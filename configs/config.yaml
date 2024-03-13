@@ -9,8 +9,8 @@ defaults:
   - model@_group_.head: 
     # - diffusion/score_head_conv
     # - diffusion/score_head_pde
-    - diffusion/score_head
-    # - diffusion/score_head_large
+    # - diffusion/score_head
+    - diffusion/score_head_large
     # - diffusion/score_head_baseline
   # - ema: ema_edm
   - ema: ema_ict
@@ -26,19 +26,18 @@ saving_step: 10000
 
 # Training type
 type: ${framework.diffusion.type}
-exp_name: 0301_iCT_512_n_1_no_alignment_logging
+exp_name: scm_all_v4_240314
 tags: [iCT]
 
 # Miscellaneous
 num_sampling: 50000
 sampling_batch: 256
 rand_seed: 42
-n_jitted_steps: 10
+n_jitted_steps: 8
 available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 
 # Evaluation mode
-PAE_evaluation: False
-distributed_training: True
+PAE_evaluation: True
 
 # framework:
 #   diffusion:
