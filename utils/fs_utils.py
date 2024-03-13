@@ -246,10 +246,10 @@ class FSUtils():
     def load_model_state(self, state):
         step = self.checkpoint_manager.latest_step()
         
-        if self.config.get("distributed_training", False):
-            sharding = jax_utils.create_replicated_sharding()
-            create_sharded_array = lambda x: jax.device_put(x, sharding)
-            state = jax.tree_map(create_sharded_array, state)
+        # if self.config.get("distributed_training", False):
+        #     sharding = jax_utils.create_replicated_sharding()
+        #     create_sharded_array = lambda x: jax.device_put(x, sharding)
+        #     state = jax.tree_map(create_sharded_array, state)
         if step is not None:
             state = self.checkpoint_manager.restore(step, items=state)
             print(f"Loading ckpt of Step {step} complete.")
