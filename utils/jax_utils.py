@@ -2,6 +2,7 @@ from flax.training import train_state
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax.sharding import PositionalSharding
 from jax.experimental import mesh_utils
 
@@ -144,7 +145,7 @@ def fully_replicated_host_local_array_to_global_array(
   global_shape = arr.addressable_data(0).shape
   # Create a 1D mesh to create fully replicated global jax.Array.
   sharding = jax.sharding.NamedSharding(
-      jax.sharding.Mesh(jnp.array(jax.devices()), axis_names=('x',)),
+      jax.sharding.Mesh(np.array(jax.devices()), axis_names=('x',)),
       jax.sharding.PartitionSpec(None)
       if global_shape
       else jax.sharding.PartitionSpec(),
