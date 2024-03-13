@@ -45,6 +45,8 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
 
   dataset_name = config["dataset"]["name"] if dataset_name is None else dataset_name
   batch_size = config["framework"]["diffusion"]["train"]["batch_size_per_rounds"] if batch_size is None else batch_size
+  if config.get("distributed_training", False):
+    batch_size = batch_size // (jax.device_count() // jax.local_device_count())
 
   n_jitted_steps = config["n_jitted_steps"] if n_jitted_steps is None else n_jitted_steps
   x_flip = config["dataset"].get("x_flip", x_flip)
@@ -71,6 +73,7 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
   train_ds, _ = ds['train'], ds['test']
 
   device_count = jax.local_device_count()
+  # device_count = jax.device_count()
   batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 
 
   if shuffle:

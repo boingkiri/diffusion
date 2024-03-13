@@ -515,11 +515,6 @@ class CMFramework(DefaultModel):
 
 
     def get_model_state(self):
-        # return {
-        #     "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']), 
-        #     "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
-        # }
-        # jax.tree_util.tree_map(lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), self.training_states["torso_state"])
         if self.distributed_training:
             training_states = {model_key: jax.tree_util.tree_map(lambda x: jax_utils.fully_replicated_host_local_array_to_global_array(x), self.training_states[model_key])
                                 for model_key in self.training_states.keys()}
@@ -529,23 +524,6 @@ class CMFramework(DefaultModel):
             }
         else:
             training_states = self.training_states
-            # return {
-            #     "diffusion": jax.tree_util.tree_map(lambda x: jax_utils.fully_replicated_host_local_array_to_global_array(x), self.training_states["torso_state"]), 
-            #     "head": jax.tree_util.tree_map(lambda x: jax_utils.fully_replicated_host_local_array_to_global_array(x), self.training_states["head_state"])
-            # }
-            # return {
-            #     "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']), 
-            #     "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
-            # }
-            # return {
-            #     "diffusion": self.training_states['torso_state'], 
-            #     "head": self.training_states['head_state']
-            # }
-        # else:
-        #     return {
-        #         "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']), 
-        #         "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
-        #     }
             return {
                 "diffusion": flax.jax_utils.unreplicate(training_states['torso_state']), 
                 "head": flax.jax_utils.unreplicate(training_states['head_state'])
