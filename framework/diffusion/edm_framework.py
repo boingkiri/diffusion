@@ -27,6 +27,7 @@ class EDMFramework(DefaultModel):
         self.wandblog = wandblog
         
         self.pmap_axis = "batch"
+        self.distributed_training = config.get("distributed_training", False)
 
         # Create UNet and its state
         model_config = {**config.model.diffusion}
@@ -47,6 +48,9 @@ class EDMFramework(DefaultModel):
 
         # Replicate model state to use multiple compuatation units 
         # self.model_state = flax.jax_utils.replicate(self.model_state)
+        if self.distributed_training:
+            self.training_states = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.training_states[model_key])
+                                for model_key in self.training_states.keys()}
         self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
                             for model_key in self.model_state.keys()}
 
@@ -177,7 +181,11 @@ class EDMFramework(DefaultModel):
         return jax_utils.create_train_state(config, 'diffusion', self.model.apply, params)
 
     def get_model_state(self):
-        return [flax.jax_utils.unreplicate(self.model_state)]
+        # return [flax.jax_utils.unreplicate(self.model_state)]
+        if self.distributed_training:
+            return [jax_utils.fully_replicated_host_local_array_to_global_array(self.model_state)]
+        else:
+            return [flax.jax_utils.unreplicate(self.model_state)]
     
     def fit(self, x0, cond=None, step=0):
         key, dropout_key = jax.random.split(self.rand_key, 2)
