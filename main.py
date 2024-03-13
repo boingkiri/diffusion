@@ -31,6 +31,7 @@ def start(config: DictConfig):
         # Assume that the running environment is TPU
         # If there is a need to use GPU, the code should be modified: TODO
         jax.distributed.initialize()
+        jax.config.update('jax_array', False)
 
     print("-------------------Config Setting---------------------")
     print(OmegaConf.to_yaml(config))
