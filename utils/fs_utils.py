@@ -233,10 +233,16 @@ class FSUtils():
         # if self.config.get("distributed_training", False):
         #     states = jax.tree_map(
         #         lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), states)
-        self.checkpoint_manager.save(step, states)
+        # self.checkpoint_manager.save(step, states)
+        
+        self.checkpoint_manager.save(step, args=orbax.checkpoint.args.StandardSave(states))
         for state in states:
             best_checkpoint_manager = self.best_checkpoint_manager[state]
-            state_saved = best_checkpoint_manager.save(step, states, metrics=metrics[state])
+            # state_saved = best_checkpoint_manager.save(step, states, metrics=metrics[state])
+            state_saved = best_checkpoint_manager.save(
+                step, 
+                metrics=metrics[state],
+                args=orbax.checkpoint.args.StandardSave(states[state]))
             best_saved = best_saved or state_saved
 
         print(f"Saving {step} complete.")
@@ -244,6 +250,7 @@ class FSUtils():
             print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")
 
     def load_model_state(self, state):
+        print(f"Get into the load_model_state")
         step = self.checkpoint_manager.latest_step()
         
         # if self.config.get("distributed_training", False):
@@ -251,7 +258,9 @@ class FSUtils():
         #     create_sharded_array = lambda x: jax.device_put(x, sharding)
         #     state = jax.tree_map(create_sharded_array, state)
         if step is not None:
-            state = self.checkpoint_manager.restore(step, items=state)
+            # state = self.checkpoint_manager.restore(step, items=state)
+            state = self.checkpoint_manager.restore(step, args=orbax.checkpoint.args.StandardRestore(state))
+            
             print(f"Loading ckpt of Step {step} complete.")
         else:
             print("No ckpt loaded. Start from scratch.")
