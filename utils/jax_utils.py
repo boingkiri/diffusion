@@ -2,6 +2,9 @@ from flax.training import train_state
 
 import jax
 import jax.numpy as jnp
+from jax.sharding import PositionalSharding
+from jax.experimental import mesh_utils
+
 import optax
 import flax.linen as nn
 from flax.training import checkpoints, orbax_utils
@@ -112,4 +115,12 @@ def save_best_state(state, best_checkpoint_dir, step, checkpoint_prefix):
     checkpoints.save_checkpoint(best_checkpoint_dir, state[key], step, prefix=key + "_", overwrite=True)
   print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")
 
-
+def create_replicated_sharding():
+  # devices = mesh_utils.create_device_mesh((jax.device_count(),))
+  sharding = jax.sharding.NamedSharding(
+    jax.sharding.Mesh(jax.devices(), ('model',)),
+    jax.sharding.PartitionSpec(
+        'model',
+    )
+  )
+  return sharding
