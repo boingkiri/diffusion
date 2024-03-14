@@ -63,6 +63,7 @@ class CMFramework(DefaultModel):
             states["diffusion"] = self.torso_state
         if self.head_state is not None:
             states["head"] = self.head_state
+
         states = fs_obj.load_model_state(states)
         self.torso_state, self.head_state = states.get("diffusion"), states.get("head")
         # Replicate states for training with pmap
@@ -74,9 +75,9 @@ class CMFramework(DefaultModel):
         # self.training_states = {}
         # XXX: Convert orbax.checkpoint.composite_checkpoint_handler.CompositeArgs to dict of flax.TrainState
         # replicated_devices = jax_utils.create_replicated_sharding() if config.get("distributed_training", False) else None 
-        if self.distributed_training:
-            self.training_states = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.training_states[model_key])
-                                for model_key in self.training_states.keys()}
+        # if self.distributed_training:
+        #     self.training_states = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.training_states[model_key])
+        #                         for model_key in self.training_states.keys()}
         # else:                            
         self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
                             for model_key in self.training_states.keys()}

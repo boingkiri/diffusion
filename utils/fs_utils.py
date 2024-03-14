@@ -257,6 +257,10 @@ class FSUtils():
         #     sharding = jax_utils.create_replicated_sharding()
         #     create_sharded_array = lambda x: jax.device_put(x, sharding)
         #     state = jax.tree_map(create_sharded_array, state)
+        sharding = jax_utils.create_replicated_sharding()
+        create_sharded_array = lambda x: jax.device_put(x, sharding)
+        state = jax.tree_map(create_sharded_array, state)
+        
         if step is not None:
             # state = self.checkpoint_manager.restore(step, items=state)
             state = self.checkpoint_manager.restore(step, args=orbax.checkpoint.args.StandardRestore(state))
