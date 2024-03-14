@@ -33,7 +33,7 @@ tags: [iCT]
 num_sampling: 50000
 sampling_batch: 256
 rand_seed: 42
-n_jitted_steps: 8
+n_jitted_steps: 1
 available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 
 # Evaluation mode
