@@ -257,9 +257,7 @@ class FSUtils():
         #     sharding = jax_utils.create_replicated_sharding()
         #     create_sharded_array = lambda x: jax.device_put(x, sharding)
         #     state = jax.tree_map(create_sharded_array, state)
-        sharding = jax_utils.create_replicated_sharding()
-        create_sharded_array = lambda x: jax.device_put(x, sharding)
-        state = jax.tree_map(create_sharded_array, state)
+        
                 
         if step is not None:
             # state = self.checkpoint_manager.restore(step, items=state)
@@ -270,6 +268,9 @@ class FSUtils():
             print(f"Loading ckpt of Step {step} complete.")
         else:
             print("No ckpt loaded. Start from scratch.")
+        sharding = jax_utils.create_environment_sharding()
+        create_sharded_array = lambda x: jax.device_put(x, sharding.replicate())
+        state = jax.tree_map(create_sharded_array, state)
         return state
     
     def get_best_fid(self):

@@ -10,6 +10,7 @@ from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
 from utils.ema.ema_cm import CMEMA
 from utils.augment_utils import AugmentPipe
+from utils.jax_utils import unreplicate_tree, create_environment_sharding
 from framework.default_diffusion import DefaultModel
 # import lpips
 import lpips_jax
@@ -79,8 +80,9 @@ class CMFramework(DefaultModel):
         #     self.training_states = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.training_states[model_key])
         #                         for model_key in self.training_states.keys()}
         # else:                            
-        self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
-                            for model_key in self.training_states.keys()}
+        # self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
+        #                     for model_key in self.training_states.keys()}
+        self.sharding = jax_utils.create_environment_sharding()
         
         # breakpoint()
         # Parameters
@@ -490,11 +492,11 @@ class CMFramework(DefaultModel):
                 train=False, augment_labels=None, rngs={'dropout': dropout_key})
             return denoised
 
-        self.p_sample_edm = jax.pmap(sample_edm_fn)
-        self.p_sample_cm = jax.pmap(sample_cm_fn)
+        self.p_sample_edm = jax.pmap(sample_edm_fn, device=self.sharding)
+        self.p_sample_cm = jax.pmap(sample_cm_fn, device=self.sharding)
         self.update_fn = jax.pmap(partial(jax.lax.scan, update), 
-                                  axis_name=self.pmap_axis)
-        self.eval_fn = jax.pmap(monitor_metric_fn, axis_name=self.pmap_axis)
+                                  axis_name=self.pmap_axis, device=self.sharding)
+        self.eval_fn = jax.pmap(monitor_metric_fn, axis_name=self.pmap_axis, device=self.sharding)
     
     def get_training_states_params(self):
         return {state_name: state_content.params for state_name, state_content in self.training_states.items()}
@@ -537,23 +539,27 @@ class CMFramework(DefaultModel):
 
 
     def get_model_state(self):
-        if self.distributed_training:
-            # training_states = {model_key: jax.tree_util.tree_map(lambda x: jax_utils.fully_replicated_host_local_array_to_global_array(x), self.training_states[model_key])
-            #                     for model_key in self.training_states.keys()}
-            # return {
-            #     "diffusion": training_states['torso_state'], 
-            #     "head": training_states['head_state']
-            # }
-            return {
-                "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']), 
-                "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
-            }
-        else:
-            training_states = self.training_states
-            return {
-                "diffusion": flax.jax_utils.unreplicate(training_states['torso_state']), 
-                "head": flax.jax_utils.unreplicate(training_states['head_state'])
-            }
+        # if self.distributed_training:
+        #     # training_states = {model_key: jax.tree_util.tree_map(lambda x: jax_utils.fully_replicated_host_local_array_to_global_array(x), self.training_states[model_key])
+        #     #                     for model_key in self.training_states.keys()}
+        #     # return {
+        #     #     "diffusion": training_states['torso_state'], 
+        #     #     "head": training_states['head_state']
+        #     # }
+        #     return {
+        #         "diffusion": flax.jax_utils.unreplicate(self.training_states['torso_state']), 
+        #         "head": flax.jax_utils.unreplicate(self.training_states['head_state'])
+        #     }
+        # else:
+        #     training_states = self.training_states
+        #     return {
+        #         "diffusion": flax.jax_utils.unreplicate(training_states['torso_state']), 
+        #         "head": flax.jax_utils.unreplicate(training_states['head_state'])
+        #     }
+        return {
+            "diffusion": jax_utils.unreplicate_tree(self.training_states['torso_state']),
+            "head": jax_utils.unreplicate_tree(self.training_states['head_state'])
+        }
     
     def fit(self, x0, cond=None, step=0, eval_during_training=False):
         key, dropout_key = jax.random.split(self.rand_key, 2)

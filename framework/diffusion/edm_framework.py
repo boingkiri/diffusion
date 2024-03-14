@@ -9,6 +9,7 @@ from utils.fs_utils import FSUtils
 from utils.log_utils import WandBLog
 from utils.ema.ema_ddpm import DDPMEMA
 from utils.augment_utils import AugmentPipe
+from utils.jax_utils import unreplicate_tree, create_environment_sharding
 from framework.default_diffusion import DefaultModel
 
 from tqdm import tqdm
@@ -52,8 +53,9 @@ class EDMFramework(DefaultModel):
         #     self.model_state = jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state)
         #     self.model_state = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state[model_key])
         #                         for model_key in self.model_state.keys()}
-        self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
-                            for model_key in self.model_state.keys()}
+        # self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
+        #                     for model_key in self.model_state.keys()}
+        self.sharding = create_environment_sharding()
 
         # Create ema obj
         # ema_config = config.ema
@@ -160,9 +162,9 @@ class EDMFramework(DefaultModel):
             return scanning
 
         # self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
-        self.update_fn = jax.pmap(scan_fn, axis_name=self.pmap_axis)
-        self.p_sample_jit = jax.pmap(p_sample_jit)
-        self.denoiser_sample = jax.pmap(denoiser_sample_jit)
+        self.update_fn = jax.pmap(scan_fn, axis_name=self.pmap_axis, devices=self.sharding)
+        self.p_sample_jit = jax.pmap(p_sample_jit, devices=self.sharding)
+        self.denoiser_sample = jax.pmap(denoiser_sample_jit, devices=self.sharding)
 
     
     def p_sample(self, param, xt, t):
@@ -182,7 +184,8 @@ class EDMFramework(DefaultModel):
         return jax_utils.create_train_state(config, 'diffusion', self.model.apply, params)
 
     def get_model_state(self):
-        return [flax.jax_utils.unreplicate(self.model_state)]
+        # return [flax.jax_utils.unreplicate(self.model_state)]
+        return [jax_utils.unreplicate_tree(self.model_state)]
         # if self.distributed_training:
         #     return [jax_utils.fully_replicated_host_local_array_to_global_array(self.model_state)]
         # else:

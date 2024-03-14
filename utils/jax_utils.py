@@ -117,16 +117,13 @@ def save_best_state(state, best_checkpoint_dir, step, checkpoint_prefix):
     checkpoints.save_checkpoint(best_checkpoint_dir, state[key], step, prefix=key + "_", overwrite=True)
   print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")
 
-def create_replicated_sharding():
-  # devices = mesh_utils.create_device_mesh((jax.device_count(),))
-  sharding = jax.sharding.NamedSharding(
-    jax.sharding.Mesh(jax.devices(), ('model',)),
-    jax.sharding.PartitionSpec(
-        'model',
-    )
-  )
+def create_environment_sharding():
+  sharding = jax.sharding.PositionalSharding(jax.devices()).reshape(jax.device_count() // jax.local_device_count(), jax.local_device_count())
   return sharding
 
+def unreplicate_tree(tree):
+  """Returns a single instance of a replicated array."""
+  return jax.tree_util.tree_map(lambda x: x[0][0], tree)
 
 def fully_replicated_host_local_array_to_global_array(
     arr: jax.Array,
@@ -141,8 +138,8 @@ def fully_replicated_host_local_array_to_global_array(
   Returns:
     A global array.
   """
-  # if not arr.is_fully_replicated:
-  #   raise ValueError('Array must be fully replicated.')
+  if not arr.is_fully_replicated:
+    raise ValueError('Array must be fully replicated.')
   global_shape = arr.addressable_data(0).shape
   # Create a 1D mesh to create fully replicated global jax.Array.
   sharding = jax.sharding.NamedSharding(

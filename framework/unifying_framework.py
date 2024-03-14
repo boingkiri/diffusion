@@ -6,6 +6,8 @@ from framework.diffusion.ctm_framework import CTMFramework
 from framework.diffusion.improved_consistency_framework import iCMFramework
 from framework.LDM import LDM
 
+import numpy as np
+
 import jax
 import jax.numpy as jnp
 from flax.training import orbax_utils
@@ -127,7 +129,7 @@ class UnifyingFramework():
         for x, _ in datasets_bar:
             # if self.step % 1000 == 0:
             if self.step % self.config["sampling_step"] == 0:
-                batch_data = x[0, 0, :8] # (device_idx, n_jitted_steps, batch_size)
+                batch_data = np.array(x[0, 0, :8]) # (device_idx, n_jitted_steps, batch_size)
 
                 # Change of the sample quality is tracked to know how much the CM model is corrupted.
                 # Sample generated image for EDM
