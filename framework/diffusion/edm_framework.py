@@ -49,8 +49,9 @@ class EDMFramework(DefaultModel):
         # Replicate model state to use multiple compuatation units 
         # self.model_state = flax.jax_utils.replicate(self.model_state)
         if self.distributed_training:
-            self.model_state = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.training_states[model_key])
-                                for model_key in self.training_states.keys()}
+            self.model_state = jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state)
+            self.model_state = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state[model_key])
+                                for model_key in self.model_state.keys()}
         self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
                             for model_key in self.model_state.keys()}
 
