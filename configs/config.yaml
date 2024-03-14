@@ -37,8 +37,8 @@ n_jitted_steps: 1
 available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 
 # Evaluation mode
-PAE_evaluation: True
-distributed_training: False
+PAE_evaluation: False
+distributed_training: True
 
 # framework:
 #   diffusion:
