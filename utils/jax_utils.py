@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax.sharding import PositionalSharding
 from jax.experimental import mesh_utils
+from jax.sharding import PartitionSpec as P
 
 import optax
 import flax.linen as nn
@@ -118,8 +119,10 @@ def save_best_state(state, best_checkpoint_dir, step, checkpoint_prefix):
   print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")
 
 def create_environment_sharding():
-  sharding = jax.sharding.PositionalSharding(jax.devices()).reshape(jax.device_count() // jax.local_device_count(), jax.local_device_count())
-  return sharding
+  devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
+  global_mesh = jax.sharding.Mesh(devices, ('processes', 'local_devices'))
+  pspec = P('processes')
+  return global_mesh, pspec
 
 def unreplicate_tree(tree):
   """Returns a single instance of a replicated array."""

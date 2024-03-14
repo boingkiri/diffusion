@@ -492,11 +492,11 @@ class CMFramework(DefaultModel):
                 train=False, augment_labels=None, rngs={'dropout': dropout_key})
             return denoised
 
-        self.p_sample_edm = jax.pmap(sample_edm_fn, device=self.sharding)
-        self.p_sample_cm = jax.pmap(sample_cm_fn, device=self.sharding)
+        self.p_sample_edm = jax.pmap(sample_edm_fn)
+        self.p_sample_cm = jax.pmap(sample_cm_fn)
         self.update_fn = jax.pmap(partial(jax.lax.scan, update), 
-                                  axis_name=self.pmap_axis, device=self.sharding)
-        self.eval_fn = jax.pmap(monitor_metric_fn, axis_name=self.pmap_axis, device=self.sharding)
+                                  axis_name=self.pmap_axis)
+        self.eval_fn = jax.pmap(monitor_metric_fn, axis_name=self.pmap_axis)
     
     def get_training_states_params(self):
         return {state_name: state_content.params for state_name, state_content in self.training_states.items()}

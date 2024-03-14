@@ -83,7 +83,7 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
   # batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 
   batch_dims = [global_device_count // device_count, device_count, n_jitted_steps, batch_size // global_device_count]
 
-  sharding = jax_utils.create_environment_sharding()
+  global_mesh, pspec = jax_utils.create_environment_sharding()
 
 
   if shuffle:
@@ -96,7 +96,8 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
   # it = tfds.as_numpy(augmented_train_ds)
   it = map(lambda data: jax.tree_map(lambda x: x._numpy(), data), augmented_train_ds)
   it = map(lambda data: jax.tree_map(lambda x: jnp.asarray(x), data), it)
-  it = map(lambda data: jax.tree_map(lambda x: jax.device_put(x, sharding), data), it)
+  # it = map(lambda data: jax.tree_map(lambda x: jax.device_put(x, sharding), data), it)
+  it = map(lambda data: jax.tree_map(lambda x: jax.experimental.multihost_utils.host_local_array_to_global_array(x, global_mesh, pspec), data), it)
   if xla_bridge.get_backend().platform == "gpu":
     it = flax.jax_utils.prefetch_to_device(it, 2)
 

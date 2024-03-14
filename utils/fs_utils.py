@@ -234,6 +234,10 @@ class FSUtils():
         #     states = jax.tree_map(
         #         lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), states)
         # self.checkpoint_manager.save(step, states)
+
+        global_mesh, pspec = jax_utils.create_environment_sharding()
+        create_sharded_array = lambda x: jax.experimental.multihost_utils.global_array_to_host_local_array(x, global_mesh, pspec)
+        state = jax.tree_map(create_sharded_array, state)
         
         self.checkpoint_manager.save(step, args=orbax.checkpoint.args.StandardSave(states))
         for state in states:
@@ -268,8 +272,10 @@ class FSUtils():
             print(f"Loading ckpt of Step {step} complete.")
         else:
             print("No ckpt loaded. Start from scratch.")
-        sharding = jax_utils.create_environment_sharding()
-        create_sharded_array = lambda x: jax.device_put(x, sharding.replicate())
+        global_mesh, pspec = jax_utils.create_environment_sharding()
+        # create_sharded_array = lambda x: jax.device_put(x, sharding.replicate())
+        # create_sharded_array = lambda x: jax.experimental.multihost_utils.broadcast_one_to_all(x)
+        create_sharded_array = lambda x: jax.experimental.multihost_utils.host_local_array_to_global_array(x, global_mesh, pspec)
         state = jax.tree_map(create_sharded_array, state)
         return state
     

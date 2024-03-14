@@ -55,7 +55,6 @@ class EDMFramework(DefaultModel):
         #                         for model_key in self.model_state.keys()}
         # self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
         #                     for model_key in self.model_state.keys()}
-        self.sharding = create_environment_sharding()
 
         # Create ema obj
         # ema_config = config.ema
@@ -162,9 +161,9 @@ class EDMFramework(DefaultModel):
             return scanning
 
         # self.update_fn = jax.pmap(partial(jax.lax.scan, update), axis_name=self.pmap_axis)
-        self.update_fn = jax.pmap(scan_fn, axis_name=self.pmap_axis, devices=self.sharding)
-        self.p_sample_jit = jax.pmap(p_sample_jit, devices=self.sharding)
-        self.denoiser_sample = jax.pmap(denoiser_sample_jit, devices=self.sharding)
+        self.update_fn = jax.pmap(scan_fn, axis_name=self.pmap_axis)
+        self.p_sample_jit = jax.pmap(p_sample_jit)
+        self.denoiser_sample = jax.pmap(denoiser_sample_jit)
 
     
     def p_sample(self, param, xt, t):
