@@ -257,13 +257,15 @@ class FSUtils():
         #     sharding = jax_utils.create_replicated_sharding()
         #     create_sharded_array = lambda x: jax.device_put(x, sharding)
         #     state = jax.tree_map(create_sharded_array, state)
-        # sharding = jax_utils.create_replicated_sharding()
-        # create_sharded_array = lambda x: jax.device_put(x, sharding)
-        # state = jax.tree_map(create_sharded_array, state)
-        
+        sharding = jax_utils.create_replicated_sharding()
+        create_sharded_array = lambda x: jax.device_put(x, sharding)
+        state = jax.tree_map(create_sharded_array, state)
+                
         if step is not None:
             # state = self.checkpoint_manager.restore(step, items=state)
-            state = self.checkpoint_manager.restore(step, args=orbax.checkpoint.args.StandardRestore(state))
+            abstract_train_state = jax.tree_util.tree_map(
+                orbax.checkpoint.utils.to_shape_dtype_struct, state)
+            state = self.checkpoint_manager.restore(step, args=orbax.checkpoint.args.StandardRestore(abstract_train_state))
             
             print(f"Loading ckpt of Step {step} complete.")
         else:
