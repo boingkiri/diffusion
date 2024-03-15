@@ -31,6 +31,7 @@ class PAEUtils():
 
         self.n_timestep = 18
         self.num_denoiser_samples = consistency_config.sampling_batch # 256
+        self.consistency_config = consistency_config
         self.num_consistency_samples_per_denoiser_sample = 32
 
         sigma_min = 0.02
@@ -93,8 +94,6 @@ class PAEUtils():
             
             total_denominator = jax.scipy.special.logsumexp(gaussian_exp_component)
 
-
-
     def calculate_and_save_ideal_denoiser(self):
         sigma_min = 0.002
         sigma_max = 80
@@ -104,11 +103,11 @@ class PAEUtils():
         for timestep in timesteps:
             total_timestep = timestep + 1
             timestep_range = range(0, total_timestep, timestep // 10)
-            for idx in timestep_range:
+            # for idx in timestep_range:
 
     def reset_dataset(self):
         # Assume that the CIFAR10 would only be used  
-        self.datasets = load_dataset_from_tfds(self.denoiser_config, "cifar10", self.num_denoiser_samples, 1, x_flip=False, shuffle=False)
+        self.datasets = load_dataset_from_tfds(self.consistency_config, "cifar10", self.num_denoiser_samples, 1, x_flip=False, shuffle=False)
 
     def viz_sample(self, sample):
         sample = jnp.asarray(sample)
