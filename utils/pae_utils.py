@@ -4,7 +4,8 @@ if __name__=="__main__":
 
 import jax
 import jax.numpy as jnp
-
+import tensorflow_datasets as tfds
+import tensorflow as tf
 import numpy as np
 
 import matplotlib.pyplot as plt
@@ -17,7 +18,6 @@ from framework.diffusion.consistency_framework import CMFramework
 from utils.common_utils import load_dataset_from_tfds
 from utils.fs_utils import FSUtils
 
-
 from tqdm import tqdm 
 
 import wandb
@@ -26,13 +26,8 @@ import io
 # Calculate Pixel alignment error (PAE)
 
 class PAEUtils():
-    def __init__(self, consistency_config, wandb_obj) -> None:
-        denoiser_config_path = "config_denoiser"
-        self.denoiser_config = compose(config_name=denoiser_config_path) # Assume that the hydra is already initialized
+    def __init__(self, consistency_config, wandb_obj=None) -> None:
         self.rng = jax.random.PRNGKey(42)
-        denoiser_rng, self.rng = jax.random.split(self.rng)
-        denoiser_fs_obj = FSUtils(self.denoiser_config)
-        self.denoiser_framework = EDMFramework(self.denoiser_config, denoiser_rng, denoiser_fs_obj, wandb_obj)
 
         self.n_timestep = 18
         self.num_denoiser_samples = consistency_config.sampling_batch # 256
@@ -44,7 +39,73 @@ class PAEUtils():
         sweep_timestep = jnp.arange(self.n_timestep)
         self.t_steps = (sigma_max ** (1 / rho) + sweep_timestep / (self.n_timestep - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
 
-    
+        self.sampled_data = self.sample_target_data()
+        # self.calculate_and_save_ideal_denoiser()
+
+    def gather_all_data_in_dataset(self):
+        def normalize_to_minus_one_to_one(image):
+            return image * 2 - 1
+
+        def normalize_channel_scale(image, label):
+            image = tf.cast(image, tf.float32)
+            image = (image / 255.0)
+            image = normalize_to_minus_one_to_one(image)
+            return image, label
+        
+        def augmentation(image, label):
+            image, label = normalize_channel_scale(image, label)
+            return image, label
+        ds = tfds.load("cifar10", as_supervised=True)
+        train_ds, _ = ds['train'], ds['test']
+        train_ds = train_ds.map(augmentation)
+        train_ds = train_ds.batch(16)
+        train_ds = train_ds.prefetch(tf.data.experimental.AUTOTUNE)
+        train_ds = map(lambda data: jax.tree_map(lambda x: x._numpy(), data), train_ds)
+        return train_ds
+
+    def sample_target_data(self):
+        self.reset_dataset()
+        data = next(self.datasets)
+        data = data[0][:, 0, ...]
+        return data
+
+    def calculate_ideal_denoiser_for_each_sample(self, sample, timestep, idx, rng):
+        sigma_fn = lambda timestep, idx: (sigma_min ** (1 / rho) + idx / (timestep - 1) * (sigma_max ** (1 / rho) - sigma_min ** (1 / rho))) ** rho
+        sigma_min = 0.002
+        sigma_max = 80
+        rho = 7
+        gathered_dataset = self.gather_all_data_in_dataset()
+        sample = np.concatenate([sample] * 16, axis=0)
+
+        sigma = sigma_fn(timestep, idx)
+        denominator = 2 * sigma ** 2
+
+        rng, sample_rng = jax.random.split(rng)
+        perturbed_sample = sample + jax.random.normal(rng, shape=sample.shape) * sigma
+
+        total_denominator = 0
+        total_numerator = 0
+        for y in gathered_dataset:
+            diff = perturbed_sample - y
+            diff_square = diff ** 2
+            diff_square_sum = jnp.sum(diff_square, axis=(1, 2, 3))
+            gaussian_exp_component = -diff_square_sum / denominator
+            
+            total_denominator = jax.scipy.special.logsumexp(gaussian_exp_component)
+
+
+
+    def calculate_and_save_ideal_denoiser(self):
+        sigma_min = 0.002
+        sigma_max = 80
+        rho = 7
+        timesteps = [10, 20, 40, 80, 160, 320, 640, 1280]
+
+        for timestep in timesteps:
+            total_timestep = timestep + 1
+            timestep_range = range(0, total_timestep, timestep // 10)
+            for idx in timestep_range:
+
     def reset_dataset(self):
         # Assume that the CIFAR10 would only be used  
         self.datasets = load_dataset_from_tfds(self.denoiser_config, "cifar10", self.num_denoiser_samples, 1, x_flip=False, shuffle=False)
@@ -70,13 +131,6 @@ class PAEUtils():
             img_containter = np.zeros((32 * 2, 32, 3), dtype=np.uint8)
 
         image_samples = [Image.fromarray(np.asarray(image_samples[i])) for i in range(len(image_samples))]
-        # num_samples = sample.shape[0]
-        # image_samples = jnp.zeros((32 * 2, 32 * (num_samples // 2), 3), dtype=jnp.uint8)
-        # for i in range(num_samples):
-        #     x = i % 2
-        #     y = i // 2
-        #     image_samples = image_samples.at[y * 32:(y + 1) * 32, x * 32:(x + 1) * 32].set(sample[i])
-        # image_samples = np.array(image_samples)
         return image_samples
     
     def calculate_pae(self, consistency_framework: CMFramework, step: int):
@@ -163,27 +217,36 @@ class PAEUtils():
 # (in diffusion directory, not in utils directory)
 if __name__=="__main__":
     from hydra import initialize
-
     from utils.log_utils import WandBLog
+    if False:
+        # consistency_config_path = "config_consistency"
+        consistency_config_path = "config"
 
-    # consistency_config_path = "config_consistency"
-    consistency_config_path = "config"
+        args ={
+                "project": "test",
+                "name": "pae_unit_test",
+            }
+        wandb.init(**args)
 
-    args ={
-            "project": "test",
-            "name": "pae_unit_test",
-        }
-    wandb.init(**args)
+        # with initialize(config_path="../configs") as cfg:
+        with initialize(config_path="configs") as cfg:
+            consistency_config = compose(config_name=consistency_config_path)
+            consistency_config["do_training"] = False
+            consistency_fs_obj = FSUtils(consistency_config)
+            wandb_obj = WandBLog()
+            pae_utils = PAEUtils(consistency_config, wandb_obj)
 
-    # with initialize(config_path="../configs") as cfg:
-    with initialize(config_path="configs") as cfg:
-        consistency_config = compose(config_name=consistency_config_path)
-        consistency_config["do_training"] = False
-        consistency_fs_obj = FSUtils(consistency_config)
-        wandb_obj = WandBLog()
-        pae_utils = PAEUtils(consistency_config, wandb_obj)
+            framework_rng = jax.random.PRNGKey(42)
+            consistency_framework = CMFramework(consistency_config, framework_rng, consistency_fs_obj, wandb_obj)
+            mean, var = pae_utils.calculate_pae(consistency_framework, 0)
+            print(mean, var)
+    if True:
+        consistency_config_path = "config"
 
-        framework_rng = jax.random.PRNGKey(42)
-        consistency_framework = CMFramework(consistency_config, framework_rng, consistency_fs_obj, wandb_obj)
-        mean, var = pae_utils.calculate_pae(consistency_framework, 0)
-        print(mean, var)
+        with initialize(config_path="../configs") as cfg:
+        # with initialize(config_path="configs") as cfg:
+            consistency_config = compose(config_name=consistency_config_path)
+            consistency_config["do_training"] = False
+            # consistency_fs_obj = FSUtils(consistency_config)
+            pae_utils = PAEUtils(consistency_config)
+            breakpoint()
