@@ -227,8 +227,16 @@ class FSUtils():
     def save_model_state(self, states, step, metrics=None):
         best_saved = False
         if self.config.get("distributed_training", False):
-            states = jax.tree_map(
-                lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), states)
+            def map_repliacted_host_local_array_to_global_array(path, x):
+                try:
+                    x = orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x)
+                except ValueError:
+                    print(f"Error in {path}!")
+                    ValueError()
+                return x
+            # states = jax.tree_map(
+            #     lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), states)
+            states = jax.tree_util.tree_map_with_path(map_repliacted_host_local_array_to_global_array, states)
         # self.checkpoint_manager.save(step, states)
 
         # global_mesh, pspec = jax_utils.create_environment_sharding()
