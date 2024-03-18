@@ -36,9 +36,7 @@ class EDMFramework(DefaultModel):
         self.model = EDMPrecond(model_config, image_channels=model_config['image_channels'], model_type=model_type)
         self.model_state = self.init_model_state(config)
         # self.model_state = fs_obj.load_model_state("diffusion", self.model_state)
-        print(type(self.model_state))
         self.model_state = fs_obj.load_model_state({"diffusion": self.model_state})
-        print(type(self.model_state))
         
         # Parameters
         self.sigma_min = max(diffusion_framework['sigma_min'], self.model.sigma_min)

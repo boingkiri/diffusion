@@ -32,19 +32,16 @@ class FSUtils():
         self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir)
         model_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir, 
-            # checkpointers= {model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
+            item_names=model_keys,
             options=model_checkpoint_manager_options,
-            # item_handlers={model_key: orbax.checkpoint.StandardCheckpointHandler() for model_key in model_keys}
         )
-
         # TMP: to save checkpoint at 200k or 300k
         tmp_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2)
         self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir + "/tmp")
         tmp_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir + "/tmp", 
-            # checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
+            item_names=model_keys,
             options=tmp_checkpoint_manager_options,)
-            # item_handlers={model_key: orbax.checkpoint.StandardCheckpointHandler() for model_key in model_keys})
 
         for model_key in model_keys:
             best_checkpoint_dir = self.config.exp.best_dir + "/" + model_key
@@ -53,9 +50,8 @@ class FSUtils():
             self.verify_and_create_dir(abs_path_ + best_checkpoint_dir)
             model_best_checkpoint_manager = orbax.checkpoint.CheckpointManager(
                 abs_path_ + best_checkpoint_dir,
-                # checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys}, 
+                item_names=model_keys,
                 options=model_best_checkpoint_manager_options,)
-                # item_handlers={model_key: orbax.checkpoint.StandardCheckpointHandler() for model_key in model_keys})
             best_checkpoint_manager[model_key] = model_best_checkpoint_manager
         
 
@@ -239,14 +235,28 @@ class FSUtils():
         # create_sharded_array = lambda x: jax.experimental.multihost_utils.global_array_to_host_local_array(x, global_mesh, pspec)
         # state = jax.tree_map(create_sharded_array, state)
         
-        self.checkpoint_manager.save(step, args=orbax.checkpoint.args.StandardSave(states))
+        self.checkpoint_manager.save(
+            step, 
+            args=orbax.checkpoint.args.Composite(
+                **{
+                    k: orbax.checkpoint.args.StandardRestore(v)
+                    for k, v in states.items() if v is not None
+                }
+            )
+        )
         for state in states:
             best_checkpoint_manager = self.best_checkpoint_manager[state]
             # state_saved = best_checkpoint_manager.save(step, states, metrics=metrics[state])
             state_saved = best_checkpoint_manager.save(
                 step, 
                 metrics=metrics[state],
-                args=orbax.checkpoint.args.StandardSave(states[state]))
+                args=orbax.checkpoint.args.Composite(
+                    **{
+                        k: orbax.checkpoint.args.StandardRestore(v)
+                        for k, v in states.items() if v is not None
+                    }
+                )
+            )
             best_saved = best_saved or state_saved
 
         print(f"Saving {step} complete.")
@@ -268,8 +278,15 @@ class FSUtils():
             # abstract_train_state = jax.tree_util.tree_map(
             #     orbax.checkpoint.utils.to_shape_dtype_struct, state)
             # state = self.checkpoint_manager.restore(step, args=orbax.checkpoint.args.StandardRestore(abstract_train_state))
-            state = self.checkpoint_manager.restore(step, args=orbax.checkpoint.args.StandardRestore(state))
-            
+            state = self.checkpoint_manager.restore(
+                step, 
+                args=orbax.checkpoint.args.Composite(
+                    **{
+                        k: orbax.checkpoint.args.StandardRestore(v)
+                        for k, v in state.items() if v is not None
+                    }
+                )
+            )
             print(f"Loading ckpt of Step {step} complete.")
         else:
             print("No ckpt loaded. Start from scratch.")
