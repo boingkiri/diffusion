@@ -80,8 +80,8 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
 
   global_device_count = jax.device_count()
   device_count = jax.local_device_count()
-  # batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 
-  batch_dims = [global_device_count // device_count, device_count, n_jitted_steps, batch_size // global_device_count]
+  batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 
+  # batch_dims = [global_device_count // device_count, device_count, n_jitted_steps, batch_size // global_device_count]
 
   # global_mesh, pspec = jax_utils.create_environment_sharding()
 
