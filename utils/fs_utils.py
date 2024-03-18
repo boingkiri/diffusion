@@ -239,7 +239,7 @@ class FSUtils():
             step, 
             args=orbax.checkpoint.args.Composite(
                 **{
-                    k: orbax.checkpoint.args.StandardRestore(v)
+                    k: orbax.checkpoint.args.StandardSave(v)
                     for k, v in states.items() if v is not None
                 }
             )
@@ -252,7 +252,7 @@ class FSUtils():
                 metrics=metrics[state],
                 args=orbax.checkpoint.args.Composite(
                     **{
-                        k: orbax.checkpoint.args.StandardRestore(v)
+                        k: orbax.checkpoint.args.StandardSave(v)
                         for k, v in states.items() if v is not None
                     }
                 )
