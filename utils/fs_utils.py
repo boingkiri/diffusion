@@ -228,11 +228,14 @@ class FSUtils():
         best_saved = False
         if self.config.get("distributed_training", False):
             def map_repliacted_host_local_array_to_global_array(path, x):
+                global_mesh = jax.sharding.Mesh(jax.devices(), 'model')
+                pspecs = jax.sharding.PartitionSpec('model')
                 try:
-                    x = orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x)
-                except ValueError:
-                    print(f"Error in {path}!")
-                    ValueError()
+                    x = jax.experimental.multihost_utils.global_array_to_host_local_array(x, global_mesh, pspecs)
+                except:
+                    print(f"Error in converting {path} to global array.")
+                    ValueError(f"Error in converting {path} to global array.")
+                print(x.shape)
                 return x
             # states = jax.tree_map(
             #     lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), states)
