@@ -22,6 +22,7 @@ from tqdm import tqdm
 
 import wandb
 import io
+import os
 
 # Calculate Pixel alignment error (PAE)
 
@@ -29,10 +30,11 @@ class PAEUtils():
     def __init__(self, consistency_config, wandb_obj=None) -> None:
         self.rng = jax.random.PRNGKey(42)
 
-        self.n_timestep = 18
+        self.n_timestep = 41
         self.num_denoiser_samples = consistency_config.sampling_batch # 256
         self.consistency_config = consistency_config
         self.num_consistency_samples_per_denoiser_sample = 32
+        self.batchsize = 625
 
         sigma_min = 0.02
         sigma_max = 80
@@ -40,8 +42,9 @@ class PAEUtils():
         sweep_timestep = jnp.arange(self.n_timestep)
         self.t_steps = (sigma_max ** (1 / rho) + sweep_timestep / (self.n_timestep - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
 
-        self.sampled_data = self.sample_target_data()
+        # self.sampled_data = self.sample_target_data()
         # self.calculate_and_save_ideal_denoiser()
+        self.p_ideal_denoiser = jax.pmap(lambda x, t: self.calculate_ideal_denoiser_for_each_sample(x, t))
 
     def gather_all_data_in_dataset(self):
         def normalize_to_minus_one_to_one(image):
@@ -59,7 +62,7 @@ class PAEUtils():
         ds = tfds.load("cifar10", as_supervised=True)
         train_ds, _ = ds['train'], ds['test']
         train_ds = train_ds.map(augmentation)
-        train_ds = train_ds.batch(16)
+        train_ds = train_ds.batch(self.batchsize)
         train_ds = train_ds.prefetch(tf.data.experimental.AUTOTUNE)
         train_ds = map(lambda data: jax.tree_map(lambda x: x._numpy(), data), train_ds)
         return train_ds
@@ -70,44 +73,43 @@ class PAEUtils():
         data = data[0][:, 0, ...]
         return data
 
-    def calculate_ideal_denoiser_for_each_sample(self, sample, timestep, idx, rng):
-        sigma_fn = lambda timestep, idx: (sigma_min ** (1 / rho) + idx / (timestep - 1) * (sigma_max ** (1 / rho) - sigma_min ** (1 / rho))) ** rho
-        sigma_min = 0.002
-        sigma_max = 80
-        rho = 7
+    def calculate_ideal_denoiser_for_each_sample(self, perturbed_sample, sigma):        
         gathered_dataset = self.gather_all_data_in_dataset()
-        sample = np.concatenate([sample] * 16, axis=0)
+        exp_component = jax.vmap(lambda y: -jnp.sum((perturbed_sample - y) ** 2, axis=(1, 2, 3)) / 2 / sigma ** 2)(next(gathered_dataset)[0])
+        for (y, _) in gathered_dataset:
+            exp_component = jnp.append(exp_component, jax.vmap(lambda y: -jnp.sum((perturbed_sample - y) ** 2, axis=(1, 2, 3)) / 2 / sigma ** 2)(y), axis=0)
 
-        sigma = sigma_fn(timestep, idx)
-        denominator = 2 * sigma ** 2
+        exp_component = exp_component - jax.scipy.special.logsumexp(exp_component, axis=0)
+        coeff = jnp.exp(exp_component)
 
-        rng, sample_rng = jax.random.split(rng)
-        perturbed_sample = sample + jax.random.normal(rng, shape=sample.shape) * sigma
-
-        total_denominator = 0
-        total_numerator = 0
-        for y in gathered_dataset:
-            diff = perturbed_sample - y
-            diff_square = diff ** 2
-            diff_square_sum = jnp.sum(diff_square, axis=(1, 2, 3))
-            gaussian_exp_component = -diff_square_sum / denominator
-            
-            total_denominator = jax.scipy.special.logsumexp(gaussian_exp_component)
+        gathered_dataset = self.gather_all_data_in_dataset()
+        denoiser = jnp.zeros_like(perturbed_sample)
+        for i, (y, _) in enumerate(gathered_dataset):
+            denoiser += jax.vmap(lambda c: jnp.sum(c[:, None, None, None] * y, axis=0), in_axes=1)(coeff[self.batchsize*i : self.batchsize*(i+1), :])
+        
+        return denoiser
 
     def calculate_and_save_ideal_denoiser(self):
-        sigma_min = 0.002
-        sigma_max = 80
-        rho = 7
-        timesteps = [10, 20, 40, 80, 160, 320, 640, 1280]
-
-        for timestep in timesteps:
-            total_timestep = timestep + 1
-            timestep_range = range(0, total_timestep, timestep // 10)
-            # for idx in timestep_range:
+        p_calculate_ideal_denoiser_for_each_sample = jax.pmap(lambda x, sigma: self.calculate_ideal_denoiser_for_each_sample(x, sigma, self.rng))
+        for sigma in tqdm(self.t_steps):
+            perturbed_sample = self.sampled_data + jax.random.normal(self.rng, shape=self.sampled_data.shape) * sigma
+            denoiser = p_calculate_ideal_denoiser_for_each_sample(perturbed_sample, jnp.repeat(sigma, jax.local_device_count()))
+            # denoiser = self.calculate_ideal_denoiser_for_each_sample(self.sampled_data, sigma, self.rng)
+            denoiser = jnp.reshape(denoiser, (-1, 32, 32, 3))
+            self.save_img(denoiser, sigma)
 
     def reset_dataset(self):
         # Assume that the CIFAR10 would only be used  
         self.datasets = load_dataset_from_tfds(self.consistency_config, "cifar10", self.num_denoiser_samples, 1, x_flip=False, shuffle=False)
+
+    def save_img(self, samples, sigma):
+        samples = (samples + 1) / 2
+        samples = jnp.clip(samples, 0, 1)
+        samples = jnp.asarray(samples * 255, dtype=jnp.uint8)
+
+        os.makedirs(f'debug/{sigma}', exist_ok=True)
+        for i, sample in enumerate(samples):
+            Image.fromarray(np.asarray(sample)).save(f"debug/{sigma}/{i}.png")
 
     def viz_sample(self, sample):
         sample = jnp.asarray(sample)
@@ -131,33 +133,31 @@ class PAEUtils():
 
         image_samples = [Image.fromarray(np.asarray(image_samples[i])) for i in range(len(image_samples))]
         return image_samples
-    
+
     def calculate_pae(self, consistency_framework: CMFramework, step: int):
         self.reset_dataset()
         data = next(self.datasets)
-        data = data[0][:, 0, ...] # 256 samples (8 * 32)
+        data = data[0][:, 0, ...] # 256 samples (8 * 32) for TPU-v3, (4 * 64) for TPU-v4
 
         error_x_label = []
         error_y_label = []
         sample_images = []
 
-        print(f"Start to calculate for step {step}.")
-
         rng = self.rng
+
+        print(f"Start to calculate for step {step}.")
 
         for timestep in range(0, self.n_timestep):
             print(f"Start {timestep} / {self.n_timestep}")
             
             rng, sampling_rng = jax.random.split(rng)
             noise = jax.random.normal(sampling_rng, shape=data.shape) * self.t_steps[timestep]
-            # noise = jax.random.normal(sampling_rng, shape=data.shape) * timestep
 
             # Get denoiser output
-            denoiser_output = self.denoiser_framework.sampling_denoiser(self.num_denoiser_samples, original_data=data, sweep_timesteps=timestep, noise=noise)
+            denoiser_output = self.p_ideal_denoiser(data + noise, jnp.repeat(self.t_steps[timestep], jax.local_device_count()))
 
             # Get consistency output
             consistency_output = consistency_framework.sampling_cm_intermediate(self.num_denoiser_samples, original_data=data, sweep_timesteps=timestep, noise=noise)
-            # consistency_output = jnp.expand_dims(consistency_output, axis=1)
             consistency_output = jnp.reshape(consistency_output, data.shape)
 
             # Sample multiple datapoints
@@ -166,21 +166,16 @@ class PAEUtils():
                 rng, sampling_rng = jax.random.split(rng)
 
                 new_noise = jax.random.normal(sampling_rng, shape=consistency_output.shape) * self.t_steps[timestep]
-                # new_noise = jax.random.normal(sampling_rng, shape=consistency_output.shape) * timestep
                 second_consistency_output = consistency_framework.sampling_cm_intermediate(
                     self.num_denoiser_samples, original_data=consistency_output, sweep_timesteps=timestep, noise=new_noise)
                 sampling_list.append(second_consistency_output)
-                # second_consistency_output = jnp.reshape(second_consistency_output, data.shape)
 
-            # sampling_list = jnp.concatenate(sampling_list, axis=0)
             sampling_list = jnp.stack(sampling_list, axis=0)
             sampling_list = jnp.mean(sampling_list, axis=0)
             denoiser_output = jnp.reshape(denoiser_output, (self.num_denoiser_samples, 32, 32, 3))
             pixel_alignment_error = jnp.mean(jnp.abs(sampling_list - denoiser_output), axis=(-1, -2, -3))
 
             sample_images.append([denoiser_output[0], sampling_list[0]])
-            # second_consistency_output_empirical_mean = jnp.mean(sampling_list, axis=0)
-            # error = jnp.mean(jnp.abs(second_consistency_output_empirical_mean - denoiser_output), axis=(-1, -2, -3))
             print("Total mean of error: ", jnp.mean(pixel_alignment_error))
 
             error_x_label.append(timestep)
@@ -209,7 +204,6 @@ class PAEUtils():
         wandb_image = [wandb.Image(image, caption="Sample images") for image in np_image]
         wandb.log({"train/Sample images": wandb_image}, step=step)
         return total_pixel_alignment_error, total_pixel_alignment_error_var
-            
 
 
 # WARNING: This unit test is working only when the file is placed in the root directory 
@@ -248,4 +242,4 @@ if __name__=="__main__":
             consistency_config["do_training"] = False
             # consistency_fs_obj = FSUtils(consistency_config)
             pae_utils = PAEUtils(consistency_config)
-            breakpoint()
+            # breakpoint()
