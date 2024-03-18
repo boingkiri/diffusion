@@ -118,11 +118,16 @@ def save_best_state(state, best_checkpoint_dir, step, checkpoint_prefix):
     checkpoints.save_checkpoint(best_checkpoint_dir, state[key], step, prefix=key + "_", overwrite=True)
   print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")
 
-def create_environment_sharding():
-  devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
-  global_mesh = jax.sharding.Mesh(devices, ('processes', 'local_devices'))
-  pspec = P('processes')
-  return global_mesh, pspec
+def create_environment_sharding(config: DictConfig):
+  """Creates a sharding configuration for the environment."""
+  model_parallelism = config.get("model_parallel_device", 1)
+
+  # devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
+  devices = np.array(jax.devices()).reshape(jax.device_count() // model_parallelism, model_parallelism)
+  axes_names = ('data_parallelism', 'model_parallelism')
+  global_mesh = jax.sharding.Mesh(devices, axes_names)
+  breakpoint()
+  return global_mesh, axes_names
 
 def unreplicate_tree(tree):
   """Returns a single instance of a replicated array."""

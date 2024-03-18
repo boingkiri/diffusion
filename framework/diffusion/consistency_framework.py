@@ -80,9 +80,9 @@ class CMFramework(DefaultModel):
         #     self.training_states = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.training_states[model_key])
         #                         for model_key in self.training_states.keys()}
         # else:                            
-        # self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
-        #                     for model_key in self.training_states.keys()}
-        self.sharding = jax_utils.create_environment_sharding()
+        self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
+                            for model_key in self.training_states.keys()}
+        # self.sharding = jax_utils.create_environment_sharding()
         
         # breakpoint()
         # Parameters
@@ -556,10 +556,15 @@ class CMFramework(DefaultModel):
         #         "diffusion": flax.jax_utils.unreplicate(training_states['torso_state']), 
         #         "head": flax.jax_utils.unreplicate(training_states['head_state'])
         #     }
+        # return {
+        #     "diffusion": jax_utils.unreplicate_tree(self.training_states['torso_state']),
+        #     "head": jax_utils.unreplicate_tree(self.training_states['head_state'])
+        # }
+        training_states = self.training_states
         return {
-            "diffusion": jax_utils.unreplicate_tree(self.training_states['torso_state']),
-            "head": jax_utils.unreplicate_tree(self.training_states['head_state'])
-        }
+                "diffusion": flax.jax_utils.unreplicate(training_states['torso_state']), 
+                "head": flax.jax_utils.unreplicate(training_states['head_state'])
+            }
     
     def fit(self, x0, cond=None, step=0, eval_during_training=False):
         key, dropout_key = jax.random.split(self.rand_key, 2)

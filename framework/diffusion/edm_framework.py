@@ -53,8 +53,8 @@ class EDMFramework(DefaultModel):
         #     self.model_state = jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state)
         #     self.model_state = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state[model_key])
         #                         for model_key in self.model_state.keys()}
-        # self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
-        #                     for model_key in self.model_state.keys()}
+        self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
+                            for model_key in self.model_state.keys()}
 
         # Create ema obj
         # ema_config = config.ema
@@ -183,8 +183,8 @@ class EDMFramework(DefaultModel):
         return jax_utils.create_train_state(config, 'diffusion', self.model.apply, params)
 
     def get_model_state(self):
-        # return [flax.jax_utils.unreplicate(self.model_state)]
-        return [jax_utils.unreplicate_tree(self.model_state)]
+        return [flax.jax_utils.unreplicate(self.model_state)]
+        # return [jax_utils.unreplicate_tree(self.model_state)]
         # if self.distributed_training:
         #     return [jax_utils.fully_replicated_host_local_array_to_global_array(self.model_state)]
         # else:
