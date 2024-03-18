@@ -231,7 +231,7 @@ class FSUtils():
                 global_mesh = jax.sharding.Mesh(jax.devices(), 'model')
                 pspecs = jax.sharding.PartitionSpec('model')
                 try:
-                    x = jax.experimental.multihost_utils.host_local_array_to_global_array(x, global_mesh, pspecs)[0]
+                    x = jax.experimental.multihost_utils.host_local_array_to_global_array(x, global_mesh, pspecs)
                 except:
                     print(f"Error in converting {path} to global array.")
                     ValueError(f"Error in converting {path} to global array.")
