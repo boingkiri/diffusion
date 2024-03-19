@@ -55,8 +55,8 @@ class EDMFramework(DefaultModel):
         #     self.model_state = jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state)
         #     self.model_state = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state[model_key])
         #                         for model_key in self.model_state.keys()}
-        self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
-                            for model_key in self.model_state.keys()}
+        # self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
+        #                     for model_key in self.model_state.keys()}
         if self.distributed_training:
             # self.model_state = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state[model_key])
             #                     for model_key in self.model_state.keys()}
