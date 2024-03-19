@@ -55,8 +55,8 @@ class EDMFramework(DefaultModel):
         #     self.model_state = jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state)
         #     self.model_state = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state[model_key])
         #                         for model_key in self.model_state.keys()}
-        # self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
-        #                     for model_key in self.model_state.keys()}
+        self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
+                            for model_key in self.model_state.keys()}
         if self.distributed_training:
             # self.model_state = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state[model_key])
             #                     for model_key in self.model_state.keys()}
@@ -68,9 +68,9 @@ class EDMFramework(DefaultModel):
             #                     for model_key in self.training_states.keys()}
             self.model_state = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state[model_key])
                                 for model_key in self.model_state.keys()}
-            self.model_state = jax.tree_map(lambda x: jnp.asarray(x), self.model_state)
-            self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
-                            for model_key in self.model_state.keys()}
+            # self.model_state = jax.tree_map(lambda x: jnp.asarray(x), self.model_state)
+            self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
+                            for model_key in self.training_states.keys()}
 
         # Create ema obj
         # ema_config = config.ema
