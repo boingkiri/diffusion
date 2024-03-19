@@ -88,7 +88,7 @@ class CMFramework(DefaultModel):
             devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
             axes_names = ('host', 'devices')
             global_mesh = jax.sharding.Mesh(devices, axes_names)
-            pspecs = jax.sharding.PartitionSpec()
+            pspecs = jax.sharding.PartitionSpec("host")
             self.training_states = {model_key: jax.experimental.multihost_utils.host_local_array_to_global_array(self.training_states[model_key], global_mesh, pspecs)
                                 for model_key in self.training_states.keys()}
             # self.training_states = jax.tree_map(lambda x: x.addressable_data(0), self.training_states)
