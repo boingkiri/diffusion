@@ -91,7 +91,7 @@ class CMFramework(DefaultModel):
             pspecs = jax.sharding.PartitionSpec()
             self.training_states = {model_key: jax.experimental.multihost_utils.host_local_array_to_global_array(self.training_states[model_key], global_mesh, pspecs)
                                 for model_key in self.training_states.keys()}
-            self.training_states = jax.tree_map(lambda x: x.addressable_data(0), self.training_states)
+            # self.training_states = jax.tree_map(lambda x: x.addressable_data(0), self.training_states)
             jax.tree_map(lambda x: print(x.shape), self.training_states)
             # self.training_states = jax.tree_map(lambda x: print(x.shape); x, self.training_states)
 
