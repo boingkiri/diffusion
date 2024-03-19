@@ -157,7 +157,7 @@ class PAEUtils():
             denoiser_output = self.p_ideal_denoiser(data + noise, jnp.repeat(self.t_steps[timestep], jax.local_device_count()))
 
             # Get consistency output
-            consistency_output = consistency_framework.sampling_cm_intermediate(self.num_denoiser_samples, original_data=data, sweep_timesteps=timestep, noise=noise)
+            consistency_output = consistency_framework.sampling_cm_intermediate(self.num_denoiser_samples, original_data=data, sigma_scale=self.t_steps[timestep], noise=noise)
             consistency_output = jnp.reshape(consistency_output, data.shape)
 
             # Sample multiple datapoints
@@ -167,7 +167,7 @@ class PAEUtils():
 
                 new_noise = jax.random.normal(sampling_rng, shape=consistency_output.shape) * self.t_steps[timestep]
                 second_consistency_output = consistency_framework.sampling_cm_intermediate(
-                    self.num_denoiser_samples, original_data=consistency_output, sweep_timesteps=timestep, noise=new_noise)
+                    self.num_denoiser_samples, original_data=consistency_output, sigma_scale=self.t_steps[timestep], noise=new_noise)
                 sampling_list.append(second_consistency_output)
 
             sampling_list = jnp.stack(sampling_list, axis=0)

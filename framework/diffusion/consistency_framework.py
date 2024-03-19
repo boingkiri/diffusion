@@ -719,7 +719,7 @@ class CMFramework(DefaultModel):
         x = x.reshape(num_image, *img_size)
         return x
 
-    def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sweep_timesteps=17, noise=None, sigma_scale=None):
+    def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sigma_scale=17, noise=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
@@ -728,7 +728,7 @@ class CMFramework(DefaultModel):
         sampling_t_steps = jnp.flip(self.t_steps)
 
         if noise is None:
-            latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * sampling_t_steps[sweep_timesteps]
+            latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * sigma_scale
         else:
             latent_sample = noise
         
@@ -738,7 +738,7 @@ class CMFramework(DefaultModel):
         rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
         rng_key = jax.random.split(rng_key, jax.local_device_count())
         gamma = jnp.asarray([0] * jax.local_device_count())
-        current_t = jnp.asarray([sampling_t_steps[sweep_timesteps]] * jax.local_device_count())
+        current_t = jnp.asarray([sigma_scale] * jax.local_device_count())
         t_min = jnp.asarray([self.sigma_min] * jax.local_device_count())
 
         # sampling_params = self.torso_state.params_ema
