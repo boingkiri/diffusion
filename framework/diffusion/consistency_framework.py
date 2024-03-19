@@ -85,11 +85,13 @@ class CMFramework(DefaultModel):
         self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
                             for model_key in self.training_states.keys()}
         if self.distributed_training:
-            devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
-            axes_names = ('host', 'devices')
-            global_mesh = jax.sharding.Mesh(devices, axes_names)
-            pspecs = jax.sharding.PartitionSpec("host")
-            self.training_states = {model_key: jax.experimental.multihost_utils.host_local_array_to_global_array(self.training_states[model_key], global_mesh, pspecs)
+            # devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
+            # axes_names = ('host', 'devices')
+            # global_mesh = jax.sharding.Mesh(devices, axes_names)
+            # pspecs = jax.sharding.PartitionSpec("host")
+            # self.training_states = {model_key: jax.experimental.multihost_utils.host_local_array_to_global_array(self.training_states[model_key], global_mesh, pspecs)
+            #                     for model_key in self.training_states.keys()}
+            self.training_states = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.training_states[model_key])
                                 for model_key in self.training_states.keys()}
         # self.sharding = jax_utils.create_environment_sharding()
         
