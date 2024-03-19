@@ -93,7 +93,7 @@ class CMFramework(DefaultModel):
             #                     for model_key in self.training_states.keys()}
             self.training_states = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.training_states[model_key])
                                 for model_key in self.training_states.keys()}
-            self.training_states = jax.tree_map(lambda x: jnp.asarray(x), self.training_states)
+            # self.training_states = jax.tree_map(lambda x: jnp.asarray(x), self.training_states)
         # self.sharding = jax_utils.create_environment_sharding()
         
         # breakpoint()
