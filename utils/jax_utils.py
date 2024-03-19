@@ -133,7 +133,7 @@ def unreplicate_tree(tree):
   """Returns a single instance of a replicated array."""
   return jax.tree_util.tree_map(lambda x: x[0][0], tree)
 
-def fully_replicated_host_local_array_to_global_array(
+def modified_fully_replicated_host_local_array_to_global_array(
     arr: jax.Array,
 ) -> jax.Array:
   """Converts a host local array from to global jax.Array.
@@ -146,8 +146,8 @@ def fully_replicated_host_local_array_to_global_array(
   Returns:
     A global array.
   """
-  if not arr.is_fully_replicated:
-    raise ValueError('Array must be fully replicated.')
+  # if not arr.is_fully_replicated:
+  #   raise ValueError('Array must be fully replicated.')
   global_shape = arr.addressable_data(0).shape
   # Create a 1D mesh to create fully replicated global jax.Array.
   sharding = jax.sharding.NamedSharding(

@@ -237,8 +237,10 @@ class FSUtils():
                     print(f"Error in converting {path} to global array.")
                     ValueError(f"Error in converting {path} to global array.")
                 return x
+            # states = jax.tree_map(
+            #     lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), states)
             states = jax.tree_map(
-                lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), states)
+                lambda x: jax_utils.modified_fully_replicated_host_local_array_to_global_array(x), states)
             # states = jax.tree_util.tree_map_with_path(map_repliacted_host_local_array_to_global_array, states)
         # self.checkpoint_manager.save(step, states)
 

@@ -129,22 +129,8 @@ class UnifyingFramework():
         for x, _ in datasets_bar:
             # if self.step % 1000 == 0:
 
-            eval_during_training = self.step % 1000 == 0
-            training_log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
-            log.update(training_log)
+            
 
-            description_str = "Step: {step}/{total_step} lr*1e4: {lr:.4f} ".format(
-                step=self.step,
-                total_step=self.total_step,
-                lr=self.learning_rate_schedule(self.step)*(1e+4)
-            )
-            
-            for key in log:
-                if key.startswith("train"):
-                    represented_key = key.replace("train/", "")
-                    description_str += f"{represented_key}: {log[key]:.4f} "
-            datasets_bar.set_description(description_str)
-            
             if self.step % self.config["sampling_step"] == 0:
                 batch_data = np.array(x[0, 0, :8]) # (device_idx, n_jitted_steps, batch_size)
 
@@ -207,7 +193,21 @@ class UnifyingFramework():
                 # if self.step == 200000 or self.step == 300000:
                 #     self.fs_utils.save_tmp_model_state(model_state, self.step)
 
+            eval_during_training = self.step % 1000 == 0
+            training_log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
+            log.update(training_log)
+
+            description_str = "Step: {step}/{total_step} lr*1e4: {lr:.4f} ".format(
+                step=self.step,
+                total_step=self.total_step,
+                lr=self.learning_rate_schedule(self.step)*(1e+4)
+            )
             
+            for key in log:
+                if key.startswith("train"):
+                    represented_key = key.replace("train/", "")
+                    description_str += f"{represented_key}: {log[key]:.4f} "
+            datasets_bar.set_description(description_str)
 
             if self.step >= self.total_step:
                 if not self.next_step():
