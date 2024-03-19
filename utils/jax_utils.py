@@ -126,7 +126,6 @@ def create_environment_sharding(config: DictConfig):
   devices = np.array(jax.devices()).reshape(jax.device_count() // model_parallelism, model_parallelism)
   axes_names = ('data_parallelism', 'model_parallelism')
   global_mesh = jax.sharding.Mesh(devices, axes_names)
-  breakpoint()
   return global_mesh, axes_names
 
 def unreplicate_tree(tree):

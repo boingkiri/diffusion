@@ -1,6 +1,8 @@
 import jax
 import jax.numpy as jnp
 
+import numpy as np
+
 import flax
 
 from model.unetpp import EDMPrecond
@@ -56,8 +58,14 @@ class EDMFramework(DefaultModel):
         self.model_state = {model_key: flax.jax_utils.replicate(self.model_state[model_key]) 
                             for model_key in self.model_state.keys()}
         if self.distributed_training:
-            self.model_state = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state[model_key])
-                                for model_key in self.model_state.keys()}
+            # self.model_state = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.model_state[model_key])
+            #                     for model_key in self.model_state.keys()}
+            devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
+            axes_names = ('host', 'devices')
+            global_mesh = jax.sharding.Mesh(devices, axes_names)
+            pspecs = jax.sharding.PartitionSpec("host")
+            self.training_states = {model_key: jax.experimental.multihost_utils.host_local_array_to_global_array(self.training_states[model_key], global_mesh, pspecs)
+                                for model_key in self.training_states.keys()}
 
         # Create ema obj
         # ema_config = config.ema
