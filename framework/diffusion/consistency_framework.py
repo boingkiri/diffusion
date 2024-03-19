@@ -82,8 +82,8 @@ class CMFramework(DefaultModel):
         #     self.training_states = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.training_states[model_key])
         #                         for model_key in self.training_states.keys()}
         # else:                            
-        # self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
-        #                     for model_key in self.training_states.keys()}
+        self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
+                            for model_key in self.training_states.keys()}
         if self.distributed_training:
             devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
             axes_names = ('host', 'devices')
