@@ -9,8 +9,8 @@ defaults:
   - model@_group_.head: 
     # - diffusion/score_head_conv
     # - diffusion/score_head_pde
-    # - diffusion/score_head
-    - diffusion/score_head_large
+    - diffusion/score_head
+    # - diffusion/score_head_large
     # - diffusion/score_head_baseline
   # - ema: ema_edm
   - ema: ema_ict
@@ -39,6 +39,11 @@ available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 # Evaluation mode
 PAE_evaluation: True
 distributed_training: True
+
+# Distribution setting
+# The mesh will be setted with the order of [device_parallelism, model_parallelism] 
+# i.e. [jax.device_count() // model_parallel_device, model_parallel_device]
+model_parallel_device: 1 # Default as 1. which means that the model parallelism is not used.
 
 # framework:
 #   diffusion:
