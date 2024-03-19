@@ -82,6 +82,9 @@ class CMFramework(DefaultModel):
         # else:                            
         self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
                             for model_key in self.training_states.keys()}
+        if self.distributed_training:
+            self.training_states = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.training_states[model_key])
+                                for model_key in self.training_states.keys()}
         # self.sharding = jax_utils.create_environment_sharding()
         
         # breakpoint()
