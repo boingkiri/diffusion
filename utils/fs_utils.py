@@ -261,20 +261,31 @@ class FSUtils():
 
     def load_model_state(self, state):
         print(f"Get into the load_model_state")
-        step = self.checkpoint_manager.latest_step()
-        if step is not None:
-            state = self.checkpoint_manager.restore(
-                step, 
-                args=orbax.checkpoint.args.Composite(
-                    **{
-                        k: orbax.checkpoint.args.StandardRestore(v)
-                        for k, v in state.items() if v is not None
-                    }
-                )
+        # step = self.checkpoint_manager.latest_step()
+        # if step is not None:
+        #     state = self.checkpoint_manager.restore(
+        #         step, 
+        #         args=orbax.checkpoint.args.Composite(
+        #             **{
+        #                 k: orbax.checkpoint.args.StandardRestore(v)
+        #                 for k, v in state.items() if v is not None
+        #             }
+        #         )
+        #     )
+        #     print(f"Loading ckpt of Step {step} complete.")
+        # else:
+        #     print("No ckpt loaded. Start from scratch.")
+        # states = jax.tree_map(lambda x: jax.experimental.multihost_utils.broadcast_one_to_all(x), states)
+        state = self.checkpoint_manager.restore(
+            self.checkpoint_manager.latest_step(), 
+            args=orbax.checkpoint.args.Composite(
+                **{
+                    k: orbax.checkpoint.args.StandardRestore(v)
+                    for k, v in state.items() if v is not None
+                }
             )
-            print(f"Loading ckpt of Step {step} complete.")
-        else:
-            print("No ckpt loaded. Start from scratch.")
+        )
+        print(f"Loading ckpt of Step {self.checkpoint_manager.latest_step()} complete.")
         return state
     
     def get_best_fid(self):
