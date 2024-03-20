@@ -33,7 +33,7 @@ num_samples_for_alignment: 1
 train:
   learning_rate: 1.0e-4
   total_batch_size: 1024
-  batch_size_per_rounds: 256 # The option for gradient accumulation, which is used for large batch size training.
+  batch_size_per_rounds: 512 # The option for gradient accumulation, which is used for large batch size training.
   total_step: 400000
   optimizer:
     type: "radam"

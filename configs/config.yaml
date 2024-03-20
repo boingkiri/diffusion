@@ -26,7 +26,7 @@ saving_step: 10000
 
 # Training type
 type: ${framework.diffusion.type}
-exp_name: pseudoalign_1024_240318
+exp_name: pseudoalign_1024_240320
 tags: [iCT]
 
 # Miscellaneous
@@ -38,7 +38,7 @@ available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 
 # Evaluation mode
 PAE_evaluation: True
-distributed_training: False
+distributed_training: True
 
 # framework:
 #   diffusion:
