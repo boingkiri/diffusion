@@ -275,6 +275,8 @@ class FSUtils():
             print(f"Loading ckpt of Step {step} complete.")
         else:
             print("No ckpt loaded. Start from scratch.")
+        if self.config.get("distributed_training", False):
+            states = jax.tree_map(lambda x: jax.experimental.multihost_utils.broadcast_one_to_all(x), states)
         return state
     
     def get_best_fid(self):
