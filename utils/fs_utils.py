@@ -238,6 +238,7 @@ class FSUtils():
                 }
             )
         )
+        self.checkpoint_manager.wait_until_finished()
         for state in states:
             best_checkpoint_manager = self.best_checkpoint_manager[state]
             # state_saved = best_checkpoint_manager.save(step, states, metrics=metrics[state])
@@ -252,7 +253,8 @@ class FSUtils():
                 )
             )
             best_saved = best_saved or state_saved
-
+            best_checkpoint_manager.wait_until_finished()
+        
         print(f"Saving {step} complete.")
         if best_saved:
             print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")
