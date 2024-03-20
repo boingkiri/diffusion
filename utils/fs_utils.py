@@ -281,9 +281,10 @@ class FSUtils():
         else:
             print("No ckpt loaded. Start from scratch.")
         if self.config.get("distributed_training", False):
-            state = jax.tree_map(lambda x: jax.numpy.asarray(x), state)
+            jax.tree_map(lambda x: print(type(x)), state)
             state = jax.tree_map(lambda x: jax.experimental.multihost_utils.broadcast_one_to_all(x), state)
             orbax.checkpoint.utils.sync_global_devices("Loading ckpt complete.")
+            print("Loading ckpt complete.")
         return state
     
     def get_best_fid(self):
