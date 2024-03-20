@@ -28,7 +28,8 @@ class FSUtils():
         model_keys = self.config.model.keys()
         best_checkpoint_manager = {}
         abs_path_ = os.getcwd()+"/"
-        model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1, single_host_load_and_broadcast=True)
+        # model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1, single_host_load_and_broadcast=True)
+        model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1)
         self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir)
         model_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir, 
@@ -36,7 +37,8 @@ class FSUtils():
             options=model_checkpoint_manager_options,
         )
         # TMP: to save checkpoint at 200k or 300k
-        tmp_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, single_host_load_and_broadcast=True)
+        # tmp_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, single_host_load_and_broadcast=True)
+        tmp_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2)
         self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir + "/tmp")
         tmp_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir + "/tmp", 
@@ -46,7 +48,8 @@ class FSUtils():
         for model_key in model_keys:
             best_checkpoint_dir = self.config.exp.best_dir + "/" + model_key
             model_best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(
-                max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min', single_host_load_and_broadcast=True)
+                # max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min', single_host_load_and_broadcast=True)
+                max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min')
             self.verify_and_create_dir(abs_path_ + best_checkpoint_dir)
             model_best_checkpoint_manager = orbax.checkpoint.CheckpointManager(
                 abs_path_ + best_checkpoint_dir,
@@ -69,7 +72,8 @@ class FSUtils():
             for delete_model_key in delete_model_keys:
                 model_keys.discard(delete_model_key)
 
-        model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1, single_host_load_and_broadcast=True)
+        # model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1, single_host_load_and_broadcast=True)
+        model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1)
         self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir)
         model_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir, 
@@ -80,7 +84,8 @@ class FSUtils():
         for model_key in model_keys:
             best_checkpoint_dir = self.config.exp.best_dir + "/" + model_key
             model_best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(
-                max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min', single_host_load_and_broadcast=True)
+                # max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min', single_host_load_and_broadcast=True)
+                max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min')
             self.verify_and_create_dir(abs_path_ + best_checkpoint_dir)
             model_best_checkpoint_manager = orbax.checkpoint.CheckpointManager(
                 abs_path_ + best_checkpoint_dir,
@@ -277,6 +282,7 @@ class FSUtils():
             print("No ckpt loaded. Start from scratch.")
         if self.config.get("distributed_training", False):
             states = jax.tree_map(lambda x: jax.experimental.multihost_utils.broadcast_one_to_all(x), states)
+            orbax.checkpoint.utils.sync_global_devices("Loading ckpt complete.")
         return state
     
     def get_best_fid(self):
