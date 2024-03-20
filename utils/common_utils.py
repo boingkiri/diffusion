@@ -9,6 +9,8 @@ from jax.lib import xla_bridge
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
+from . import jax_utils 
+
 def download(url: str, dest_folder: str):
     if not os.path.exists(dest_folder):
         os.makedirs(dest_folder)  # create folder if it does not exist
@@ -45,6 +47,12 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
 
   dataset_name = config["dataset"]["name"] if dataset_name is None else dataset_name
   batch_size = config["framework"]["diffusion"]["train"]["batch_size_per_rounds"] if batch_size is None else batch_size
+  if config.get("distributed_training", False):
+    batch_size = batch_size // (jax.device_count() // jax.local_device_count())
+    print_format = f'Total global batch size: {config["framework"]["diffusion"]["train"]["total_batch_size"]}\n'
+    print_format += f'Global batch size per round: {config["framework"]["diffusion"]["train"]["batch_size_per_rounds"]}\n'
+    print_format += f'Local batch size: {batch_size}'
+    print(print_format)
 
   n_jitted_steps = config["n_jitted_steps"] if n_jitted_steps is None else n_jitted_steps
   x_flip = config["dataset"].get("x_flip", x_flip)
@@ -70,8 +78,13 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
     ds = tfds.load("imagenet2012", split="train", as_supervised=True)
   train_ds, _ = ds['train'], ds['test']
 
+  global_device_count = jax.device_count()
   device_count = jax.local_device_count()
   batch_dims= [device_count, n_jitted_steps, batch_size // device_count] 
+  # batch_dims = [global_device_count // device_count, device_count, n_jitted_steps, batch_size // global_device_count]
+
+  # global_mesh, pspec = jax_utils.create_environment_sharding()
+
 
   if shuffle:
     train_ds = train_ds.shuffle(1000)
@@ -82,6 +95,9 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
   augmented_train_ds = train_ds.prefetch(AUTOTUNE)
   # it = tfds.as_numpy(augmented_train_ds)
   it = map(lambda data: jax.tree_map(lambda x: x._numpy(), data), augmented_train_ds)
+  it = map(lambda data: jax.tree_map(lambda x: jnp.asarray(x), data), it)
+  # it = map(lambda data: jax.tree_map(lambda x: jax.device_put(x, sharding), data), it)
+  # it = map(lambda data: jax.tree_map(lambda x: jax.experimental.multihost_utils.host_local_array_to_global_array(x, global_mesh, pspec), data), it)
   if xla_bridge.get_backend().platform == "gpu":
     it = flax.jax_utils.prefetch_to_device(it, 2)
 

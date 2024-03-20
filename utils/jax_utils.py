@@ -2,6 +2,11 @@ from flax.training import train_state
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+from jax.sharding import PositionalSharding
+from jax.experimental import mesh_utils
+from jax.sharding import PartitionSpec as P
+
 import optax
 import flax.linen as nn
 from flax.training import checkpoints, orbax_utils
@@ -62,9 +67,10 @@ def create_optimizer(config: DictConfig, model_type):
   tx = optax.chain(*optax_chain)
 
   # Create gradient accumulation
-  if framework_config['train'].get("batch_size_per_rounds", None) is not None and \
-      framework_config['train']["total_batch_size"] != framework_config['train']["batch_size_per_rounds"]:
+  # if framework_config['train'].get("batch_size_per_rounds", None) is not None and \
+  #     framework_config['train']["total_batch_size"] != framework_config['train']["batch_size_per_rounds"]:
   # if framework_config['train'].get("batch_size_per_rounds", None) is not None:
+  if framework_config['train'].get("batch_size_per_rounds", None) is not None and framework_config.get("type", "diffusion") != "edm": # TMP: need to fix TODO
     assert framework_config['train']["total_batch_size"] % framework_config['train']["batch_size_per_rounds"] == 0
     num_of_rounds = framework_config['train']["total_batch_size"] // framework_config['train']["batch_size_per_rounds"]
     tx = optax.MultiSteps(tx, every_k_schedule=num_of_rounds)
@@ -112,4 +118,46 @@ def save_best_state(state, best_checkpoint_dir, step, checkpoint_prefix):
     checkpoints.save_checkpoint(best_checkpoint_dir, state[key], step, prefix=key + "_", overwrite=True)
   print(f"Best {step} steps! Saving {step} in best checkpoint dir complete.")
 
+def create_environment_sharding(config: DictConfig):
+  """Creates a sharding configuration for the environment."""
+  model_parallelism = config.get("model_parallel_device", 1)
 
+  # devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
+  devices = np.array(jax.devices()).reshape(jax.device_count() // model_parallelism, model_parallelism)
+  axes_names = ('data_parallelism', 'model_parallelism')
+  global_mesh = jax.sharding.Mesh(devices, axes_names)
+  return global_mesh, axes_names
+
+def unreplicate_tree(tree):
+  """Returns a single instance of a replicated array."""
+  return jax.tree_util.tree_map(lambda x: x[0][0], tree)
+
+def modified_fully_replicated_host_local_array_to_global_array(
+    arr: jax.Array,
+) -> jax.Array:
+  """Converts a host local array from to global jax.Array.
+
+  In most cases, the local array is expected to have been produced by pmap.
+
+  Args:
+    arr: Host local array
+
+  Returns:
+    A global array.
+  """
+  # if not arr.is_fully_replicated:
+  #   raise ValueError('Array must be fully replicated.')
+  global_shape = arr.addressable_data(0).shape
+  # Create a 1D mesh to create fully replicated global jax.Array.
+  sharding = jax.sharding.NamedSharding(
+      jax.sharding.Mesh(np.array(jax.devices()), axis_names=('x',)),
+      jax.sharding.PartitionSpec(None)
+      if global_shape
+      else jax.sharding.PartitionSpec(),
+  )
+  # pmap-produced Array has a "scrambled" device order.
+  dbs = sorted(
+      [shard.data for shard in arr.addressable_shards],
+      key=lambda x: x.device().id,
+  )
+  return jax.make_array_from_single_device_arrays(global_shape, sharding, dbs)
