@@ -187,19 +187,40 @@ class CMFramework(DefaultModel):
                 loss_dict[f"eval/{key_name if key_name is not None else loss_type}"] = loss
             return loss, loss_dict
 
+        # def original_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
+        #     rng_key, noise_key = jax.random.split(rng_key, 2)
+
+        #     noise = jax.random.normal(noise_key, y.shape)
+
+        #     stopgrad_D_x = jax.lax.stop_gradient(D_x)
+        #     perturbed_D_x = stopgrad_D_x + sigma * noise
+
+        #     new_D_x_1, _ = self.model.apply(
+        #         {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
+        #         train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+        #     # return jnp.mean(new_D_x_1 * (new_D_x_2 - y))
+        #     return jnp.mean((new_D_x_1 - y) ** 2)
+
         def original_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
-            rng_key, noise_key = jax.random.split(rng_key, 2)
+            alignment_batch_size = diffusion_framework['alignment_batch_size']
+            num_data_samples = diffusion_framework['num_samples_for_alignment']
 
-            noise = jax.random.normal(noise_key, y.shape)
+            noise_2_key, rng_key = jax.random.split(rng_key, 2)
+            noise_2 = jax.random.normal(noise_2_key, (alignment_batch_size, *y.shape[1:]))
+            
+            sigma_samples = jax.random.choice(rng_key, sigma, shape=(num_data_samples,), replace=False)
+            data_samples = jax.random.choice(rng_key, y, shape=(num_data_samples,), replace=False)
+            D_x_samples = jax.random.choice(rng_key, D_x, shape=(num_data_samples,), replace=False)
 
-            stopgrad_D_x = jax.lax.stop_gradient(D_x)
-            perturbed_D_x = stopgrad_D_x + sigma * noise
+            perturbed_D_x = jnp.reshape(jax.vmap(lambda x, t: x + t * noise_2)(D_x_samples, sigma_samples), (-1, *y.shape[1:]))
+            sigma_samples = jnp.repeat(sigma_samples, alignment_batch_size)[:, None, None, None]
 
-            new_D_x_1, _ = self.model.apply(
-                {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
+            new_D_x, _ = self.model.apply(
+                {'params': torso_params}, x=perturbed_D_x, sigma=sigma_samples,
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-            # return jnp.mean(new_D_x_1 * (new_D_x_2 - y))
-            return jnp.mean((new_D_x_1 - y) ** 2)
+
+            cm_mean = jnp.mean(jnp.reshape(new_D_x, (num_data_samples, alignment_batch_size, *y.shape[1:])), axis=1)
+            return jnp.mean((cm_mean - data_samples) ** 2)
 
         def pseudo_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
             rng_key, noise_1_key, noise_2_key = jax.random.split(rng_key, 3)
@@ -698,7 +719,7 @@ class CMFramework(DefaultModel):
         x = x.reshape(num_image, *img_size)
         return x
 
-    def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sweep_timesteps=17, noise=None, sigma_scale=None):
+    def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sigma_scale=17, noise=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
 
@@ -707,7 +728,7 @@ class CMFramework(DefaultModel):
         sampling_t_steps = jnp.flip(self.t_steps)
 
         if noise is None:
-            latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * sampling_t_steps[sweep_timesteps]
+            latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * sigma_scale
         else:
             latent_sample = noise
         
@@ -717,7 +738,7 @@ class CMFramework(DefaultModel):
         rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
         rng_key = jax.random.split(rng_key, jax.local_device_count())
         gamma = jnp.asarray([0] * jax.local_device_count())
-        current_t = jnp.asarray([sampling_t_steps[sweep_timesteps]] * jax.local_device_count())
+        current_t = jnp.asarray([sigma_scale] * jax.local_device_count())
         t_min = jnp.asarray([self.sigma_min] * jax.local_device_count())
 
         # sampling_params = self.torso_state.params_ema
