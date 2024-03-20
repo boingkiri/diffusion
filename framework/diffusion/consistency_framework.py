@@ -82,18 +82,15 @@ class CMFramework(DefaultModel):
         #     self.training_states = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.training_states[model_key])
         #                         for model_key in self.training_states.keys()}
         # else:                            
-        # self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
-        #                     for model_key in self.training_states.keys()}
-        if self.distributed_training:
-            devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
-            axes_names = ('host', 'devices')
-            global_mesh = jax.sharding.Mesh(devices, axes_names)
-            pspecs = jax.sharding.PartitionSpec("host")
-            self.training_states = {model_key: jax.experimental.multihost_utils.host_local_array_to_global_array(self.training_states[model_key], global_mesh, pspecs)
-                                for model_key in self.training_states.keys()}
-            # self.training_states = jax.tree_map(lambda x: x.addressable_data(0), self.training_states)
-            jax.tree_map(lambda x: print(x.shape), self.training_states)
-            # self.training_states = jax.tree_map(lambda x: print(x.shape); x, self.training_states)
+        self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
+                            for model_key in self.training_states.keys()}
+        # if self.distributed_training:
+        #     devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
+        #     axes_names = ('host', 'devices')
+        #     global_mesh = jax.sharding.Mesh(devices, axes_names)
+        #     pspecs = jax.sharding.PartitionSpec("host")
+        #     self.training_states = {model_key: jax.experimental.multihost_utils.host_local_array_to_global_array(self.training_states[model_key], global_mesh, pspecs)
+        #                         for model_key in self.training_states.keys()}
 
             # self.training_states = {model_key: jax.experimental.multihost_utils.broadcast_one_to_all(self.training_states[model_key])
             #                     for model_key in self.training_states.keys()}
@@ -557,38 +554,38 @@ class CMFramework(DefaultModel):
 
 
     def get_model_state(self):
-        if self.distributed_training:
-            # training_states = {model_key: jax.tree_util.tree_map(lambda x: jax_utils.fully_replicated_host_local_array_to_global_array(x), self.training_states[model_key])
-            #                     for model_key in self.training_states.keys()}
-            # return {
-            #     "diffusion": training_states['torso_state'], 
-            #     "head": training_states['head_state']
-            # }
-            devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
-            axes_names = ('host', 'devices')
-            global_mesh = jax.sharding.Mesh(devices, axes_names)
-            pspecs = jax.sharding.PartitionSpec(None)
-            training_states = {model_key: jax.experimental.multihost_utils.host_local_array_to_global_array(self.training_states[model_key], global_mesh, pspecs)
-                                for model_key in self.training_states.keys()}
-            return {
-                "diffusion": training_states['torso_state'], 
-                "head": training_states['head_state']
-            }
-        else:
-            training_states = self.training_states
-            return {
-                "diffusion": flax.jax_utils.unreplicate(training_states['torso_state']), 
-                "head": flax.jax_utils.unreplicate(training_states['head_state'])
-            }
+        # if self.distributed_training:
+        #     # training_states = {model_key: jax.tree_util.tree_map(lambda x: jax_utils.fully_replicated_host_local_array_to_global_array(x), self.training_states[model_key])
+        #     #                     for model_key in self.training_states.keys()}
+        #     # return {
+        #     #     "diffusion": training_states['torso_state'], 
+        #     #     "head": training_states['head_state']
+        #     # }
+        #     devices = np.array(jax.devices()).reshape(jax.process_count(), jax.local_device_count())
+        #     axes_names = ('host', 'devices')
+        #     global_mesh = jax.sharding.Mesh(devices, axes_names)
+        #     pspecs = jax.sharding.PartitionSpec(None)
+        #     training_states = {model_key: jax.experimental.multihost_utils.host_local_array_to_global_array(self.training_states[model_key], global_mesh, pspecs)
+        #                         for model_key in self.training_states.keys()}
+        #     return {
+        #         "diffusion": training_states['torso_state'], 
+        #         "head": training_states['head_state']
+        #     }
+        # else:
+        #     training_states = self.training_states
+        #     return {
+        #         "diffusion": flax.jax_utils.unreplicate(training_states['torso_state']), 
+        #         "head": flax.jax_utils.unreplicate(training_states['head_state'])
+        #     }
         # return {
         #     "diffusion": jax_utils.unreplicate_tree(self.training_states['torso_state']),
         #     "head": jax_utils.unreplicate_tree(self.training_states['head_state'])
         # }
-        # training_states = self.training_states
-        # return {
-        #         "diffusion": flax.jax_utils.unreplicate(training_states['torso_state']), 
-        #         "head": flax.jax_utils.unreplicate(training_states['head_state'])
-        #     }
+        training_states = self.training_states
+        return {
+            "diffusion": flax.jax_utils.unreplicate(training_states['torso_state']), 
+            "head": flax.jax_utils.unreplicate(training_states['head_state'])
+        }
     
     def fit(self, x0, cond=None, step=0, eval_during_training=False):
         key, dropout_key = jax.random.split(self.rand_key, 2)
