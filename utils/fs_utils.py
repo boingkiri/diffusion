@@ -270,6 +270,8 @@ class FSUtils():
     def load_model_state(self, state):
         print(f"Get into the load_model_state")
         step = self.checkpoint_manager.latest_step()
+        state = flax.jax_utils.replicate(state)
+        state = jax.tree_map(lambda x: jax_utils.modified_fully_replicated_host_local_array_to_global_array(x), state)
         # if step is not None:
         #     abstract_train_state = jax.tree_util.tree_map(
         #         orbax.checkpoint.utils.to_shape_dtype_struct, state
