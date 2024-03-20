@@ -227,27 +227,8 @@ class FSUtils():
     def save_model_state(self, states, step, metrics=None):
         best_saved = False
         if self.config.get("distributed_training", False):
-            def map_repliacted_host_local_array_to_global_array(path, x):
-                global_mesh = jax.sharding.Mesh(jax.devices(), 'model')
-                pspecs = jax.sharding.PartitionSpec('model')
-                try:
-                    # x = jax.experimental.multihost_utils.host_local_array_to_global_array(x, global_mesh, pspecs)
-                    x = orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x)
-                except:
-                    print(f"Error in converting {path} to global array.")
-                    ValueError(f"Error in converting {path} to global array.")
-                return x
-            # states = jax.tree_map(
-            #     lambda x: orbax.checkpoint.utils.fully_replicated_host_local_array_to_global_array(x), states)
             states = jax.tree_map(
                 lambda x: jax.experimental.multihost_utils.broadcast_one_to_all(x), states)
-            # jax.tree_map(lambda x: print(x.shape), states)
-            # states = jax.tree_util.tree_map_with_path(map_repliacted_host_local_array_to_global_array, states)
-        # self.checkpoint_manager.save(step, states)
-
-        # global_mesh, pspec = jax_utils.create_environment_sharding()
-        # create_sharded_array = lambda x: jax.experimental.multihost_utils.global_array_to_host_local_array(x, global_mesh, pspec)
-        # state = jax.tree_map(create_sharded_array, state)
         self.checkpoint_manager.save(
             step, 
             args=orbax.checkpoint.args.Composite(
@@ -279,18 +260,7 @@ class FSUtils():
     def load_model_state(self, state):
         print(f"Get into the load_model_state")
         step = self.checkpoint_manager.latest_step()
-        
-        # if self.config.get("distributed_training", False):
-        #     sharding = jax_utils.create_replicated_sharding()
-        #     create_sharded_array = lambda x: jax.device_put(x, sharding)
-        #     state = jax.tree_map(create_sharded_array, state)
-        
-                
         if step is not None:
-            # state = self.checkpoint_manager.restore(step, items=state)
-            # abstract_train_state = jax.tree_util.tree_map(
-            #     orbax.checkpoint.utils.to_shape_dtype_struct, state)
-            # state = self.checkpoint_manager.restore(step, args=orbax.checkpoint.args.StandardRestore(abstract_train_state))
             state = self.checkpoint_manager.restore(
                 step, 
                 args=orbax.checkpoint.args.Composite(
@@ -303,11 +273,6 @@ class FSUtils():
             print(f"Loading ckpt of Step {step} complete.")
         else:
             print("No ckpt loaded. Start from scratch.")
-        # global_mesh, pspec_axes_name = jax_utils.create_environment_sharding()
-        # create_sharded_array = lambda x: jax.device_put(x, global_mesh.replicate())
-        # create_sharded_array = lambda x: jax.experimental.multihost_utils.broadcast_one_to_all(x)
-        # create_sharded_array = lambda x: jax.experimental.multihost_utils.host_local_array_to_global_array(x, global_mesh, pspec)
-        # state = jax.tree_map(create_sharded_array, state)
         return state
     
     def get_best_fid(self):

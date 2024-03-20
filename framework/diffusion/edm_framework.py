@@ -200,11 +200,6 @@ class EDMFramework(DefaultModel):
 
     def get_model_state(self):
         return [flax.jax_utils.unreplicate(self.model_state)]
-        # return [jax_utils.unreplicate_tree(self.model_state)]
-        # if self.distributed_training:
-        #     return [jax_utils.fully_replicated_host_local_array_to_global_array(self.model_state)]
-        # else:
-        #     return [flax.jax_utils.unreplicate(self.model_state)]
     
     def fit(self, x0, cond=None, step=0):
         key, dropout_key = jax.random.split(self.rand_key, 2)
