@@ -28,33 +28,30 @@ class FSUtils():
         model_keys = self.config.model.keys()
         best_checkpoint_manager = {}
         abs_path_ = os.getcwd()+"/"
-        model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1)
+        model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1, single_host_load_and_broadcast=True)
         self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir)
         model_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir, 
             item_names=model_keys,
             options=model_checkpoint_manager_options,
-            primary_host=None,
         )
         # TMP: to save checkpoint at 200k or 300k
-        tmp_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2)
+        tmp_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, single_host_load_and_broadcast=True)
         self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir + "/tmp")
         tmp_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir + "/tmp", 
             item_names=model_keys,
-            options=tmp_checkpoint_manager_options,
-            primary_host=None,)
+            options=tmp_checkpoint_manager_options,)
 
         for model_key in model_keys:
             best_checkpoint_dir = self.config.exp.best_dir + "/" + model_key
             model_best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(
-                max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min')
+                max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min', single_host_load_and_broadcast=True)
             self.verify_and_create_dir(abs_path_ + best_checkpoint_dir)
             model_best_checkpoint_manager = orbax.checkpoint.CheckpointManager(
                 abs_path_ + best_checkpoint_dir,
                 item_names=model_keys,
-                options=model_best_checkpoint_manager_options,
-                primary_host=None,)
+                options=model_best_checkpoint_manager_options,)
             best_checkpoint_manager[model_key] = model_best_checkpoint_manager
         
 
@@ -72,25 +69,23 @@ class FSUtils():
             for delete_model_key in delete_model_keys:
                 model_keys.discard(delete_model_key)
 
-        model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1)
+        model_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=1, single_host_load_and_broadcast=True)
         self.verify_and_create_dir(abs_path_ + self.config.exp.checkpoint_dir)
         model_checkpoint_manager = orbax.checkpoint.CheckpointManager(
             abs_path_ + self.config.exp.checkpoint_dir, 
             # checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
-            options=model_checkpoint_manager_options,
-            primary_host=None,)
+            options=model_checkpoint_manager_options,)
             # item_handlers={model_key: orbax.checkpoint.StandardCheckpointHandler() for model_key in model_keys})
 
         for model_key in model_keys:
             best_checkpoint_dir = self.config.exp.best_dir + "/" + model_key
             model_best_checkpoint_manager_options = orbax.checkpoint.CheckpointManagerOptions(
-                max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min')
+                max_to_keep=1, best_fn=lambda metrics: metrics['fid'], best_mode='min', single_host_load_and_broadcast=True)
             self.verify_and_create_dir(abs_path_ + best_checkpoint_dir)
             model_best_checkpoint_manager = orbax.checkpoint.CheckpointManager(
                 abs_path_ + best_checkpoint_dir,
                 # checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys}, 
-                options=model_best_checkpoint_manager_options,
-                primary_host=None,)
+                options=model_best_checkpoint_manager_options,)
                 # item_handlers={model_key: orbax.checkpoint.StandardCheckpointHandler() for model_key in model_keys})
             best_checkpoint_manager[model_key] = model_best_checkpoint_manager
         self.checkpoint_manager = model_checkpoint_manager
