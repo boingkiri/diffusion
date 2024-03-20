@@ -225,10 +225,10 @@ class FSUtils():
         print(f"TMP SAVE: Saving {step} complete.")
 
     def save_model_state(self, states, step, metrics=None):
+        print(f"Get into the save_model_state")
         best_saved = False
         if self.config.get("distributed_training", False):
-            states = jax.tree_map(
-                lambda x: jax.experimental.multihost_utils.broadcast_one_to_all(x), states)
+            states = jax.tree_map(lambda x: jax.experimental.multihost_utils.broadcast_one_to_all(x), states)
         self.checkpoint_manager.save(
             step, 
             args=orbax.checkpoint.args.Composite(

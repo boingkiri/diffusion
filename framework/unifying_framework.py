@@ -128,9 +128,6 @@ class UnifyingFramework():
 
         for x, _ in datasets_bar:
             # if self.step % 1000 == 0:
-
-            
-
             if self.step % self.config["sampling_step"] == 0:
                 batch_data = np.array(x[0, 0, :8]) # (device_idx, n_jitted_steps, batch_size)
 
