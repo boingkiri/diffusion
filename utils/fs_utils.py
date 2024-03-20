@@ -290,7 +290,6 @@ class FSUtils():
             # state = jax.tree_map(lambda x: jax.experimental.multihost_utils.broadcast_one_to_all(x), state)
             state = flax.jax_utils.replicate(state)
             state = jax.tree_map(lambda x: jax_utils.modified_fully_replicated_host_local_array_to_global_array(x), state)
-            orbax.checkpoint.utils.sync_global_devices("Loading ckpt complete.")
             print("Loading ckpt complete.")
         return state
     
