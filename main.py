@@ -32,8 +32,8 @@ def start(config: DictConfig):
         # Assume that the running environment is TPU
         # If there is a need to use GPU, the code should be modified: TODO
         jax.distributed.initialize()
-        # if jax.process_index() != 0:
-        #     sys.stdout = open(os.devnull, 'w')
+        if jax.process_index() != 0:
+            sys.stdout = open(os.devnull, 'w')
         # jax.config.update('jax_array', False)
 
     print("-------------------Config Setting---------------------")
