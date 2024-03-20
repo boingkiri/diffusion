@@ -100,7 +100,7 @@ class PAEUtils():
 
     def reset_dataset(self):
         # Assume that the CIFAR10 would only be used  
-        self.datasets = load_dataset_from_tfds(self.consistency_config, "cifar10", self.num_denoiser_samples, 1, x_flip=False, shuffle=False)
+        self.datasets = load_dataset_from_tfds(self.consistency_config, "cifar10", self.num_denoiser_samples, 1, x_flip=False, shuffle=False, for_pae=True)
 
     def save_img(self, samples, sigma):
         samples = (samples + 1) / 2

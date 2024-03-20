@@ -43,11 +43,11 @@ def unnormalize_minus_one_to_one(images):
     return (images + 1) * 0.5 
 
 # def load_dataset_from_tfds(config, dataset_name="cifar10", batch_size=128, n_jitted_steps=1, x_flip=True, stf=False):
-def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_steps=None, x_flip=True, shuffle=True):
+def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_steps=None, x_flip=True, shuffle=True, for_pae=False):
 
   dataset_name = config["dataset"]["name"] if dataset_name is None else dataset_name
   batch_size = config["framework"]["diffusion"]["train"]["batch_size_per_rounds"] if batch_size is None else batch_size
-  if config.get("distributed_training", False):
+  if config.get("distributed_training", False) and not for_pae:
     batch_size = batch_size // (jax.device_count() // jax.local_device_count())
     print_format = f'Total global batch size: {config["framework"]["diffusion"]["train"]["total_batch_size"]}\n'
     print_format += f'Global batch size per round: {config["framework"]["diffusion"]["train"]["batch_size_per_rounds"]}\n'
