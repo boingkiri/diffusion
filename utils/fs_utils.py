@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import jax
+import flax
 import orbax.checkpoint
 
 class FSUtils():
@@ -234,6 +235,7 @@ class FSUtils():
         best_saved = False
         if self.config.get("distributed_training", False):
             # states = jax.tree_map(lambda x: jax.experimental.multihost_utils.broadcast_one_to_all(x), states)
+            states = flax.jax_utils.replicate(states)
             states = jax.tree_map(lambda x: jax_utils.modified_fully_replicated_host_local_array_to_global_array(x), states)
         self.checkpoint_manager.save(
             step, 
