@@ -272,34 +272,22 @@ class FSUtils():
         step = self.checkpoint_manager.latest_step()
         # state = flax.jax_utils.replicate(state)
         # state = jax.tree_map(lambda x: jax_utils.modified_fully_replicated_host_local_array_to_global_array(x), state)
-        # if step is not None:
-        #     abstract_train_state = jax.tree_util.tree_map(
-        #         orbax.checkpoint.utils.to_shape_dtype_struct, state
-        #     )
-        #     state = self.checkpoint_manager.restore(
-        #         step, 
-        #         args=orbax.checkpoint.args.Composite(
-        #             **{
-        #                 k: orbax.checkpoint.args.StandardRestore(v)
-        #                 for k, v in abstract_train_state.items() if v is not None
-        #             }
-        #         )
-        #     )
-        #     print(f"Loading ckpt of Step {step} complete.")
-        # else:
-        #     print("No ckpt loaded. Start from scratch.")
-        abstract_train_state = jax.tree_util.tree_map(
-            orbax.checkpoint.utils.to_shape_dtype_struct, state
-        )
-        state = self.checkpoint_manager.restore(
-            step, 
-            args=orbax.checkpoint.args.Composite(
-                **{
-                    k: orbax.checkpoint.args.StandardRestore(v)
-                    for k, v in abstract_train_state.items() if v is not None
-                }
+        if step is not None:
+            abstract_train_state = jax.tree_util.tree_map(
+                orbax.checkpoint.utils.to_shape_dtype_struct, state
             )
-        )
+            state = self.checkpoint_manager.restore(
+                step, 
+                args=orbax.checkpoint.args.Composite(
+                    **{
+                        k: orbax.checkpoint.args.StandardRestore(v)
+                        for k, v in abstract_train_state.items() if v is not None
+                    }
+                )
+            )
+            print(f"Loading ckpt of Step {step} complete.")
+        else:
+            print("No ckpt loaded. Start from scratch.")
         # if self.config.get("distributed_training", False):
         #     # state = jax.tree_map(lambda x: jax.experimental.multihost_utils.broadcast_one_to_all(x), state)
         #     state = flax.jax_utils.replicate(state)
