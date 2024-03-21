@@ -26,14 +26,14 @@ saving_step: 10000
 
 # Training type
 type: ${framework.diffusion.type}
-exp_name: pseudoalign_1024_240320
+exp_name: batchalign_1024_v4-32_240321
 tags: [iCT]
 
 # Miscellaneous
 num_sampling: 50000
 sampling_batch: 256
 rand_seed: 42
-n_jitted_steps: 4
+n_jitted_steps: 1
 available_gpus: "0, 1, 2, 3, 4, 5, 6, 7"
 
 # Evaluation mode
