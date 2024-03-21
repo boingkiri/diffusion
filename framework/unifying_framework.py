@@ -149,37 +149,37 @@ class UnifyingFramework():
                 self.wandblog.flush(step=self.step)
 
             if self.step % self.config["saving_step"] == 0 and self.step not in fid_dict:
-                model_state = self.framework.get_model_state()
-                # sampling_modes = ['edm', 'cm-training']
-                sampling_modes = ['one-step', 'two-step']
+                # model_state = self.framework.get_model_state()
+                # # sampling_modes = ['edm', 'cm-training']
+                # sampling_modes = ['one-step', 'two-step']
                 
-                if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
-                    mode_metrics = {}
-                    for mode in sampling_modes:
-                        fid_score, mu_diff = self.fid_utils.calculate_fid_in_step(self.framework, 50000, batch_size=self.sample_batch_size, sampling_mode=mode)
-                        self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode, mu_diff=mu_diff)
-                        metrics = {"fid": fid_score}
-                        # if mode == "edm":
-                        #     mode_metrics["head"] = metrics
-                        #     self.wandblog.update_log({"Head FID score": fid_score})
-                        # else:
-                        #     mode_metrics['diffusion'] = metrics
-                        #     self.wandblog.update_log({"Torso FID score": fid_score})
-                        if mode == "two-step":
-                            mode_metrics["head"] = metrics
-                            self.wandblog.update_log({"Two step FID score": fid_score})
-                        # else:
-                        elif mode == "one-step":
-                            mode_metrics['diffusion'] = metrics
-                            self.wandblog.update_log({"One step FID score": fid_score})
-                        else:
-                            NotImplementedError("Sampling mode is not implemented.")
-                    if not first_step:
-                        self.save_model_state(model_state, mode_metrics)
-                    self.wandblog.flush(step=self.step)
-                    fid_dict[self.step] = mode_metrics
-                # mode_metrics = {"head": {"fid": 10}, "diffusion": {"fid": 10}}
-                # self.save_model_state(model_state, mode_metrics)
+                # if self.do_fid_during_training and not (self.current_model_type == "ldm" and self.train_idx == 1):
+                #     mode_metrics = {}
+                #     for mode in sampling_modes:
+                #         fid_score, mu_diff = self.fid_utils.calculate_fid_in_step(self.framework, 50000, batch_size=self.sample_batch_size, sampling_mode=mode)
+                #         self.fid_utils.print_and_save_fid(self.step, fid_score, sampling_mode=mode, mu_diff=mu_diff)
+                #         metrics = {"fid": fid_score}
+                #         # if mode == "edm":
+                #         #     mode_metrics["head"] = metrics
+                #         #     self.wandblog.update_log({"Head FID score": fid_score})
+                #         # else:
+                #         #     mode_metrics['diffusion'] = metrics
+                #         #     self.wandblog.update_log({"Torso FID score": fid_score})
+                #         if mode == "two-step":
+                #             mode_metrics["head"] = metrics
+                #             self.wandblog.update_log({"Two step FID score": fid_score})
+                #         # else:
+                #         elif mode == "one-step":
+                #             mode_metrics['diffusion'] = metrics
+                #             self.wandblog.update_log({"One step FID score": fid_score})
+                #         else:
+                #             NotImplementedError("Sampling mode is not implemented.")
+                #     if not first_step:
+                #         self.save_model_state(model_state, mode_metrics)
+                #     self.wandblog.flush(step=self.step)
+                #     fid_dict[self.step] = mode_metrics
+                mode_metrics = {"head": {"fid": 10}, "diffusion": {"fid": 10}}
+                self.save_model_state(model_state, mode_metrics)
                 # TMP: Calculate Pixel alignment loss for each saving step
                 if self.config["PAE_evaluation"]:
                     self.pae_utils.calculate_pae(self.framework, self.step)
