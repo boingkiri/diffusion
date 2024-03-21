@@ -36,6 +36,9 @@ class FSUtils():
             abs_path_ + self.config.exp.checkpoint_dir, 
             item_names=model_keys,
             options=model_checkpoint_manager_options,
+            item_handlers={
+                model_key: orbax.checkpoint.StandardCheckpointHandler(primary_host=None) for model_key in model_keys
+            },
             primary_host=None,
         )
         # TMP: to save checkpoint at 200k or 300k
@@ -46,6 +49,9 @@ class FSUtils():
             abs_path_ + self.config.exp.checkpoint_dir + "/tmp", 
             item_names=model_keys,
             options=tmp_checkpoint_manager_options,
+            item_handlers={
+                model_key: orbax.checkpoint.StandardCheckpointHandler(primary_host=None) for model_key in model_keys
+            },
             primary_host=None,
         )
 
@@ -59,6 +65,9 @@ class FSUtils():
                 abs_path_ + best_checkpoint_dir,
                 item_names=model_keys,
                 options=model_best_checkpoint_manager_options,
+                item_handlers={
+                    model_key: orbax.checkpoint.StandardCheckpointHandler(primary_host=None) for model_key in model_keys
+                },
                 primary_host=None,
             )
             best_checkpoint_manager[model_key] = model_best_checkpoint_manager
@@ -85,6 +94,9 @@ class FSUtils():
             abs_path_ + self.config.exp.checkpoint_dir, 
             # checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys},
             options=model_checkpoint_manager_options,
+            item_handlers={
+                model_key: orbax.checkpoint.StandardCheckpointHandler(primary_host=None) for model_key in model_keys
+            },
             primary_host=None,
             )
             # item_handlers={model_key: orbax.checkpoint.StandardCheckpointHandler() for model_key in model_keys})
@@ -99,6 +111,9 @@ class FSUtils():
                 abs_path_ + best_checkpoint_dir,
                 # checkpointers={model_key: orbax.checkpoint.PyTreeCheckpointer() for model_key in model_keys}, 
                 options=model_best_checkpoint_manager_options,
+                item_handlers={
+                    model_key: orbax.checkpoint.StandardCheckpointHandler(primary_host=None) for model_key in model_keys
+                },
                 primary_host=None,
                 )
                 # item_handlers={model_key: orbax.checkpoint.StandardCheckpointHandler() for model_key in model_keys})
