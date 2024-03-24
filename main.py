@@ -22,7 +22,6 @@ def start(config: DictConfig):
 
     # if the current environment is GPU, set the available GPU
     if xla_bridge.get_backend().platform == "gpu":
-        # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
         if hasattr(config, "available_gpus"):
             os.environ["CUDA_VISIBLE_DEVICES"] = config.available_gpus
     
@@ -34,7 +33,8 @@ def start(config: DictConfig):
         jax.distributed.initialize()
         if jax.process_index() != 0:
             sys.stdout = open(os.devnull, 'w')
-        # jax.config.update('jax_array', False)
+        rand_seed = config.rand_seed + jax.process_index()
+        rng = random.PRNGKey(rand_seed)
 
     print("-------------------Config Setting---------------------")
     print(OmegaConf.to_yaml(config))
