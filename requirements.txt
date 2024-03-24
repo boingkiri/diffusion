@@ -5,6 +5,7 @@ tensorflow_datasets
 
 -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 jax[tpu]==0.4.20
+scipy==1.11.1
 # jax[tpu]==0.4.12
 
 # -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
@@ -16,12 +17,11 @@ flax
 optax
 lpips_jax
 
-# lpips
 wandb
 hydra-core
 einops
-# "jax[tpu]>=0.2.16" -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
 pillow
 matplotlib
+
 
 jax-smi
