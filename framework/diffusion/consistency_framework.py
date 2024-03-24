@@ -33,6 +33,7 @@ class CMFramework(DefaultModel):
         self.type = diffusion_framework['type']
         self.learn_sigma = diffusion_framework['learn_sigma']
         self.rand_key = rand_key
+        self.eval_key = jax.random.PRNGKey(0)
         self.fs_obj = fs_obj
         self.wandblog = wandblog        
         self.pmap_axis = "batch"
@@ -67,6 +68,7 @@ class CMFramework(DefaultModel):
 
         if config["distributed_training"]:
             states = jax.experimental.multihost_utils.broadcast_one_to_all(states)
+
         self.torso_state, self.head_state = states.get("diffusion"), states.get("head")
         # Replicate states for training with pmap
         self.training_states = {}
@@ -588,7 +590,10 @@ class CMFramework(DefaultModel):
         # Multistep sampling using the distilled score
         # Progress one step towards the sample
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
-        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        
+        # Give fixed key for evaluating
+        sampling_key = self.eval_key
+        sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         step_indices = jnp.arange(self.n_timestep)
         t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
@@ -597,7 +602,7 @@ class CMFramework(DefaultModel):
 
         latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * t_steps[0]
         for t_cur, t_next in pbar:
-            rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+            rng_key, iterating_key = jax.random.split(iterating_key, 2)
             gamma = 0
 
             rng_key = jax.random.split(rng_key, jax.local_device_count())
@@ -615,7 +620,10 @@ class CMFramework(DefaultModel):
         # Multistep sampling using the distilled score
         # Progress one step towards the sample
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
-        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        # sampling_key, self.eval_key = jax.random.split(self.eval_key, 2)
+        # Give fixed key for evaluating
+        sampling_key = self.eval_key
+        sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         step_indices = jnp.arange(self.n_timestep)
         t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
@@ -625,7 +633,7 @@ class CMFramework(DefaultModel):
         latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * t_steps[0]
         cm_sample = None
         for t_cur, t_next in pbar:
-            rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+            rng_key, iterating_key = jax.random.split(iterating_key, 2)
             gamma = 0
 
             rng_key = jax.random.split(rng_key, jax.local_device_count())
@@ -644,12 +652,14 @@ class CMFramework(DefaultModel):
 
     def sampling_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="cm-training"):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
-        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        # sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        sampling_key = self.eval_key
+        sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         # One-step generation
         latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
         
-        rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        rng_key, iterating_key = jax.random.split(iterating_key, 2)
         rng_key = jax.random.split(rng_key, jax.local_device_count())
         gamma = jnp.asarray([0] * jax.local_device_count())
         t_max = jnp.asarray([self.sigma_max] * jax.local_device_count())
@@ -669,7 +679,9 @@ class CMFramework(DefaultModel):
     
     def sampling_cm_two_step(self, num_image, img_size=(32, 32, 3), original_data=None, mode="two-step"):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
-        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        # sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        sampling_key = self.eval_key
+        sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         # One-step generation
         # latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
@@ -703,7 +715,7 @@ class CMFramework(DefaultModel):
             t = ts[i]
 
             # x0 = distiller(x, t * s_in)
-            sampling_key, p_sample_key = jax.random.split(sampling_key, 2)
+            iterating_key, p_sample_key = jax.random.split(iterating_key, 2)
             p_sample_key = jax.random.split(p_sample_key, jax.local_device_count())
             
             t_param = jnp.asarray([t] * jax.local_device_count())
@@ -724,7 +736,9 @@ class CMFramework(DefaultModel):
 
     def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sigma_scale=17, noise=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
-        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        # sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        sampling_key = self.eval_key
+        sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         # One-step generation
         # latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
@@ -738,7 +752,8 @@ class CMFramework(DefaultModel):
         if original_data is not None:
             latent_sample += original_data
         
-        rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        # rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        rng_key, iterating_key = jax.random.split(iterating_key, 2)
         rng_key = jax.random.split(rng_key, jax.local_device_count())
         gamma = jnp.asarray([0] * jax.local_device_count())
         current_t = jnp.asarray([sigma_scale] * jax.local_device_count())
