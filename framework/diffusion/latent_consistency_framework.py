@@ -626,7 +626,7 @@ class LCMFramework(DefaultModel):
         t_max = jnp.asarray([self.sigma_max] * jax.local_device_count())
         t_min = jnp.asarray([self.sigma_min] * jax.local_device_count())
 
-        if mode == "cm-training":
+        if mode == "cm-training" or mode == "one-step":
             sampling_params = self.training_states['torso_state'].params_ema
         elif mode == "cm-not-training":
             sampling_params = self.torso_state.params_ema
@@ -637,6 +637,41 @@ class LCMFramework(DefaultModel):
         latent_sample = latent_sample.reshape(num_image, *img_size)
         # latent_sample = self.ae.decode(latent_sample)
         return latent_sample
+
+    def sampling_cm_two_step(self, num_image, img_size=(32, 32, 3), original_data=None, mode="two-step"):
+        latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
+        sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+
+        ts = [self.sigma_max, 0.661, self.sigma_min]
+        
+        x = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
+
+        sampling_params = self.training_states['torso_state'].params_ema
+
+        for i in range(len(ts) - 1):
+            # t = (t_max_rho + ts[i] / (steps - 1) * (t_min_rho - t_max_rho)) ** rho
+            t = ts[i]
+
+            # x0 = distiller(x, t * s_in)
+            sampling_key, p_sample_key = jax.random.split(sampling_key, 2)
+            p_sample_key = jax.random.split(p_sample_key, jax.local_device_count())
+            
+            t_param = jnp.asarray([t] * jax.local_device_count())
+            t_min = jnp.asarray([self.sigma_min] * jax.local_device_count())
+            gamma = jnp.zeros((jax.local_device_count(),))
+
+            # x0 = sampling_fn(params, x, p_sample_key, gamma, t_param, t_min_param)
+            # next_t = (t_max_rho + ts[i + 1] / (steps - 1) * (t_min_rho - t_max_rho)) ** rho
+            x = self.p_sample_cm(sampling_params, x, p_sample_key, gamma, t_param, t_min)
+            next_t = ts[i+1]
+            next_t = jnp.clip(next_t, self.sigma_min, self.sigma_max)
+
+            sampling_key, normal_rng = jax.random.split(sampling_key, 2)
+            x = x + jax.random.normal(normal_rng, latent_sampling_tuple) * jnp.sqrt(next_t**2 - self.sigma_min**2)
+
+        x = x.reshape(num_image, *img_size)
+        return x
+
 
     def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sweep_timesteps=17, noise=None, sigma_scale=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
@@ -671,5 +706,7 @@ class LCMFramework(DefaultModel):
         # mode option: edm, cm_training, cm_not_training
         if mode == "edm":
             return self.sampling_edm(num_image, img_size, original_data, mode)
-        elif "cm" in mode:
+        if mode == "two-step":
+            return self.sampling_cm_two_step(num_image, img_size, original_data, mode)
+        elif "cm" in mode or mode == "one-step":
             return self.sampling_cm(num_image, img_size, original_data, mode)

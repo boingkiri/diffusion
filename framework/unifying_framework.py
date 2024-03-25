@@ -211,7 +211,9 @@ class UnifyingFramework():
         current_num = 0
         batch_size = self.sample_batch_size
         while total_num > current_num:
-            samples = self.sampling(batch_size, original_data=None, mode="cm-training", img_size=self.sample_size)
+            # samples = self.sampling(batch_size, original_data=None, mode="cm-training", img_size=self.sample_size)
+            # samples = self.sampling(batch_size, original_data=None, mode="one-step", img_size=self.sample_size)
+            samples = self.sampling(batch_size, original_data=None, mode="two-step", img_size=self.sample_size)
             # self.fs_utils.save_images_to_dir(samples, starting_pos=current_num)
             self.fs_utils.save_numpy_to_dir(samples, starting_pos=current_num, save_path_dir=save_path_dir)
             current_num += batch_size
