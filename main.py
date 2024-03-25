@@ -33,8 +33,8 @@ def start(config: DictConfig):
         jax.distributed.initialize()
         if jax.process_index() != 0:
             sys.stdout = open(os.devnull, 'w')
-        rand_seed = config.rand_seed + jax.process_index()
-        rng = random.PRNGKey(rand_seed)
+        # rand_seed = config.rand_seed + jax.process_index()
+        # rng = random.PRNGKey(rand_seed)
 
     print("-------------------Config Setting---------------------")
     print(OmegaConf.to_yaml(config))
