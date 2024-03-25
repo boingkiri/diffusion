@@ -208,6 +208,25 @@ class CMFramework(DefaultModel):
         #     return jnp.mean((new_D_x_1 - y) ** 2)
 
         def original_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
+            def STF_targets(sigmas, perturbed_samples, ref):
+                perturbed_samples_vec = perturbed_samples.reshape((len(perturbed_samples), -1))
+                ref_vec = ref.reshape((len(ref), -1))
+
+                gt_distance = jnp.sum((jnp.expand_dims(perturbed_samples_vec, axis=1) - ref_vec) ** 2, axis=-1)
+                gt_distance = - gt_distance / (2 * (jnp.squeeze(sigmas, axis=(-1, -2)) ** 2))
+
+                distance = gt_distance[:, :, None]
+
+                # self-normalize the per-sample weight of reference batch
+                denominator = jax.scipy.special.logsumexp(distance, axis=1, keepdims=True)
+                weights = distance - denominator
+                weights = jnp.exp(weights)
+                
+                target = jnp.tile(jnp.expand_dims(ref_vec, axis=0), (len(perturbed_samples), 1, 1))
+                # calculate the stable targets with reference batch
+                stable_targets = jnp.sum(weights * target, axis=1)
+                stable_targets = stable_targets.reshape(perturbed_samples.shape)
+                return stable_targets
             alignment_batch_size = diffusion_framework['alignment_batch_size']
             num_data_samples = diffusion_framework['num_samples_for_alignment']
 
@@ -219,14 +238,18 @@ class CMFramework(DefaultModel):
             D_x_samples = jax.random.choice(rng_key, D_x, shape=(num_data_samples,), replace=False)
 
             perturbed_D_x = jnp.reshape(jax.vmap(lambda x, t: x + t * noise_2)(D_x_samples, sigma_samples), (-1, *y.shape[1:]))
-            sigma_samples = jnp.repeat(sigma_samples, alignment_batch_size)[:, None, None, None]
+            repeated_sigma_samples = jnp.repeat(sigma_samples, alignment_batch_size)[:, None, None, None]
 
             new_D_x, _ = self.model.apply(
-                {'params': torso_params}, x=perturbed_D_x, sigma=sigma_samples,
+                {'params': torso_params}, x=perturbed_D_x, sigma=repeated_sigma_samples,
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
             cm_mean = jnp.mean(jnp.reshape(new_D_x, (num_data_samples, alignment_batch_size, *y.shape[1:])), axis=1)
-            return jnp.mean((cm_mean - data_samples) ** 2)
+
+            # STF
+            stable_targets = STF_targets(sigma_samples, perturbed_D_x, data_samples)
+            # return jnp.mean((cm_mean - data_samples) ** 2)
+            return jnp.mean((cm_mean - stable_targets) ** 2)
 
         def pseudo_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
             rng_key, noise_1_key, noise_2_key = jax.random.split(rng_key, 3)
