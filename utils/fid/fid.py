@@ -74,8 +74,7 @@ def compute_frechet_distance(mu1, mu2, sigma1, sigma2, eps=1e-6):
     if np.iscomplexobj(covmean):
         if not np.allclose(np.diagonal(covmean).imag, 0, atol=1e-3):
             m = np.max(np.abs(covmean.imag))
-            # raise ValueError("Imaginary component {}".format(m))
-            return None
+            raise ValueError("Imaginary component {}".format(m))
         covmean = covmean.real
 
     tr_covmean = np.trace(covmean)
