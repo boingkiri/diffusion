@@ -66,10 +66,10 @@ class CMFramework(DefaultModel):
             states["head"] = self.head_state
         states = fs_obj.load_model_state(states)
 
-        if config["distributed_training"]:
+        # if config["distributed_training"]:
             # states = jax.experimental.multihost_utils.broadcast_one_to_all(states)
             # states = jax.tree_map(lambda x: jnp.asarray(x), states)
-            self.rand_key += jax.process_index()
+            # self.rand_key += jax.process_index()
 
         self.torso_state, self.head_state = states.get("diffusion"), states.get("head")
         # Replicate states for training with pmap
