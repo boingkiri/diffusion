@@ -26,7 +26,7 @@ saving_step: 10000
 
 # Training type
 type: ${framework.diffusion.type}
-exp_name: pseudoalign_1024_240324
+exp_name: pseudoalign_1024_240326
 tags: [iCT]
 
 # Miscellaneous
