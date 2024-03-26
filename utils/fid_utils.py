@@ -96,9 +96,9 @@ class FIDUtils():
         return fid_score, mu_diff
     
     def print_and_save_fid(self, step, fid_score, sampling_mode=None, mu_diff=None):
-        writing_format = f"FID score of Step {step} : {fid_score:.4f}\n"
+        writing_format = f"FID score of Step {step} : {fid_score:.4f}\n" if fid_score is not None else f"FID score of Step {step} : None\n"
         if mu_diff is not None: 
-            writing_format += f"Mean difference of Step {step} : {mu_diff:.4f}\n"
+            writing_format += f"Mean difference of Step {step} : {mu_diff:.4f}\n" if fid_score is not None else f"Mean difference of Step {step} : None\n"
         print(writing_format)
 
         file_name = f"fid_log_{sampling_mode}.txt" if sampling_mode is not None else "fid_log.txt"
