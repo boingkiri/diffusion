@@ -41,7 +41,8 @@ PAE_evaluation: True
 distributed_training: True
 
 framework:
-  alignment_type: original # original, pseudo, batch, batch_stf
+  diffusion:
+    alignment_type: original # original, pseudo, batch, batch_stf
 
 # framework:
 #   diffusion:
