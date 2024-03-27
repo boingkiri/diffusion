@@ -75,6 +75,20 @@ class CMFramework(DefaultModel):
         # XXX: Convert orbax.checkpoint.composite_checkpoint_handler.CompositeArgs to dict of flax.TrainState
         self.training_states = {model_key: flax.jax_utils.replicate(self.training_states[model_key]) 
                             for model_key in self.training_states.keys()}
+        
+
+        # Self-distillation
+        self.sd_torso_state, self.sd_head_state = self.init_model_state(config)
+        
+        sd_states= {}
+        if self.sd_torso_state is not None:
+            sd_states["diffusion"] = self.sd_torso_state
+        if self.sd_head_state is not None:
+            sd_states["head"] = self.sd_head_state
+        sd_states = fs_obj.load_model_state(sd_states)
+        self.sd_torso_state, self.sd_head_state = sd_states.get("diffusion"), sd_states.get("head")
+
+        
         # breakpoint()
         # Parameters
         self.sigma_min = diffusion_framework['sigma_min']
@@ -282,7 +296,7 @@ class CMFramework(DefaultModel):
 
             torso_params = update_params['torso_state']
             head_params = update_params['head_state']
-            target_model = jax.lax.stop_gradient(torso_params) 
+            target_model = jax.lax.stop_gradient(torso_params)
 
             # Unzip arguments for loss_fn
             y, rng_key = args
@@ -295,7 +309,7 @@ class CMFramework(DefaultModel):
             current_step = jnp.floor(total_states_dict['torso_state'].opt_state.gradient_step).astype(int)
             sigma, prev_sigma = get_sigma_sampling(diffusion_framework['sigma_sampling_joint'], step_key, y, current_step)
             perturbed_x = y + sigma * noise
-            prev_perturbed_x = y + prev_sigma * noise
+            # prev_perturbed_x = y + prev_sigma * noise
 
             # Get consistency function values
             cm_dropout_key, dropout_key = jax.random.split(dropout_key, 2)
@@ -304,7 +318,18 @@ class CMFramework(DefaultModel):
                 D_x, aux = self.model.apply(
                     {'params': torso_params}, x=perturbed_x, sigma=sigma,
                     train=True, augment_labels=None, rngs={'dropout': dropout_key})
-                
+                new_D_x, aux = self.model.apply(
+                    {'params': self.sd_torso_state.params_ema}, x=perturbed_D_x, sigma=sigma,
+                    train=False, augment_labels=None, rngs={'dropout': dropout_key})
+
+                # Self-distillation
+                noise_2 = jax.random.normal(dropout_key, y.shape)
+                perturbed_D_x = new_D_x + sigma * noise_2
+                newnew_D_x, aux = self.model.apply(
+                    {'params': self.sd_torso_state.params_ema}, x=perturbed_D_x, sigma=sigma,
+                    train=False, augment_labels=None, rngs={'dropout': dropout_key})
+                prev_perturbed_x = (prev_sigma / sigma) * perturbed_x + (1 - prev_sigma / sigma) * newnew_D_x
+
                 prev_D_x, _ = self.model.apply(
                     {'params': target_model}, x=prev_perturbed_x, sigma=prev_sigma,
                     train=True, augment_labels=None, rngs={'dropout': dropout_key})
@@ -313,7 +338,8 @@ class CMFramework(DefaultModel):
                 consistency_loss, consistency_loss_dict = get_loss(diffusion_framework['loss'], D_x, prev_D_x, loss_weight=loss_weight, train=True)
                 return consistency_loss, consistency_loss_dict, (D_x, aux)
 
-            consistency_loss, consistency_loss_dict, func_val = discrete_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, cm_dropout_key)
+            # consistency_loss, consistency_loss_dict, func_val = discrete_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, prev_perturbed_x, cm_dropout_key)
+            consistency_loss, consistency_loss_dict, func_val = discrete_loss(torso_params, target_model, y, sigma, prev_sigma, perturbed_x, None, cm_dropout_key)
             total_loss += consistency_loss
             loss_dict.update(consistency_loss_dict)
             
@@ -424,9 +450,6 @@ class CMFramework(DefaultModel):
             return new_carry_state, loss_dict
 
 
-        # Define p_sample_jit functions for sampling
-        # Multistep sampling using the distilled score
-        # Progress one step towards the sample
         def sample_edm_fn(params, x_cur, rng_key, gamma, t_cur, t_prev):
             # model_params = params.get('model_state', None)
             torso_params = params.get('torso_state', self.torso_state.params_ema)
@@ -439,42 +462,110 @@ class CMFramework(DefaultModel):
             noise = jax.random.normal(rng_key, x_cur.shape)
             x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
 
-            # Euler step
-            D_x, aux = self.model.apply(
-                {'params': torso_params}, x=x_hat, sigma=t_hat, 
-                train=False, augment_labels=None, rngs={'dropout': dropout_key})
-            t_emb, last_x_emb = aux
+            t_hat_ = t_hat * jnp.ones(shape=(x_hat.shape[0], 1, 1, 1))
+            t_prev_ = t_prev * jnp.ones(shape=(x_hat.shape[0], 1, 1, 1))
+            batch = 1
 
-            denoised, aux = self.head.apply(
-                {'params': head_params}, x=x_hat, sigma=t_hat, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
-                train=False, augment_labels=None, rngs={'dropout': dropout_key}
-            )
+            D_x, aux = self.model.apply(
+                {'params': torso_params}, x=x_hat, sigma=t_hat_, 
+                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+            noise_2 = jax.random.normal(dropout_key, (batch, *x_cur.shape[1:]))
+
+            perturbed_D_x = jnp.reshape(jax.vmap(lambda x, t: x + t * noise_2)(D_x, t_hat_), (-1, *x_cur.shape[1:]))
+            t_hat_ = jnp.repeat(t_hat_, batch)[:, None, None, None]
+
+            new_D_x, _ = self.model.apply(
+                {'params': torso_params}, x=perturbed_D_x, sigma=t_hat_,
+                train=False, augment_labels=None, rngs={'dropout': dropout_key})
+
+            denoised = jnp.mean(jnp.reshape(new_D_x, (-1, batch, *x_cur.shape[1:])), axis=1)
 
             # predicted_score = - (x_hat - denoised) ** 2 / (t_hat ** 2)
             d_cur = (x_hat - denoised) / t_hat
-            euler_x_prev = x_hat + (t_prev - t_hat) * d_cur
+            heun_x_prev = euler_x_prev = x_hat + (t_prev - t_hat) * d_cur
 
-            # Apply 2nd order correction.
-            def second_order_corrections(euler_x_prev, t_prev, x_hat, t_hat, d_cur, rng_key):
-                D_x, aux = self.model.apply(
-                    {'params': torso_params}, x=euler_x_prev, sigma=t_prev,
-                    train=False, augment_labels=None, rngs={'dropout': rng_key})
-                t_emb, last_x_emb = aux
+            # # Apply 2nd order correction.
+            # def second_order_corrections(euler_x_prev, t_prev, x_hat, t_hat, d_cur, rng_key):
+            #     t_prev_ = t_prev * jnp.ones(shape=(euler_x_prev.shape[0], 1, 1, 1))
 
-                denoised, aux = self.head.apply(
-                    {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
-                    train=False, augment_labels=None, rngs={'dropout': dropout_key}
-                )
+            #     D_x, aux = self.model.apply(
+            #         {'params': torso_params}, x=euler_x_prev, sigma=t_prev_, 
+            #         train=False, augment_labels=None, rngs={'dropout': dropout_key})
+            #     noise_2 = jax.random.normal(dropout_key, (batch, *euler_x_prev.shape[1:]))
 
-                d_prime = (euler_x_prev - denoised) / t_prev
-                heun_x_prev = x_hat + 0.5 * (t_prev - t_hat) * (d_cur + d_prime)
-                return heun_x_prev
-            
-            heun_x_prev = jax.lax.cond(t_prev != 0.0,
-                                    second_order_corrections,
-                                    lambda euler_x_prev, t_prev, x_hat, t_hat, dx_dt, rng_key: euler_x_prev,
-                                    euler_x_prev, t_prev, x_hat, t_hat, d_cur, dropout_key_2)
+            #     perturbed_D_x = jnp.reshape(jax.vmap(lambda x, t: x + t * noise_2)(D_x, t_prev_), (-1, *euler_x_prev.shape[1:]))
+            #     t_prev_ = jnp.repeat(t_prev_, batch)[:, None, None, None]
+
+            #     new_D_x, _ = self.model.apply(
+            #         {'params': torso_params}, x=perturbed_D_x, sigma=t_prev_,
+            #         train=False, augment_labels=None, rngs={'dropout': dropout_key})
+
+            #     denoised = jnp.mean(jnp.reshape(new_D_x, (-1, batch, *euler_x_prev.shape[1:])), axis=1)
+
+            #     d_prime = (euler_x_prev - denoised) / t_prev
+            #     heun_x_prev = x_hat + 0.5 * (t_prev - t_hat) * (d_cur + d_prime)
+            #     return heun_x_prev
+
+            # heun_x_prev = jax.lax.cond(t_prev != 0.0,
+            #                         second_order_corrections,
+            #                         lambda euler_x_prev, t_prev, x_hat, t_hat, dx_dt, rng_key: euler_x_prev,
+            #                         euler_x_prev, t_prev, x_hat, t_hat, d_cur, dropout_key_2)
+
             return heun_x_prev, D_x
+
+
+        # def sample_edm_fn(params, x_cur, rng_key, gamma, t_cur, t_prev):
+        #     # model_params = params.get('model_state', None)
+        #     torso_params = params.get('torso_state', self.torso_state.params_ema)
+        #     head_params = params['head_state']
+
+        #     rng_key, dropout_key, dropout_key_2 = jax.random.split(rng_key, 3)
+
+        #     # Increase noise temporarily.
+        #     t_hat = t_cur + gamma * t_cur
+        #     noise = jax.random.normal(rng_key, x_cur.shape)
+        #     x_hat = x_cur + jnp.sqrt(t_hat ** 2 - t_cur ** 2) * noise
+
+        #     # Euler step
+        #     D_x, aux = self.model.apply(
+        #         {'params': torso_params}, x=x_hat, sigma=t_hat, 
+        #         train=False, augment_labels=None, rngs={'dropout': dropout_key})
+        #     t_emb, last_x_emb = aux
+
+        #     denoised = D_x
+        #     # denoised, aux = self.head.apply(
+        #     #     {'params': head_params}, x=x_hat, sigma=t_hat, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+        #     #     train=False, augment_labels=None, rngs={'dropout': dropout_key}
+        #     # )
+
+        #     # predicted_score = - (x_hat - denoised) ** 2 / (t_hat ** 2)
+        #     d_cur = (x_hat - denoised) / t_hat
+        #     euler_x_prev = x_hat + (t_prev - t_hat) * d_cur
+
+        #     # Apply 2nd order correction.
+        #     def second_order_corrections(euler_x_prev, t_prev, x_hat, t_hat, d_cur, rng_key):
+        #         D_x, aux = self.model.apply(
+        #             {'params': torso_params}, x=euler_x_prev, sigma=t_prev,
+        #             train=False, augment_labels=None, rngs={'dropout': rng_key})
+        #         t_emb, last_x_emb = aux
+
+        #         denoised = D_x
+        #         # denoised, aux = self.head.apply(
+        #         #     {'params': head_params}, x=euler_x_prev, sigma=t_prev, F_x=D_x, t_emb=t_emb, last_x_emb=last_x_emb,
+        #         #     train=False, augment_labels=None, rngs={'dropout': dropout_key}
+        #         # )
+
+        #         d_prime = (euler_x_prev - denoised) / t_prev
+        #         heun_x_prev = x_hat + 0.5 * (t_prev - t_hat) * (d_cur + d_prime)
+        #         return heun_x_prev
+            
+        #     heun_x_prev = jax.lax.cond(t_prev != 0.0,
+        #                             second_order_corrections,
+        #                             lambda euler_x_prev, t_prev, x_hat, t_hat, dx_dt, rng_key: euler_x_prev,
+        #                             euler_x_prev, t_prev, x_hat, t_hat, d_cur, dropout_key_2)
+
+        #     return heun_x_prev, D_x
+
 
         def sample_cm_fn(params, x_cur, rng_key, gamma=None, t_cur=None, t_prev=None):
             dropout_key = rng_key
@@ -581,19 +672,65 @@ class CMFramework(DefaultModel):
         self.wandblog.update_log(return_dict)
         return return_dict
 
+    # def sampling_edm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
+    #     # Multistep sampling using the distilled score
+    #     # Progress one step towards the sample
+    #     latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
+    #     sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+    #     gamma = 0
+
+    #     step_indices = jnp.arange(self.n_timestep)
+    #     t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
+    #     t_steps = jnp.append(t_steps, jnp.zeros_like(t_steps[0]))
+    #     pbar = tqdm(zip(t_steps[:-1], t_steps[1:]))
+
+    #     latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
+
+    #     # for i, (t_cur, t_next) in enumerate(pbar):
+    #     #     rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+    #     #     gamma = 0
+
+    #     #     rng_key = jax.random.split(rng_key, jax.local_device_count())
+    #     #     t_cur = jnp.asarray([t_cur] * jax.local_device_count())
+    #     #     t_next = jnp.asarray([t_next] * jax.local_device_count())
+    #     #     gamma = jnp.asarray([gamma] * jax.local_device_count())
+    #     #     if mode == "edm":
+    #     #         latent_sample, _ = self.p_sample_edm(
+    #     #             {state_name: state_content.params_ema for state_name, state_content in self.training_states.items()},
+    #     #             latent_sample, rng_key, gamma, t_cur, t_next)
+            
+    #     #     if i == 3-1:
+    #     #         break
+
+    #     # latent_sample = self.p_sample_cm(self.training_states['torso_state'].params_ema, latent_sample, rng_key, gamma, t_next, None)
+    #     rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
+    #     rng_key = jax.random.split(rng_key, jax.local_device_count())
+    #     t_cur = jnp.asarray([self.sigma_max] * jax.local_device_count())
+    #     t_next = jnp.asarray([t_steps[-3]] * jax.local_device_count())
+    #     gamma = jnp.asarray([gamma] * jax.local_device_count())
+    #     latent_sample, _ = self.p_sample_edm(
+    #         {state_name: state_content.params_ema for state_name, state_content in self.training_states.items()},
+    #         latent_sample, rng_key, gamma, t_cur, t_next)
+
+    #     latent_sample = latent_sample.reshape(num_image, *img_size)
+    #     return latent_sample
+
+
     def sampling_edm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
         # Multistep sampling using the distilled score
         # Progress one step towards the sample
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
+        gamma = 0
 
         step_indices = jnp.arange(self.n_timestep)
         t_steps = (self.sigma_max ** (1 / self.rho) + step_indices / (self.n_timestep - 1) * (self.sigma_min ** (1 / self.rho) - self.sigma_max ** (1 / self.rho))) ** self.rho
         t_steps = jnp.append(t_steps, jnp.zeros_like(t_steps[0]))
         pbar = tqdm(zip(t_steps[:-1], t_steps[1:]))
 
-        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * t_steps[0]
-        for t_cur, t_next in pbar:
+        latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
+
+        for i, (t_cur, t_next) in enumerate(pbar):
             rng_key, self.rand_key = jax.random.split(self.rand_key, 2)
             gamma = 0
 
@@ -605,8 +742,10 @@ class CMFramework(DefaultModel):
                 latent_sample, _ = self.p_sample_edm(
                     {state_name: state_content.params_ema for state_name, state_content in self.training_states.items()},
                     latent_sample, rng_key, gamma, t_cur, t_next)
+
         latent_sample = latent_sample.reshape(num_image, *img_size)
         return latent_sample
+
 
     def sampling_edm_and_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
         # Multistep sampling using the distilled score

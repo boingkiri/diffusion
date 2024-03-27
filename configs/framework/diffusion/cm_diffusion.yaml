@@ -4,7 +4,7 @@ loss: huber # l2, l1, lpips
 learn_sigma: False
 
 # Consistency distillation or Consistency training
-params_ema_for_training: [0.9, 10, 1280] # mu_0, s_0, s_1
+params_ema_for_training: [0.9, 10, 5120] # mu_0, s_0, s_1
 
 # Sigma : Assume that the process is performing VP
 sigma_min: 0.002
@@ -18,11 +18,11 @@ sigma_sampling_joint: iCT
 pseudo_huber_loss_c: 0.003
 
 
-gradient_flow_from_head: True
+gradient_flow_from_head: False
 joint_training_weight: 0.3
 
 # Connection loss (new loss)
-alignment_loss: true
+alignment_loss: False
 alignment_type: pseudo # original, pseudo
 alignment_threshold: 0
 alignment_loss_scale: 0.1
@@ -34,6 +34,6 @@ train:
   learning_rate: 1.0e-4
   total_batch_size: 1024
   batch_size_per_rounds: 512 # The option for gradient accumulation, which is used for large batch size training.
-  total_step: 400000
+  total_step: 500000
   optimizer:
     type: "radam"
