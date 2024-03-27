@@ -198,8 +198,9 @@ class CMFramework(DefaultModel):
 
             noise = jax.random.normal(noise_key, y.shape)
 
-            stopgrad_D_x = jax.lax.stop_gradient(D_x)
-            perturbed_D_x = stopgrad_D_x + sigma * noise
+            # stopgrad_D_x = jax.lax.stop_gradient(D_x)
+            # perturbed_D_x = stopgrad_D_x + sigma * noise
+            perturbed_D_x = D_x + sigma * noise
 
             new_D_x_1, _ = self.model.apply(
                 {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
@@ -261,15 +262,20 @@ class CMFramework(DefaultModel):
             noise_1 = jax.random.normal(noise_1_key, y.shape)
             noise_2 = jax.random.normal(noise_2_key, y.shape)
 
-            stopgrad_D_x = jax.lax.stop_gradient(D_x)
-            perturbed_D_x_1 = stopgrad_D_x + sigma * noise_1
-            perturbed_D_x_2 = stopgrad_D_x + sigma * noise_2
+            # stopgrad_D_x = jax.lax.stop_gradient(D_x)
+            # perturbed_D_x_1 = stopgrad_D_x + sigma * noise_1
+            # perturbed_D_x_2 = stopgrad_D_x + sigma * noise_2
+            perturbed_D_x_1 = D_x + sigma * noise_1
+            perturbed_D_x_2 = D_x + sigma * noise_2
 
             new_D_x_1, _ = self.model.apply(
                 {'params': torso_params}, x=perturbed_D_x_1, sigma=sigma,
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+            # new_D_x_2, _ = self.model.apply(
+            #     {'params': target_model}, x=perturbed_D_x_2, sigma=sigma,
+            #     train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
             new_D_x_2, _ = self.model.apply(
-                {'params': target_model}, x=perturbed_D_x_2, sigma=sigma,
+                {'params': torso_params}, x=perturbed_D_x_2, sigma=sigma,
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
             return jnp.mean(new_D_x_1 * (new_D_x_2 - y))
 
