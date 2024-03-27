@@ -193,21 +193,21 @@ class CMFramework(DefaultModel):
                 loss_dict[f"eval/{key_name if key_name is not None else loss_type}"] = loss
             return loss, loss_dict
 
-        # def original_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
-        #     rng_key, noise_key = jax.random.split(rng_key, 2)
-
-        #     noise = jax.random.normal(noise_key, y.shape)
-
-        #     stopgrad_D_x = jax.lax.stop_gradient(D_x)
-        #     perturbed_D_x = stopgrad_D_x + sigma * noise
-
-        #     new_D_x_1, _ = self.model.apply(
-        #         {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
-        #         train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-        #     # return jnp.mean(new_D_x_1 * (new_D_x_2 - y))
-        #     return jnp.mean((new_D_x_1 - y) ** 2)
-
         def original_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
+            rng_key, noise_key = jax.random.split(rng_key, 2)
+
+            noise = jax.random.normal(noise_key, y.shape)
+
+            stopgrad_D_x = jax.lax.stop_gradient(D_x)
+            perturbed_D_x = stopgrad_D_x + sigma * noise
+
+            new_D_x_1, _ = self.model.apply(
+                {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
+                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+            # return jnp.mean(new_D_x_1 * (new_D_x_2 - y))
+            return jnp.mean((new_D_x_1 - y) ** 2)
+
+        def batch_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
             def STF_targets(sigmas, perturbed_samples, ref):
                 perturbed_samples_vec = perturbed_samples.reshape((len(perturbed_samples), -1))
                 ref_vec = ref.reshape((len(ref), -1))
@@ -247,9 +247,13 @@ class CMFramework(DefaultModel):
             cm_mean = jnp.mean(jnp.reshape(new_D_x, (num_data_samples, alignment_batch_size, *y.shape[1:])), axis=1)
 
             # STF
-            stable_targets = STF_targets(sigma_samples, perturbed_D_x, data_samples)
-            # return jnp.mean((cm_mean - data_samples) ** 2)
-            return jnp.mean((cm_mean - stable_targets) ** 2)
+            if diffusion_framework.get("alignment_type", "original") == "batch_stf":
+                stable_targets = STF_targets(sigma_samples, perturbed_D_x, data_samples)
+                return jnp.mean((cm_mean - stable_targets) ** 2)
+            elif diffusion_framework.get("alignment_type", "original") == "batch":
+                return jnp.mean((cm_mean - data_samples) ** 2)
+            else:
+                ValueError("alignment_type should be either batch or batch_stf for now.")
 
         def pseudo_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
             rng_key, noise_1_key, noise_2_key = jax.random.split(rng_key, 3)
@@ -364,7 +368,13 @@ class CMFramework(DefaultModel):
             loss_dict['train/head_dsm_loss'] = dsm_loss
 
             if diffusion_framework['alignment_loss']:
-                alignment_loss_fn = pseudo_alignment_loss_fn if diffusion_framework['alignment_type'] != "original" else original_alignment_loss_fn
+                if diffusion_framework['alignment_type'] == "original":
+                    alignment_loss_fn = original_alignment_loss_fn
+                elif diffusion_framework['alignment_type'] == "pseudo":
+                    alignment_loss_fn = pseudo_alignment_loss_fn
+                elif "batch" in diffusion_framework["alignment_type"]:
+                    alignment_loss_fn = batch_alignment_loss_fn
+
                 alignment_term = jax.lax.cond(
                     current_step <= diffusion_framework['alignment_threshold'],
                     lambda *args: 0.0,
