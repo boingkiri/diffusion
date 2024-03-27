@@ -610,13 +610,16 @@ class CMFramework(DefaultModel):
         self.wandblog.update_log(return_dict)
         return return_dict
 
-    def sampling_edm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
+    def sampling_edm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm", random_key=None):
         # Multistep sampling using the distilled score
         # Progress one step towards the sample
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         
         # Give fixed key for evaluating
-        sampling_key = self.eval_key
+        if random_key is None:
+            self.rand_key, sampling_key = jax.random.split(self.rand_key, 2)
+        else:
+            sampling_key = random_key
         sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         step_indices = jnp.arange(self.n_timestep)
@@ -640,13 +643,18 @@ class CMFramework(DefaultModel):
         latent_sample = latent_sample.reshape(num_image, *img_size)
         return latent_sample
 
-    def sampling_edm_and_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
+    def sampling_edm_and_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm", random_key=None):
         # Multistep sampling using the distilled score
         # Progress one step towards the sample
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         # sampling_key, self.eval_key = jax.random.split(self.eval_key, 2)
         # Give fixed key for evaluating
-        sampling_key = self.eval_key
+        # sampling_key = self.eval_key
+        # sampling_key, iterating_key = jax.random.split(sampling_key, 2)
+        if random_key is None:
+            self.rand_key, sampling_key = jax.random.split(self.rand_key, 2)
+        else:
+            sampling_key = random_key
         sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         step_indices = jnp.arange(self.n_timestep)
@@ -674,10 +682,15 @@ class CMFramework(DefaultModel):
         cm_sample = cm_sample.reshape(num_image, *img_size)
         return latent_sample, cm_sample
 
-    def sampling_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="cm-training"):
+    def sampling_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="cm-training", random_key=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         # sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        sampling_key = self.eval_key
+        # sampling_key = self.eval_key
+        # sampling_key, iterating_key = jax.random.split(sampling_key, 2)
+        if random_key is None:
+            self.rand_key, sampling_key = jax.random.split(self.rand_key, 2)
+        else:
+            sampling_key = random_key
         sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         # One-step generation
@@ -701,10 +714,15 @@ class CMFramework(DefaultModel):
         latent_sample = latent_sample.reshape(num_image, *img_size)
         return latent_sample
     
-    def sampling_cm_two_step(self, num_image, img_size=(32, 32, 3), original_data=None, mode="two-step"):
+    def sampling_cm_two_step(self, num_image, img_size=(32, 32, 3), original_data=None, mode="two-step", random_key=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         # sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        sampling_key = self.eval_key
+        # sampling_key = self.eval_key
+        # sampling_key, iterating_key = jax.random.split(sampling_key, 2)
+        if random_key is None:
+            self.rand_key, sampling_key = jax.random.split(self.rand_key, 2)
+        else:
+            sampling_key = random_key
         sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         # One-step generation
@@ -758,10 +776,15 @@ class CMFramework(DefaultModel):
         x = x.reshape(num_image, *img_size)
         return x
 
-    def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sigma_scale=17, noise=None):
+    def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sigma_scale=17, noise=None, random_key=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         # sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        sampling_key = self.eval_key
+        # sampling_key = self.eval_key
+        # sampling_key, iterating_key = jax.random.split(sampling_key, 2)
+        if random_key is None:
+            self.rand_key, sampling_key = jax.random.split(self.rand_key, 2)
+        else:
+            sampling_key = random_key
         sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         # One-step generation
@@ -791,13 +814,13 @@ class CMFramework(DefaultModel):
         latent_sample = latent_sample.reshape(num_image, *img_size)
         return latent_sample
     
-    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
+    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm", random_key=None):
         # mode option: edm, cm_training, cm_not_training
         if mode == "edm":
-            return self.sampling_edm(num_image, img_size, original_data, mode)
+            return self.sampling_edm(num_image, img_size, original_data, mode, random_key)
         elif "cm" in mode:
-            return self.sampling_cm(num_image, img_size, original_data, mode)
+            return self.sampling_cm(num_image, img_size, original_data, mode, random_key)
         elif "one-step" in mode:
-            return self.sampling_cm(num_image, img_size, original_data, mode)
+            return self.sampling_cm(num_image, img_size, original_data, mode, random_key)
         elif "two-step" in mode:
-            return self.sampling_cm_two_step(num_image, img_size, original_data, mode)
+            return self.sampling_cm_two_step(num_image, img_size, original_data, mode, random_key)

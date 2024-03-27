@@ -74,11 +74,13 @@ class FIDUtils():
         tmp_dir = os.path.join(self.in_process_dir, "tmp")
 
         current_num_samples = 0
+        random_key = jax.random.PRNGKey(42)
         while current_num_samples < total_num_samples:
+            random_key, sampling_key = jax.random.split(random_key)
             if sampling_mode is not None:
-                sample = model_obj.sampling(batch_size, mode=sampling_mode)
+                sample = model_obj.sampling(batch_size, mode=sampling_mode, random_key=sampling_key)
             else:
-                sample = model_obj.sampling(batch_size)
+                sample = model_obj.sampling(batch_size, random_key=sampling_key)
             sample = jnp.reshape(sample, (batch_size, *sample.shape[-3:]))
             current_num_samples += self.fs_utils.save_images_to_dir(sample, tmp_dir, current_num_samples)
         
@@ -101,7 +103,7 @@ class FIDUtils():
             writing_format += f"Mean difference of Step {step} : {mu_diff:.4f}\n" if fid_score is not None else f"Mean difference of Step {step} : None\n"
         print(writing_format)
 
-        file_name = f"fid_log_{sampling_mode}.txt" if sampling_mode is not None else "fid_log.txt"
+        file_name = f"fid_log_{sampling_mode}.txt" if sampling_mode is not None else "fid_log.txt" 
         fid_log_file = os.path.join(self.in_process_dir, file_name)
         with open(fid_log_file, 'a') as f:
             f.write(writing_format)

@@ -23,7 +23,7 @@ joint_training_weight: 0.3
 
 # Connection loss (new loss)
 alignment_loss: true
-alignment_type: original # original, pseudo
+alignment_type: pseudo # original, pseudo
 alignment_threshold: 0
 alignment_loss_scale: 1
 alignment_loss_weight: "uniform" # lognormal, uniform
