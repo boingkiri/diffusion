@@ -700,6 +700,7 @@ class CMFramework(DefaultModel):
             self.rand_key, sampling_key = jax.random.split(self.rand_key, 2)
         else:
             sampling_key = random_key
+        sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         # One-step generation
         # latent_sample = jax.random.normal(sampling_key, latent_sampling_tuple) * self.sigma_max
