@@ -43,6 +43,8 @@ distributed_training: True
 framework:
   diffusion:
     alignment_type: original # original, pseudo, batch, batch_stf
+    train:
+      batch_size_per_rounds: 128
 
 # framework:
 #   diffusion:
