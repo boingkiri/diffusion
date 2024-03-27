@@ -193,21 +193,40 @@ class CMFramework(DefaultModel):
                 loss_dict[f"eval/{key_name if key_name is not None else loss_type}"] = loss
             return loss, loss_dict
 
-        # def original_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
-        #     rng_key, noise_key = jax.random.split(rng_key, 2)
-
-        #     noise = jax.random.normal(noise_key, y.shape)
-
-        #     stopgrad_D_x = jax.lax.stop_gradient(D_x)
-        #     perturbed_D_x = stopgrad_D_x + sigma * noise
-
-        #     new_D_x_1, _ = self.model.apply(
-        #         {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
-        #         train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
-        #     # return jnp.mean(new_D_x_1 * (new_D_x_2 - y))
-        #     return jnp.mean((new_D_x_1 - y) ** 2)
-
         def original_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
+            rng_key, noise_key = jax.random.split(rng_key, 2)
+
+            noise = jax.random.normal(noise_key, y.shape)
+
+            stopgrad_D_x = jax.lax.stop_gradient(D_x)
+            perturbed_D_x = stopgrad_D_x + sigma * noise
+
+            new_D_x_1, _ = self.model.apply(
+                {'params': torso_params}, x=perturbed_D_x, sigma=sigma,
+                train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
+            # return jnp.mean(new_D_x_1 * (new_D_x_2 - y))
+            return jnp.mean((new_D_x_1 - y) ** 2)
+
+        def batch_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
+            def STF_targets(sigmas, perturbed_samples, ref):
+                perturbed_samples_vec = perturbed_samples.reshape((len(perturbed_samples), -1))
+                ref_vec = ref.reshape((len(ref), -1))
+
+                gt_distance = jnp.sum((jnp.expand_dims(perturbed_samples_vec, axis=1) - ref_vec) ** 2, axis=-1)
+                gt_distance = - gt_distance / (2 * (jnp.squeeze(sigmas, axis=(-1, -2)) ** 2))
+
+                distance = gt_distance[:, :, None]
+
+                # self-normalize the per-sample weight of reference batch
+                denominator = jax.scipy.special.logsumexp(distance, axis=1, keepdims=True)
+                weights = distance - denominator
+                weights = jnp.exp(weights)
+                
+                target = jnp.tile(jnp.expand_dims(ref_vec, axis=0), (len(perturbed_samples), 1, 1))
+                # calculate the stable targets with reference batch
+                stable_targets = jnp.sum(weights * target, axis=1)
+                stable_targets = stable_targets.reshape(perturbed_samples.shape)
+                return stable_targets
             alignment_batch_size = diffusion_framework['alignment_batch_size']
             num_data_samples = diffusion_framework['num_samples_for_alignment']
 
@@ -219,14 +238,22 @@ class CMFramework(DefaultModel):
             D_x_samples = jax.random.choice(rng_key, D_x, shape=(num_data_samples,), replace=False)
 
             perturbed_D_x = jnp.reshape(jax.vmap(lambda x, t: x + t * noise_2)(D_x_samples, sigma_samples), (-1, *y.shape[1:]))
-            sigma_samples = jnp.repeat(sigma_samples, alignment_batch_size)[:, None, None, None]
+            repeated_sigma_samples = jnp.repeat(sigma_samples, alignment_batch_size)[:, None, None, None]
 
             new_D_x, _ = self.model.apply(
-                {'params': torso_params}, x=perturbed_D_x, sigma=sigma_samples,
+                {'params': torso_params}, x=perturbed_D_x, sigma=repeated_sigma_samples,
                 train=True, augment_labels=None, rngs={'dropout': cm_dropout_key})
 
             cm_mean = jnp.mean(jnp.reshape(new_D_x, (num_data_samples, alignment_batch_size, *y.shape[1:])), axis=1)
-            return jnp.mean((cm_mean - data_samples) ** 2)
+
+            # STF
+            if diffusion_framework.get("alignment_type", "original") == "batch_stf":
+                stable_targets = STF_targets(sigma_samples, perturbed_D_x, data_samples)
+                return jnp.mean((cm_mean - stable_targets) ** 2)
+            elif diffusion_framework.get("alignment_type", "original") == "batch":
+                return jnp.mean((cm_mean - data_samples) ** 2)
+            else:
+                ValueError("alignment_type should be either batch or batch_stf for now.")
 
         def pseudo_alignment_loss_fn(rng_key, torso_params, target_model, y, sigma, D_x, cm_dropout_key):
             rng_key, noise_1_key, noise_2_key = jax.random.split(rng_key, 3)
@@ -341,7 +368,13 @@ class CMFramework(DefaultModel):
             loss_dict['train/head_dsm_loss'] = dsm_loss
 
             if diffusion_framework['alignment_loss']:
-                alignment_loss_fn = pseudo_alignment_loss_fn if diffusion_framework['alignment_type'] != "original" else original_alignment_loss_fn
+                if diffusion_framework['alignment_type'] == "original":
+                    alignment_loss_fn = original_alignment_loss_fn
+                elif diffusion_framework['alignment_type'] == "pseudo":
+                    alignment_loss_fn = pseudo_alignment_loss_fn
+                elif "batch" in diffusion_framework["alignment_type"]:
+                    alignment_loss_fn = batch_alignment_loss_fn
+
                 alignment_term = jax.lax.cond(
                     current_step <= diffusion_framework['alignment_threshold'],
                     lambda *args: 0.0,
@@ -587,13 +620,16 @@ class CMFramework(DefaultModel):
         self.wandblog.update_log(return_dict)
         return return_dict
 
-    def sampling_edm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
+    def sampling_edm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm", random_key=None):
         # Multistep sampling using the distilled score
         # Progress one step towards the sample
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         
         # Give fixed key for evaluating
-        sampling_key = self.eval_key
+        if random_key is None:
+            self.rand_key, sampling_key = jax.random.split(self.rand_key, 2)
+        else:
+            sampling_key = random_key
         sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         step_indices = jnp.arange(self.n_timestep)
@@ -617,13 +653,18 @@ class CMFramework(DefaultModel):
         latent_sample = latent_sample.reshape(num_image, *img_size)
         return latent_sample
 
-    def sampling_edm_and_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
+    def sampling_edm_and_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm", random_key=None):
         # Multistep sampling using the distilled score
         # Progress one step towards the sample
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         # sampling_key, self.eval_key = jax.random.split(self.eval_key, 2)
         # Give fixed key for evaluating
-        sampling_key = self.eval_key
+        # sampling_key = self.eval_key
+        # sampling_key, iterating_key = jax.random.split(sampling_key, 2)
+        if random_key is None:
+            self.rand_key, sampling_key = jax.random.split(self.rand_key, 2)
+        else:
+            sampling_key = random_key
         sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         step_indices = jnp.arange(self.n_timestep)
@@ -651,10 +692,15 @@ class CMFramework(DefaultModel):
         cm_sample = cm_sample.reshape(num_image, *img_size)
         return latent_sample, cm_sample
 
-    def sampling_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="cm-training"):
+    def sampling_cm(self, num_image, img_size=(32, 32, 3), original_data=None, mode="cm-training", random_key=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         # sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        sampling_key = self.eval_key
+        # sampling_key = self.eval_key
+        # sampling_key, iterating_key = jax.random.split(sampling_key, 2)
+        if random_key is None:
+            self.rand_key, sampling_key = jax.random.split(self.rand_key, 2)
+        else:
+            sampling_key = random_key
         sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         # One-step generation
@@ -678,10 +724,15 @@ class CMFramework(DefaultModel):
         latent_sample = latent_sample.reshape(num_image, *img_size)
         return latent_sample
     
-    def sampling_cm_two_step(self, num_image, img_size=(32, 32, 3), original_data=None, mode="two-step"):
+    def sampling_cm_two_step(self, num_image, img_size=(32, 32, 3), original_data=None, mode="two-step", random_key=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         # sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        sampling_key = self.eval_key
+        # sampling_key = self.eval_key
+        # sampling_key, iterating_key = jax.random.split(sampling_key, 2)
+        if random_key is None:
+            self.rand_key, sampling_key = jax.random.split(self.rand_key, 2)
+        else:
+            sampling_key = random_key
         sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         # One-step generation
@@ -735,10 +786,15 @@ class CMFramework(DefaultModel):
         x = x.reshape(num_image, *img_size)
         return x
 
-    def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sigma_scale=17, noise=None):
+    def sampling_cm_intermediate(self, num_image, img_size=(32, 32, 3), original_data=None, sigma_scale=17, noise=None, random_key=None):
         latent_sampling_tuple = (jax.local_device_count(), num_image // jax.local_device_count(), *img_size)
         # sampling_key, self.rand_key = jax.random.split(self.rand_key, 2)
-        sampling_key = self.eval_key
+        # sampling_key = self.eval_key
+        # sampling_key, iterating_key = jax.random.split(sampling_key, 2)
+        if random_key is None:
+            self.rand_key, sampling_key = jax.random.split(self.rand_key, 2)
+        else:
+            sampling_key = random_key
         sampling_key, iterating_key = jax.random.split(sampling_key, 2)
 
         # One-step generation
@@ -768,13 +824,13 @@ class CMFramework(DefaultModel):
         latent_sample = latent_sample.reshape(num_image, *img_size)
         return latent_sample
     
-    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm"):
+    def sampling(self, num_image, img_size=(32, 32, 3), original_data=None, mode="edm", random_key=None):
         # mode option: edm, cm_training, cm_not_training
         if mode == "edm":
-            return self.sampling_edm(num_image, img_size, original_data, mode)
+            return self.sampling_edm(num_image, img_size, original_data, mode, random_key)
         elif "cm" in mode:
-            return self.sampling_cm(num_image, img_size, original_data, mode)
+            return self.sampling_cm(num_image, img_size, original_data, mode, random_key)
         elif "one-step" in mode:
-            return self.sampling_cm(num_image, img_size, original_data, mode)
+            return self.sampling_cm(num_image, img_size, original_data, mode, random_key)
         elif "two-step" in mode:
-            return self.sampling_cm_two_step(num_image, img_size, original_data, mode)
+            return self.sampling_cm_two_step(num_image, img_size, original_data, mode, random_key)
