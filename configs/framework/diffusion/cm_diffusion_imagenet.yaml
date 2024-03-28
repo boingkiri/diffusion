@@ -36,7 +36,7 @@ use_fp16: True
 train:
   learning_rate: 1.0e-4
   total_batch_size: 4096
-  batch_size_per_rounds: 1024 # The option for gradient accumulation, which is used for large batch size training.
+  batch_size_per_rounds: 512 # The option for gradient accumulation, which is used for large batch size training.
   total_step: 800000
   optimizer:
     type: "radam"
