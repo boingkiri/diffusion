@@ -654,18 +654,18 @@ class ConvHead(nn.Module):
     n_channels: int = 128
     last_ch_mult: int = 2
     
-    def setup(self):
-        init = create_initializer("xavier_uniform")
-        self.normalize = nn.GroupNorm()
-        head_channels = self.n_channels * self.last_ch_mult
-        self.conv = CustomConv2d(in_channels=head_channels * 2 + self.image_channels * 2, 
-                                  out_channels=self.image_channels, 
-                                  kernel_channels=3,
-                                  init_mode=init)
-
+    # def setup(self):
+    #     init = create_initializer("xavier_uniform")
+    #     self.normalize = nn.GroupNorm()
+    #     head_channels = self.n_channels * self.last_ch_mult
+    #     self.conv = CustomConv2d(in_channels=head_channels * 2 + self.image_channels * 2, 
+    #                               out_channels=self.image_channels, 
+    #                               kernel_channels=3,
+    #                               init_mode=init)
+    @nn.compact
     def __call__(self, x, x_pred, x_emb):
-        x_emb_norm = self.normalize(x_emb)
-        x = self.conv(nn.silu(jnp.concatenate([x, x_pred, x_emb_norm], axis=-1)))
+        # x_emb_norm = self.normalize(x_emb)
+        # x = self.conv(nn.silu(jnp.concatenate([x, x_pred, x_emb_norm], axis=-1)))
         return x
 
 class TimeEmbedDependentHead(nn.Module):
