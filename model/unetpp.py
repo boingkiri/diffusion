@@ -70,9 +70,9 @@ class CustomConv2d(nn.Module):
 
     # @nn.compact
     def __call__(self, x):
-        w = self.weight if self.weight is not None else None
-        b = self.bias if self.bias is not None else None
-        f = self.resample_filter_outer if self.resample_filter_outer is not None else None
+        w = self.weight.astype(x.dtype) if self.weight is not None else None
+        b = self.bias.astype(x.dtype) if self.bias is not None else None
+        f = self.resample_filter_outer.astype(x.dtype) if self.resample_filter_outer is not None else None
         w_pad = w.shape[0] // 2 if w is not None else 0
         f_pad = (f.shape[0] - 1) // 2 if f is not None else 0
 

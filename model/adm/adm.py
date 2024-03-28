@@ -658,6 +658,7 @@ class ADMModel(nn.Module):
         if self.num_classes is not None:
             assert y.shape == (x.shape[0],)
             emb = emb + self.label_emb(y)
+        emb = emb.astype(x.dtype)
 
         # h = x.astype(self.dtype)
         h = x
