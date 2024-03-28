@@ -197,10 +197,10 @@ class UnifyingFramework():
                 lr=self.learning_rate_schedule(self.step)*(1e+4)
             )
             
-            for key in log:
-                if key.startswith("train"):
-                    represented_key = key.replace("train/", "")
-                    description_str += f"{represented_key}: {log[key]:.4f} "
+            # for key in log:
+            #     if key.startswith("train"):
+            #         represented_key = key.replace("train/", "")
+            #         description_str += f"{represented_key}: {log[key]:.4f} "
             datasets_bar.set_description(description_str)
 
             if self.step >= self.total_step:
