@@ -124,21 +124,22 @@ class UnifyingFramework():
 
         num_used_dataset = 0
 
-        for x, _ in datasets_bar:
+        for x, y in datasets_bar:
             # if self.step % 1000 == 0:
             if self.step % self.config["sampling_step"] == 0:
                 batch_data = x[0, 0, :8] # (device_idx, n_jitted_steps, batch_size)
+                batch_label = y[0, 0, :8]
 
                 # Change of the sample quality is tracked to know how much the CM model is corrupted.
                 # Sample generated image for EDM
-                sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="edm")
+                sample = self.sampling(self.sample_batch_size, original_data=(batch_data, batch_label), mode="edm")
                 edm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_image = self.fs_utils.get_pil_from_np(edm_xset)
                 # sample_path = self.fs_utils.save_comparison(edm_xset, self.step, in_process_dir)
                 log['Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
 
                 # Sample generated image for training CM
-                sample = self.sampling(self.sample_batch_size, original_data=batch_data, mode="cm-training")
+                sample = self.sampling(self.sample_batch_size, original_data=(batch_data, batch_label), mode="cm-training")
                 training_cm_xset = jnp.concatenate([sample[:8], batch_data], axis=0)
                 sample_image = self.fs_utils.get_pil_from_np(training_cm_xset)
                 log['Training CM Sampling'] = wandb.Image(sample_image, caption=f"Step: {self.step}")
@@ -187,7 +188,7 @@ class UnifyingFramework():
                 #     self.fs_utils.save_tmp_model_state(model_state, self.step)
 
             eval_during_training = self.step % 1000 == 0
-            training_log = self.framework.fit(x, step=self.step, eval_during_training=eval_during_training)
+            training_log = self.framework.fit(x, cond=y, step=self.step, eval_during_training=eval_during_training)
             log.update(training_log)
 
             description_str = "Step: {step}/{total_step} lr*1e4: {lr:.4f} ".format(
@@ -214,8 +215,6 @@ class UnifyingFramework():
             datasets_bar.update(update_step)
             # self.step += self.n_jitted_steps
             self.step += update_step
-
-            
             first_step = False
             
 
