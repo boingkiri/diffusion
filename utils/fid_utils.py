@@ -11,6 +11,8 @@ import shutil
 
 from omegaconf import DictConfig
 
+import requests
+
 class FIDUtils():
     def __init__(self, config: DictConfig) -> None:
         self.rng = jax.random.PRNGKey(42)
@@ -41,8 +43,19 @@ class FIDUtils():
             statistics_file = os.path.join(dataset_name, "stats")
             np.savez(statistics_file, mu=mu, sigma=sigma)
             return mu, sigma
+            
+        elif dataset_name == "imagenet_64" and "VIRTUAL_imagenet64_labeled.npz" not in os.listdir(dataset_name):
+            r = requests.get("https://openaipublic.blob.core.windows.net/diffusion/jul-2021/ref_batches/imagenet/64/VIRTUAL_imagenet64_labeled.npz")
+            dataset_path = os.path.join(dataset_name, "VIRTUAL_imagenet64_labeled.npz")
+            with open(dataset_path, "wb") as f:
+                f.write(r.content)
+
         print(f"Loading {dataset_name} statistics")
-        statistics_file = os.path.join(dataset_name, "stats.npz")
+        # statistics_file = os.path.join(dataset_name, "stats.npz")
+        if dataset_name == "cifar10":
+            statistics_file = os.path.join(dataset_name, "stats.npz")
+        elif dataset_name == "imagenet_64":
+            statistics_file = os.path.join(dataset_name, "VIRTUAL_imagenet64_labeled.npz")
         mu, sigma = fid.compute_statistics(statistics_file, self.params, self.apply_fn, 50, self.img_size)
         return mu, sigma
 

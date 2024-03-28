@@ -1,6 +1,8 @@
 import os
 import requests
+import pickle
 
+import numpy as np
 import flax
 import jax
 import jax.numpy as jnp
@@ -9,7 +11,7 @@ from jax.lib import xla_bridge
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
-from . import jax_utils 
+# from . import jax_utils 
 
 def download(url: str, dest_folder: str):
     if not os.path.exists(dest_folder):
@@ -42,7 +44,27 @@ def normalize_to_minus_one_to_one(image):
 def unnormalize_minus_one_to_one(images):
     return (images + 1) * 0.5 
 
-# def load_dataset_from_tfds(config, dataset_name="cifar10", batch_size=128, n_jitted_steps=1, x_flip=True, stf=False):
+def load_dataset_from_pickled_file(dataset_dir, data_size):
+  train_list = os.listdir(dataset_dir)
+  image = [] 
+  labels = []
+  img_size2 = data_size[0] * data_size[1]
+  for filename in train_list:
+    filename = os.path.join(dataset_dir, filename)
+    with open(filename, "rb") as f:
+      data = pickle.load(f)
+      x = data["data"]
+      x = np.dstack((x[:, :img_size2], x[:, img_size2:2*img_size2], x[:, 2*img_size2:]))
+      x = x.reshape((x.shape[0], data_size[0], data_size[1], 3))
+      image.append(x)
+      labels.append(data["labels"])
+  
+  image = np.concatenate(image)
+  labels = np.concatenate(labels).astype(int) - 1
+  for image_elem, labels_elem in zip(image, labels):
+    yield image_elem, labels_elem
+
+
 def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_steps=None, x_flip=True, shuffle=True, for_pae=False):
 
   dataset_name = config["dataset"]["name"] if dataset_name is None else dataset_name
@@ -74,9 +96,11 @@ def load_dataset_from_tfds(config, dataset_name=None, batch_size=None, n_jitted_
 
   if dataset_name == "cifar10":
     ds = tfds.load("cifar10", as_supervised=True)
-  elif dataset_name == "imagenet_64": # TODO
-    ds = tfds.load("imagenet2012", split="train", as_supervised=True)
-  train_ds, _ = ds['train'], ds['test']
+    train_ds, _ = ds['train'], ds['test']
+  elif dataset_name == "imagenet_64":
+    generator = load_dataset_from_pickled_file(config["dataset"]["dataset_path"], data_size=config["dataset"]["data_size"])
+    ds = tf.data.Dataset.from_generator(lambda: map(tuple, generator), (tf.uint8, tf.uint32), ((64, 64, 3), ()))
+    train_ds = ds
 
   global_device_count = jax.device_count()
   device_count = jax.local_device_count()
@@ -111,6 +135,24 @@ def get_image_size_from_dataset(dataset):
     raise NotImplementedError
 
 if __name__=="__main__":
-  sample = jnp.zeros((16, 32, 32, 3))
+  # sample = jnp.zeros((16, 32, 32, 3))
   # save_images(sample, 0, "sampling")
-
+  from hydra import initialize, compose
+  config_path = "../configs"
+  config_yaml = "config_imagenet"
+  with initialize(version_base=None, config_path=config_path) as cfg:
+    config = compose(config_name=config_yaml)
+    config["dataset"]["dataset_path"] = "../imagenet_64"
+    it = load_dataset_from_tfds(
+       config, dataset_name=config["dataset"]["name"], 
+       batch_size=config["framework"]["diffusion"]["train"]["batch_size_per_rounds"], 
+       n_jitted_steps=config.n_jitted_steps, x_flip=True, shuffle=True, 
+       for_pae=False)
+    for x, y in it:
+      x = (x[0, 0, 0] + 1) / 2 * 255
+      x = np.asarray(x.astype(np.uint8))
+      import PIL.Image as Image
+      im = Image.fromarray(x)
+      print(y[0, 0, 0])
+      im.save("sample.png")
+      breakpoint()
