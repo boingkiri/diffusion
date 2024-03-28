@@ -1,2 +1,3 @@
-name: "imagenet"
+name: "imagenet_64"
 data_size: [64, 64, 3]
+dataset_path: "imagenet_64"

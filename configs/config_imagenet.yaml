@@ -17,8 +17,8 @@ defaults:
     - diffusion/score_head_imagenet
   # - ema: ema_edm
   - ema: ema_ict_imagenet
-  # - dataset: imagenet_64
-  - dataset: cifar10
+  - dataset: imagenet_64
+  # - dataset: cifar10
   - exp: exp_setting
 
 # Training mode / evaluation model
