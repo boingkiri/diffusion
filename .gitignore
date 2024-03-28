@@ -21,3 +21,4 @@ venv
 tmp
 .conda
 celebahq
+imagenet_64
