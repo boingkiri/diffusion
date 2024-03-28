@@ -30,7 +30,7 @@ saving_step: 10000
 
 # Training type
 type: ${framework.diffusion.type}
-exp_name: 0326_tmp_imagenet_64
+exp_name: 0328_imagenet_64_baseline
 tags: [iCT]
 
 # Miscellaneous
