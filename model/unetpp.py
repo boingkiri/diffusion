@@ -9,6 +9,7 @@ from model.modules import *
 
 from model.unet import UNet
 from model.ct.ncsnpp import NCSNpp
+from model.adm.adm import ADMModel
 
 class Linear(nn.Module):
     in_features: int
@@ -437,6 +438,8 @@ class UNetpp(nn.Module):
 
         # Add t_embd if exists
         if self.input_t_embed:
+            num_tile = t_emb.shape[0] // emb.shape[0]
+            emb = jnp.tile(emb, (num_tile, 1))
             t_emb = self.map_noise_proj(jnp.concatenate([emb, t_emb], axis=-1))
             emb = t_emb
 
@@ -504,7 +507,8 @@ class UNetppHead(UNetpp):
     def setup(self):
         init = create_initializer("xavier_uniform")
         self.normalize1 = nn.GroupNorm()
-        head_channels = self.n_channels * self.ch_mults[0]
+        # head_channels = self.n_channels * self.ch_mults[0]
+        head_channels = self.input_channels
         self.conv1 = CustomConv2d(in_channels=head_channels + self.image_channels * 2, 
                                   out_channels=head_channels, 
                                   kernel_channels=3,
@@ -749,7 +753,7 @@ class EDMPrecond(nn.Module):
 class CMPrecond(nn.Module):
     model_kwargs : dict
 
-    image_channels: int
+    # image_channels: int
     label_dim: int = 0
     use_fp16: bool = False
     sigma_min : float = 0.0 # 0.002
@@ -760,7 +764,7 @@ class CMPrecond(nn.Module):
     t_emb_output : bool = True
     
     @nn.compact
-    def __call__(self, x, sigma, augment_labels, train):
+    def __call__(self, x, sigma, augment_labels, train, y=None):
         c_skip = (self.sigma_data ** 2) / ((sigma - self.sigma_min) ** 2 + self.sigma_data ** 2)
         c_out = ((sigma - self.sigma_min) * self.sigma_data) / jnp.sqrt(sigma ** 2 + self.sigma_data ** 2)
         c_in = 1 / jnp.sqrt(self.sigma_data ** 2 + sigma ** 2)
@@ -777,6 +781,9 @@ class CMPrecond(nn.Module):
         elif self.model_type == "original_unetpp":
             net = NCSNpp(self.model_kwargs)
             F_x, t_emb, last_x_emb = net(c_in * x, c_noise.flatten(), train)
+        elif self.model_type == "adm":
+            net = ADMModel(**self.model_kwargs)
+            F_x, t_emb, last_x_emb = net(x=c_in * x, timesteps=c_noise.flatten(), train=train, y=y)
         
         D_x = c_skip * x + c_out * F_x
         return D_x, (t_emb, last_x_emb)
@@ -874,7 +881,7 @@ class CMDMPrecond(nn.Module):
 
 class ScoreDistillPrecond(nn.Module):
     model_kwargs : dict
-    image_channels: int
+    # image_channels: int
 
     label_dim: int = 0
     sigma_min : float = 0.0 # 0.002
