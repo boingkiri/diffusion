@@ -50,6 +50,8 @@ def load_dataset_from_pickled_file(dataset_dir, data_size):
   labels = []
   img_size2 = data_size[0] * data_size[1]
   for filename in train_list:
+    if "data_batch" not in filename:
+      continue
     filename = os.path.join(dataset_dir, filename)
     with open(filename, "rb") as f:
       data = pickle.load(f)
